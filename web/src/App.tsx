@@ -1318,20 +1318,8 @@ export function App() {
   }, [setSettings]);
 
   const handleSettingsChange = (newSettings: AiSettings) => {
+    // searchMode is a purely client-side preference (persisted in localStorage) — no server sync.
     setSettings(newSettings);
-    if (newSettings.searchMode !== settings.searchMode) {
-      const bridgeOrigin = resolvedLocalBridgeOrigin(newSettings.localBridgeOrigin);
-      fetch(`${bridgeOrigin}/v1/settings`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...bridgeAuthorizationHeader(newSettings.bridgeApiToken),
-        },
-        body: JSON.stringify({ searchMode: newSettings.searchMode }),
-      }).catch((err) => {
-        console.error("Failed to save searchMode on server:", err);
-      });
-    }
   };
 
   const searchMode = settings.searchMode || "default";
@@ -1386,43 +1374,6 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-
-  useEffect(() => {
-    const fetchServerSettings = async () => {
-      try {
-        const bridgeOrigin = resolvedLocalBridgeOrigin(storedSettings.localBridgeOrigin);
-        const response = await fetch(`${bridgeOrigin}/v1/settings`, {
-          headers: bridgeAuthorizationHeader(storedSettings.bridgeApiToken),
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data) {
-            if (data.searchMode === "default" || data.searchMode === "idioms") {
-              setSettings((prev) => {
-                if (prev.searchMode === data.searchMode) return prev;
-                return { ...prev, searchMode: data.searchMode };
-              });
-            } else if (data.searchMode === null) {
-              // Server is uninitialized, initialize it with the client's current mode
-              void fetch(`${bridgeOrigin}/v1/settings`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  ...bridgeAuthorizationHeader(storedSettings.bridgeApiToken),
-                },
-                body: JSON.stringify({ searchMode: storedSettings.searchMode || "default" }),
-              }).catch((err) => {
-                console.error("Failed to initialize server settings:", err);
-              });
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch server settings:", err);
-      }
-    };
-    void fetchServerSettings();
-  }, [storedSettings.localBridgeOrigin, storedSettings.bridgeApiToken]);
 
   useEffect(() => {
     if (selectedKey && !selected) {
