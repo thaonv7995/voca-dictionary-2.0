@@ -1,6 +1,6 @@
 # Voca Dictionary v2
 
-Ứng dụng học **từ vựng TOEIC** với spaced repetition (FSRS), phát âm và trợ lý AI — đóng gói thành
+Ứng dụng lưu trữ và học **từ vựng** với spaced repetition (FSRS), phát âm và trợ lý AI — đóng gói thành
 **một binary chạy trên một cổng**, hỗ trợ đa người dùng và cung cấp **API cho hệ thống bên thứ ba**.
 
 [![Release](https://img.shields.io/github/v/release/thaonv7995/voca-dictionary-2.0?sort=semver)](https://github.com/thaonv7995/voca-dictionary-2.0/releases)
@@ -12,7 +12,7 @@
 ## Ảnh chụp màn hình
 
 ![Lưới từ vựng & Global Agent](docs/web-dictionary.png)
-*Lưới từ vựng (lọc/tìm kiếm, chi tiết thẻ) cạnh Global Agent — sinh bài đọc hiểu TOEIC Part 6/7 kèm câu hỏi A/B/C/D.*
+*Lưới từ vựng (lọc/tìm kiếm, chi tiết thẻ) cạnh Global Agent — sinh bài đọc hiểu kèm câu hỏi trắc nghiệm A/B/C/D.*
 
 ![Global Agent — Drills & Assistant](docs/web-agent.png)
 *Trợ lý AI toàn cục: trắc nghiệm (drills), luyện đọc/nghe hội thoại và hỏi đáp.*
@@ -145,7 +145,7 @@ Tải tài liệu API (.md)** — hoặc `GET /api/docs/v1`. OpenAPI: `/swagger-
 | Settings | `GET/PUT /api/user/settings` |
 | API key | `GET/POST /api/user/api-keys` · `POST /api/user/api-keys/{id}/revoke` · `DELETE /api/user/api-keys/{id}` |
 | Tài liệu | `GET /api/docs/v1` |
-| Admin | `GET/PATCH/DELETE /api/admin/users/{id}` · `/api/admin/api-clients` · `/api/admin/api-keys` |
+| Admin | `POST/GET /api/admin/users` · `PATCH/DELETE /api/admin/users/{id}` · `/api/admin/api-clients` · `/api/admin/api-keys` |
 
 </details>
 

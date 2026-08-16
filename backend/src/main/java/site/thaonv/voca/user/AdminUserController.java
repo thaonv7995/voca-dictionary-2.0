@@ -5,6 +5,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,6 +34,18 @@ public class AdminUserController {
     }
 
     public record UpdateUserRequest(Boolean admin, String displayName) {
+    }
+
+    public record CreateUserRequest(String email, String displayName, Boolean admin, String password) {
+    }
+
+    @PostMapping
+    public Map<String, Object> create(@RequestBody CreateUserRequest req) {
+        AdminUserService.CreatedUser created = adminUserService.create(
+                req.email(), req.displayName(), Boolean.TRUE.equals(req.admin()), req.password());
+        Map<String, Object> dto = toDto(created.user());
+        dto.put("password", created.password()); // plaintext, returned once so the admin can share it
+        return dto;
     }
 
     @GetMapping

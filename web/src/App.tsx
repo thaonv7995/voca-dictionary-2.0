@@ -2060,6 +2060,13 @@ function AppSettingsPanel({
   const [userBusy, setUserBusy] = useState<number | null>(null);
   const [userError, setUserError] = useState<string | null>(null);
   const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<number | null>(null);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserAdmin, setNewUserAdmin] = useState(false);
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [createdCred, setCreatedCred] = useState<{ email: string; password: string } | null>(null);
+  const [showCreateUser, setShowCreateUser] = useState(false);
 
   useEffect(() => {
     void fetch("/api/user/settings", { headers: { ...bridgeAuthorizationHeader() } })
@@ -2217,6 +2224,64 @@ function AppSettingsPanel({
     } finally {
       setUserBusy(null);
     }
+  }
+
+  async function createUser() {
+    if (creatingUser) return;
+    setUserError(null);
+    setCreatedCred(null);
+    if (!newUserEmail.trim()) {
+      setUserError("Nhập email cho user mới.");
+      return;
+    }
+    setCreatingUser(true);
+    try {
+      const r = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
+        body: JSON.stringify({
+          email: newUserEmail.trim(),
+          displayName: newUserName.trim() || null,
+          admin: newUserAdmin,
+          password: newUserPassword.trim() || null,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message || "Không tạo được user.");
+      setCreatedCred({ email: d.email, password: d.password });
+      setNewUserEmail("");
+      setNewUserName("");
+      setNewUserAdmin(false);
+      setNewUserPassword("");
+      setShowCreateUser(false);
+      await refreshUsers();
+    } catch (e) {
+      setUserError(e instanceof Error ? e.message : "Không tạo được user.");
+    } finally {
+      setCreatingUser(false);
+    }
+  }
+
+  function downloadCredential(cred: { email: string; password: string }) {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const body = [
+      "Voca Dictionary — Thông tin đăng nhập",
+      "",
+      "URL:      " + origin,
+      "Email:    " + cred.email,
+      "Password: " + cred.password,
+      "",
+      "Giữ bí mật thông tin này.",
+    ].join("\n");
+    const blob = new Blob([body], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `voca-credential-${cred.email.replace(/[^a-z0-9]+/gi, "_")}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   const saveAiToServer = async () => {
@@ -2924,9 +2989,54 @@ ${batch.map((c) => `- Word: "${c.word}", Part of speech: "${c.partOfSpeech}", To
           <section className="app-settings-section">
             <div className="settings-section-title-row">
               <h3>Người dùng</h3>
-              <button type="button" className="icon-button" onClick={refreshUsers} aria-label="Tải lại"><RefreshCw size={16} /></button>
+              <div className="section-actions">
+                <button type="button" className="copy-btn" onClick={() => { setShowCreateUser((v) => !v); setUserError(null); }}>
+                  {showCreateUser ? <X size={14} /> : <Plus size={14} />}{showCreateUser ? "Đóng" : "Thêm user"}
+                </button>
+                <button type="button" className="icon-button" onClick={refreshUsers} aria-label="Tải lại"><RefreshCw size={16} /></button>
+              </div>
             </div>
-            {userError ? <p style={{ color: "var(--danger-ink)", fontWeight: 700, margin: "0 0 8px" }}>{userError}</p> : null}
+
+            {showCreateUser && (
+            <div className="create-user">
+              <div className="create-user-fields">
+                <input type="email" placeholder="email@vidu.com" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} autoComplete="off" />
+                <input type="text" placeholder="Tên hiển thị (tùy chọn)" value={newUserName} onChange={(e) => setNewUserName(e.target.value)} autoComplete="off" />
+                <input type="text" placeholder="Mật khẩu (để trống = tự sinh)" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} autoComplete="off" />
+              </div>
+              <div className="create-user-actions">
+                <label className="settings-toggle" title="Cấp quyền admin cho user mới">
+                  <input type="checkbox" checked={newUserAdmin} onChange={(e) => setNewUserAdmin(e.target.checked)} />
+                  <span>Admin</span>
+                </label>
+                <button type="button" className="primary" disabled={creatingUser} onClick={createUser}>
+                  {creatingUser ? <Loader2 className="spin" /> : <Plus size={16} />}Tạo user
+                </button>
+                <button type="button" className="ghost-link" onClick={() => setShowCreateUser(false)}>Hủy</button>
+              </div>
+            </div>
+            )}
+
+            {createdCred ? (
+              <div className="fresh-key-box">
+                <p className="fresh-key-warn">✓ Đã tạo tài khoản. Mật khẩu chỉ hiển thị <strong>một lần</strong> — tải hoặc sao chép rồi gửi cho người dùng.</p>
+                <div className="cred-lines">
+                  <div><span className="cred-label">Email</span><code>{createdCred.email}</code></div>
+                  <div><span className="cred-label">Password</span><code>{createdCred.password}</code></div>
+                </div>
+                <div className="settings-test-row" style={{ marginTop: 10 }}>
+                  <button type="button" className="copy-btn" onClick={() => downloadCredential(createdCred)}>
+                    <Download size={14} />Tải .txt
+                  </button>
+                  <button type="button" className="copy-btn" onClick={() => copyText(`URL: ${window.location.origin}\nEmail: ${createdCred.email}\nPassword: ${createdCred.password}`, "cred")}>
+                    {copiedField === "cred" ? <Check size={14} /> : <Copy size={14} />}{copiedField === "cred" ? "Đã chép" : "Copy"}
+                  </button>
+                  <button type="button" className="ghost-link" onClick={() => setCreatedCred(null)}>Đóng</button>
+                </div>
+              </div>
+            ) : null}
+
+            {userError ? <p style={{ color: "var(--danger-ink)", fontWeight: 700, margin: "8px 0" }}>{userError}</p> : null}
             {usersList === null ? (
               <p className="chat-notice" style={{ marginTop: 0 }}>Đang tải…</p>
             ) : usersList.length === 0 ? (
