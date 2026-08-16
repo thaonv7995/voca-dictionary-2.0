@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Voca Dictionary">
+  <rect width="512" height="512" rx="108" fill="#12141a"/>
+  <path d="M144 128 L200 128 L256 260 L312 128 L368 128 L256 342 Z" fill="#f2efe9"/>
+  <rect x="192" y="369" width="128" height="16" rx="8" fill="#7a808e"/>
+</svg>

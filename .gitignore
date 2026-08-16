@@ -1,0 +1,24 @@
+# ── OS / editors ──
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# ── Secrets / local env ──
+.env
+.env.*
+*.local
+
+# ── Java / Gradle (backend) ──
+.gradle/
+build/
+
+# ── Node / Vite (web) ──
+node_modules/
+dist/
+dev-dist/
+
+# ── Logs ──
+*.log

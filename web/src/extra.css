@@ -1,0 +1,157 @@
+/* v2 additions layered on top of v1's styles.css (which the app reuses verbatim).
+   Only what v2 genuinely needs — no overrides of v1's own component grids. */
+
+/* dictionary panel rows (v2 renders heading + utility-bar + card-list = 3 rows) */
+.dictionary-panel { grid-template-rows: auto auto minmax(0, 1fr) !important; }
+
+/* structured card face — replaces v1's PNG image in the preview/viewer (v2 dropped PNGs) */
+.card-face { display: grid; gap: 14px; align-content: start; max-width: 720px; }
+.card-face .face-section h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 900; }
+.card-face .face-section p { margin: 0; line-height: 1.55; }
+.card-face .face-section ul { margin: 0; padding-left: 18px; }
+.card-face .face-section li { margin: 4px 0; line-height: 1.5; }
+.card-face-mini { padding: 8px 2px; line-height: 1.55; color: var(--ink); }
+.card-face-mini p { margin: 0; }
+
+/* POS badge uppercase (match the original v1 screenshots) */
+.pos-badge { text-transform: uppercase !important; letter-spacing: .04em; }
+
+/* wider (invisible) grab zone for the resize splitters — v1's line is only 2px, easy to miss */
+.splitter.visible { position: relative; overflow: visible; }
+.splitter.visible::before { content: ""; position: absolute; top: 0; bottom: 0; left: -7px; right: -7px; cursor: col-resize; }
+
+/* Settings — tabbed dialog: sidebar nav + one focused screen at a time. */
+/* One fixed dialog size for every tab — content scrolls inside, so the popup never resizes/"zooms" when switching tabs. */
+.app-settings-panel { width: min(920px, 94vw) !important; height: min(660px, 86vh) !important; display: flex !important; flex-direction: column !important; overflow: hidden !important; }
+.settings-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.settings-tabs { flex: 0 0 156px; display: flex; flex-direction: column; gap: 2px; padding: 12px 8px; overflow: auto; border-right: 1px solid var(--line); background: color-mix(in srgb, var(--panel), var(--bg) 22%); }
+.settings-tabs button { text-align: left; min-height: 38px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 700; font-size: 13px; cursor: pointer; }
+.settings-tabs button:hover { color: var(--ink); background: var(--panel-soft); }
+.settings-tabs button.active { color: var(--ink); background: var(--accent-soft); border-color: var(--line); }
+.settings-tabs button.tab-danger { color: color-mix(in srgb, var(--danger-ink), var(--muted) 35%); margin-top: auto; }
+.settings-tabs button.tab-danger.active { color: var(--danger-ink); background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger-ink), transparent 70%); }
+/* content area: single column, scrolls; the active tab's section(s) only */
+.app-settings-form { display: flex !important; flex-direction: column !important; gap: 10px !important; padding: 14px !important; flex: 1 1 auto; min-width: 0; overflow: auto; }
+.app-settings-section { grid-template-columns: 1fr 1fr !important; grid-column: auto !important; grid-row: auto !important; padding: 12px 14px !important; }
+.app-settings-section.ai-setup { border-color: color-mix(in srgb, var(--accent), transparent 40%) !important; box-shadow: none !important; }
+.app-settings-section.ai-setup .chat-notice,
+.app-settings-section.ai-setup .settings-test-row { grid-column: 1 / -1; }
+.conversation-voice-settings { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+
+/* ─────────────── Motion polish (app-wide) ─────────────── */
+@keyframes voca-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes voca-pop { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes voca-slide-right { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+@keyframes voca-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes voca-card-in { from { opacity: 0; transform: translateY(9px) scale(.985); } to { opacity: 1; transform: none; } }
+
+/* backdrops fade, dialogs pop */
+.settings-backdrop, .quick-preview-backdrop { animation: voca-fade .16s ease both; }
+.app-settings-panel, .shortcuts-help-panel, .quick-preview-popover { animation: voca-pop .22s cubic-bezier(.2, .8, .2, 1) both; }
+.auth-card { animation: voca-pop .26s cubic-bezier(.2, .8, .2, 1) both; }
+
+/* side columns slide in */
+.preview-drawer, .agent-drawer { animation: voca-slide-right .24s cubic-bezier(.2, .8, .2, 1) both; }
+
+/* main panels rise in on load */
+.dictionary-panel { animation: voca-fade-up .3s cubic-bezier(.2, .8, .2, 1) both; }
+.app-settings-section { animation: voca-fade-up .2s ease both; }
+.notice { animation: voca-fade-up .2s ease both; }
+
+/* vocabulary list: each card eases in (backwards fill so :hover transform still works), livelier hover */
+.card-list { animation: voca-fade .28s ease both; }
+.card-row { animation: voca-card-in .32s cubic-bezier(.2, .8, .2, 1) backwards; }
+.card-row:hover { transform: translateY(-3px) !important; box-shadow: 0 16px 34px rgba(0, 0, 0, .16) !important; }
+.card-row:active { transform: translateY(-1px) scale(.995) !important; }
+.card-row .speak-button, .card-row .level-badge { transition: color .15s ease, transform .15s ease, opacity .15s ease; }
+.card-row:hover .speak-button { color: var(--accent); transform: scale(1.12); }
+
+/* streamed chat messages appear */
+.message-content { animation: voca-fade-up .24s ease both; }
+
+/* tabs + agent mode content fade in; drill/reading cards rise in */
+.agent-body > * { animation: voca-fade-up .22s ease both; }
+.drill-card, .reading-card, .quick-quiz-card { animation: voca-fade-up .26s cubic-bezier(.2, .8, .2, 1) both; }
+
+/* smoother interactive transitions + tactile feedback */
+button, .icon-button, input, select, textarea, .settings-tabs button, .agent-mode-tabs button, .level-badge, .tag, .choice-label, .pos-badge {
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .1s ease;
+}
+.icon-button:hover:not(:disabled) { transform: translateY(-1px); }
+button:active:not(:disabled), .icon-button:active:not(:disabled) { transform: scale(.95); }
+.speak-button:hover { transform: scale(1.15); }
+.speak-button:active { transform: scale(.85); }
+.settings-tabs button.active, .agent-mode-tabs button.active { animation: voca-fade .16s ease; }
+
+/* smoother theme switch on big surfaces (these don't change bg on hover, so it's safe) */
+body, .dictionary-panel, .drawer, .list-heading, .utility-bar, .app-settings-panel { transition: background-color .22s ease, border-color .22s ease, color .2s ease; }
+
+/* honour reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+/* ─────────────── Settings: API Keys / Users tabs — sections stack; inner grids do the columns ─────────────── */
+.app-settings-form.tab-apikeys .app-settings-section,
+.app-settings-form.tab-users .app-settings-section { display: flex !important; flex-direction: column; gap: 11px; grid-template-columns: none !important; }
+
+/* ─────────────── API Keys tab ─────────────── */
+.endpoint-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.endpoint-field { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.endpoint-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 900; }
+.endpoint-value { display: block; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--panel), var(--bg) 40%); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--ink); overflow-x: auto; white-space: nowrap; }
+.copy-btn { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 9px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font-weight: 700; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+.docs-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.docs-hint { font-size: 12px; color: var(--muted); flex: 1 1 220px; min-width: 0; }
+
+/* scope picker: responsive multi-column grid; each option is a tidy row (checkbox beside label) */
+.scope-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 9px 11px; align-items: stretch; margin-top: 2px; }
+.scope-picker-label { grid-column: 1 / -1; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 900; }
+.scope-option { display: flex !important; flex-direction: row !important; align-items: center; gap: 11px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; transition: border-color .15s ease, background-color .15s ease; }
+.scope-option:hover { border-color: color-mix(in srgb, var(--accent), transparent 40%); background: color-mix(in srgb, var(--accent), transparent 92%); }
+.scope-option input { flex: 0 0 auto; width: 17px; height: 17px; margin: 0; accent-color: var(--accent); }
+.scope-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; text-transform: none; letter-spacing: normal; }
+.scope-name { font-weight: 700; font-size: 13px; color: var(--ink); }
+.scope-name code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--muted); font-weight: 600; margin-left: 4px; }
+.scope-endpoints { font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.4; }
+
+.fresh-key-box { margin-top: 14px; padding: 14px; border: 1px solid color-mix(in srgb, var(--accent), transparent 50%); border-radius: 12px; background: color-mix(in srgb, var(--accent), transparent 90%); }
+.fresh-key-warn { margin: 0 0 9px; font-size: 12.5px; color: var(--ink); }
+.fresh-key-value { border-color: color-mix(in srgb, var(--accent), transparent 40%); font-weight: 700; }
+
+/* key list: responsive grid of cards */
+.apikey-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 11px; }
+.apikey-item { display: flex; flex-direction: column; gap: 8px; padding: 14px 15px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel), var(--bg) 30%); }
+.apikey-item.revoked { opacity: .55; }
+.apikey-main { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.apikey-name { font-weight: 800; color: var(--ink); font-size: 14px; }
+.apikey-prefix { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
+.apikey-scopes { display: flex; flex-wrap: wrap; gap: 5px; }
+.scope-badge { font-size: 10.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--panel), var(--bg) 40%); border: 1px solid var(--line); color: var(--muted); }
+.apikey-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 11.5px; color: var(--muted); }
+.apikey-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+
+.danger-link { display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px; border: 1px solid color-mix(in srgb, var(--danger-ink), transparent 65%); border-radius: 8px; background: transparent; color: var(--danger-ink); font-weight: 700; font-size: 12.5px; cursor: pointer; }
+.danger-link:hover:not(:disabled) { background: var(--danger-soft); }
+.danger-link:disabled { opacity: .45; cursor: default; }
+.ghost-link { padding: 6px 11px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-weight: 700; font-size: 12.5px; cursor: pointer; }
+.ghost-link:hover { color: var(--ink); border-color: var(--ink); }
+
+/* ─────────────── Users (admin) tab ─────────────── */
+.user-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 10px; }
+.user-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel), var(--bg) 30%); transition: border-color .15s ease; }
+.user-item:hover { border-color: color-mix(in srgb, var(--accent), transparent 55%); }
+.user-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.user-email { font-weight: 800; color: var(--ink); font-size: 14px; }
+.user-name { font-size: 12.5px; color: var(--ink); }
+.user-sub { font-size: 11.5px; color: var(--muted); }
+.user-actions { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+
+/* login screen (v2 auth gate) */
+.auth-wrap { display: grid; place-items: center; min-height: 100vh; padding: 20px; }
+.auth-card { width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 28px; box-shadow: var(--shadow, 0 16px 40px rgba(0, 0, 0, .4)); }
+.auth-card h1 { font-family: var(--font-reading); font-size: 30px; font-weight: 700; }
+.auth-card .sub { margin: 4px 0 16px; color: var(--muted); font-size: 14px; }
+.err { color: var(--danger-ink); font-size: 13px; margin-top: 8px; }
+button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }

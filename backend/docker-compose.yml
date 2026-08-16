@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: voca-v2-postgres
+    environment:
+      POSTGRES_DB: voca
+      POSTGRES_USER: voca
+      POSTGRES_PASSWORD: voca
+    ports:
+      - "5432:5432"
+    volumes:
+      - voca_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  voca_pgdata:

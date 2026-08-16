@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: voca-backend
+  threads:
+    virtual:
+      enabled: true            # Java 21 virtual threads: blocking LLM/TTS calls stay cheap
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/voca}
+    username: ${DB_USERNAME:voca}
+    password: ${DB_PASSWORD:voca}
+  jpa:
+    hibernate:
+      ddl-auto: validate       # Flyway owns the schema
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: ${PORT:8080}
+
+app:
+  admin:
+    email: ${VOCA_ADMIN_EMAIL:admin@voca.local}
+    password: ${VOCA_ADMIN_PASSWORD:change-me}
+  jwt:
+    secret: ${VOCA_JWT_SECRET:dev-only-change-me-please-32bytes-minimum-secret-key-0001}
+    access-ttl-seconds: ${VOCA_JWT_ACCESS_TTL:43200}   # 12h — avoids mid-session expiry (v1's raw fetches don't auto-refresh)
+  auth:
+    refresh-ttl-days: ${VOCA_REFRESH_TTL_DAYS:30}
+  apikey:
+    rate-limit-per-minute: ${VOCA_APIKEY_RPM:120}
+  # LLM + TTS providers (OpenAI-compatible). Leave blank to return *_NOT_CONFIGURED errors.
+  llm:
+    base-url: ${VOCA_LLM_BASE_URL:}
+    api-key: ${VOCA_LLM_API_KEY:}
+    model: ${VOCA_LLM_MODEL:gpt-4o-mini}
+  tts:
+    base-url: ${VOCA_TTS_BASE_URL:}
+    api-key: ${VOCA_TTS_API_KEY:}
+    model: ${VOCA_TTS_MODEL:edge-tts/en-US-AndrewNeural}
+  audio:
+    dir: ${VOCA_AUDIO_DIR:./data/audio}
+  import:
+    cards-file: ${VOCA_IMPORT_CARDS_FILE:../cards.json}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
