@@ -42,17 +42,15 @@ Bản viết lại **version 2.0**: multi-user, đồng bộ đám mây, **một
 
 Tải **một file jar** (đã nhúng sẵn web + dữ liệu mẫu) rồi chạy. Yêu cầu: **Java 21+**. PostgreSQL sẽ được **tự dựng bằng Docker** (nếu máy có Docker), hoặc bạn tự chuẩn bị Postgres (`db=voca user=voca pass=voca` trên `:5432`). App chạy tại **http://localhost:22052**.
 
-> Thay `OWNER/REPO` bằng repo GitHub của bạn.
-
 **macOS / Linux**
 ```bash
-REPO=OWNER/REPO
+REPO=thaonv7995/voca-dictionary-2.0
 curl -fsSL "https://github.com/$REPO/releases/latest/download/install.sh" | sh -s -- "$REPO"
 ```
 
 **Windows (PowerShell)**
 ```powershell
-$env:VOCA_REPO="OWNER/REPO"
+$env:VOCA_REPO="thaonv7995/voca-dictionary-2.0"
 iwr "https://github.com/$env:VOCA_REPO/releases/latest/download/install.ps1" -UseBasicParsing | iex
 ```
 
@@ -61,7 +59,7 @@ iwr "https://github.com/$env:VOCA_REPO/releases/latest/download/install.ps1" -Us
 # 1) Postgres (nếu chưa có) — ví dụ bằng Docker:
 docker run -d --name voca-db -e POSTGRES_USER=voca -e POSTGRES_PASSWORD=voca -e POSTGRES_DB=voca -p 5432:5432 postgres:16
 # 2) Tải & chạy jar:
-curl -fL "https://github.com/OWNER/REPO/releases/latest/download/voca.jar" -o voca.jar
+curl -fL "https://github.com/thaonv7995/voca-dictionary-2.0/releases/latest/download/voca.jar" -o voca.jar
 java -jar voca.jar        # http://localhost:22052
 ```
 
