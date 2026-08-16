@@ -86,6 +86,26 @@ public class UserService {
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "User not found."));
     }
 
+    @Transactional
+    public void changePassword(Long userId, String currentPassword, String newPassword) {
+        User user = requireUser(userId);
+        if (user.getPasswordHash() == null || !encoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PASSWORD", "Mật khẩu hiện tại không đúng.");
+        }
+        if (newPassword == null || newPassword.length() < 6) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "WEAK_PASSWORD", "Mật khẩu mới tối thiểu 6 ký tự.");
+        }
+        user.setPasswordHash(encoder.encode(newPassword));
+        users.save(user);
+    }
+
+    @Transactional
+    public User updateProfile(Long userId, String displayName) {
+        User user = requireUser(userId);
+        user.setDisplayName(displayName == null || displayName.isBlank() ? null : displayName.trim());
+        return users.save(user);
+    }
+
     private AuthResult issue(User user) {
         String accessToken = jwtService.generateAccessToken(user);
 

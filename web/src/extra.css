@@ -93,7 +93,8 @@ body, .dictionary-panel, .drawer, .list-heading, .utility-bar, .app-settings-pan
 
 /* ─────────────── Settings: API Keys / Users tabs — sections stack; inner grids do the columns ─────────────── */
 .app-settings-form.tab-apikeys .app-settings-section,
-.app-settings-form.tab-users .app-settings-section { display: flex !important; flex-direction: column; gap: 11px; grid-template-columns: none !important; }
+.app-settings-form.tab-users .app-settings-section,
+.app-settings-form.tab-profile .app-settings-section { display: flex !important; flex-direction: column; gap: 11px; grid-template-columns: none !important; }
 
 /* ─────────────── API Keys tab ─────────────── */
 .endpoint-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }

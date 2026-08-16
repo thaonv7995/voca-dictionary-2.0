@@ -2034,7 +2034,7 @@ function AppSettingsPanel({
   const [keyInput, setKeyInput] = useState("");
   const [savingAi, setSavingAi] = useState(false);
   const [aiSaved, setAiSaved] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"ai" | "voice" | "learning" | "apikeys" | "users" | "advanced">("ai");
+  const [settingsTab, setSettingsTab] = useState<"profile" | "ai" | "voice" | "learning" | "apikeys" | "users" | "advanced">("ai");
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
 
   const authUser = useAuthStore((s) => s.user);
@@ -2067,6 +2067,17 @@ function AppSettingsPanel({
   const [creatingUser, setCreatingUser] = useState(false);
   const [createdCred, setCreatedCred] = useState<{ email: string; password: string } | null>(null);
   const [showCreateUser, setShowCreateUser] = useState(false);
+
+  // Profile / change password
+  const [profileName, setProfileName] = useState(authUser?.displayName || "");
+  const [savingName, setSavingName] = useState(false);
+  const [nameSaved, setNameSaved] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [changingPw, setChangingPw] = useState(false);
+  const [pwStatus, setPwStatus] = useState<"idle" | "ok">("idle");
+  const [pwError, setPwError] = useState<string | null>(null);
 
   useEffect(() => {
     void fetch("/api/user/settings", { headers: { ...bridgeAuthorizationHeader() } })
@@ -2284,6 +2295,63 @@ function AppSettingsPanel({
     URL.revokeObjectURL(url);
   }
 
+  async function saveProfileName() {
+    if (savingName) return;
+    setNameSaved(false);
+    setSavingName(true);
+    try {
+      const r = await fetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
+        body: JSON.stringify({ displayName: profileName.trim() || null }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error();
+      if (authUser) useAuthStore.getState().setUser({ ...authUser, displayName: d.displayName ?? null });
+      setNameSaved(true);
+    } catch {
+      /* ignore */
+    } finally {
+      setSavingName(false);
+    }
+  }
+
+  async function changePassword() {
+    if (changingPw) return;
+    setPwError(null);
+    setPwStatus("idle");
+    if (!pwCurrent || !pwNew) {
+      setPwError("Nhập mật khẩu hiện tại và mật khẩu mới.");
+      return;
+    }
+    if (pwNew.length < 6) {
+      setPwError("Mật khẩu mới tối thiểu 6 ký tự.");
+      return;
+    }
+    if (pwNew !== pwConfirm) {
+      setPwError("Mật khẩu nhập lại không khớp.");
+      return;
+    }
+    setChangingPw(true);
+    try {
+      const r = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
+        body: JSON.stringify({ currentPassword: pwCurrent, newPassword: pwNew }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message || "Không đổi được mật khẩu.");
+      setPwStatus("ok");
+      setPwCurrent("");
+      setPwNew("");
+      setPwConfirm("");
+    } catch (e) {
+      setPwError(e instanceof Error ? e.message : "Không đổi được mật khẩu.");
+    } finally {
+      setChangingPw(false);
+    }
+  }
+
   const saveAiToServer = async () => {
     setSavingAi(true);
     setAiSaved(false);
@@ -2499,6 +2567,7 @@ ${batch.map((c) => `- Word: "${c.word}", Part of speech: "${c.partOfSpeech}", To
 
         <div className="settings-body">
           <nav className="settings-tabs">
+            <button type="button" className={settingsTab === "profile" ? "active" : ""} onClick={() => setSettingsTab("profile")}>Hồ sơ</button>
             <button type="button" className={settingsTab === "ai" ? "active" : ""} onClick={() => setSettingsTab("ai")}>Kết nối AI</button>
             <button type="button" className={settingsTab === "voice" ? "active" : ""} onClick={() => setSettingsTab("voice")}>Giọng đọc</button>
             <button type="button" className={settingsTab === "learning" ? "active" : ""} onClick={() => setSettingsTab("learning")}>Học tập</button>
@@ -2509,6 +2578,60 @@ ${batch.map((c) => `- Word: "${c.word}", Part of speech: "${c.partOfSpeech}", To
             <button type="button" className={`tab-danger ${settingsTab === "advanced" ? "active" : ""}`} onClick={() => setSettingsTab("advanced")}>Nâng cao</button>
           </nav>
           <form className={`app-settings-form tab-${settingsTab}`} onSubmit={(event) => event.preventDefault()}>
+          {settingsTab === "profile" && (
+          <>
+          <section className="app-settings-section">
+            <div className="settings-section-title-row">
+              <h3>Hồ sơ</h3>
+              <span className={`level-badge ${isAdmin ? "level-known" : "level-new"}`}>
+                <span className="level-dot" />{isAdmin ? "Admin" : "Thành viên"}
+              </span>
+            </div>
+            <div className="cred-lines" style={{ margin: "2px 0 4px" }}>
+              <div><span className="cred-label">Email</span><code>{authUser?.email}</code></div>
+            </div>
+            <label>
+              <span>Tên hiển thị</span>
+              <input type="text" value={profileName} placeholder="(chưa đặt)"
+                onChange={(e) => { setProfileName(e.target.value); setNameSaved(false); }} autoComplete="off" />
+            </label>
+            <div className="settings-test-row" style={{ marginTop: 10 }}>
+              <button type="button" className="primary" disabled={savingName} onClick={saveProfileName}>
+                {savingName ? <Loader2 className="spin" /> : null}Lưu tên
+              </button>
+              {nameSaved ? <p style={{ color: "var(--success-ink)", fontWeight: 700 }}>✓ Đã lưu</p> : null}
+            </div>
+          </section>
+
+          <section className="app-settings-section">
+            <div className="settings-section-title-row">
+              <h3>Đổi mật khẩu</h3>
+            </div>
+            <label>
+              <span>Mật khẩu hiện tại</span>
+              <input type="password" value={pwCurrent} autoComplete="current-password"
+                onChange={(e) => { setPwCurrent(e.target.value); setPwStatus("idle"); setPwError(null); }} />
+            </label>
+            <label>
+              <span>Mật khẩu mới</span>
+              <input type="password" value={pwNew} autoComplete="new-password"
+                onChange={(e) => { setPwNew(e.target.value); setPwStatus("idle"); setPwError(null); }} />
+            </label>
+            <label>
+              <span>Nhập lại mật khẩu mới</span>
+              <input type="password" value={pwConfirm} autoComplete="new-password"
+                onChange={(e) => { setPwConfirm(e.target.value); setPwStatus("idle"); setPwError(null); }} />
+            </label>
+            {pwError ? <p style={{ color: "var(--danger-ink)", fontWeight: 700, margin: "4px 0 0" }}>{pwError}</p> : null}
+            <div className="settings-test-row" style={{ marginTop: 12 }}>
+              <button type="button" className="primary" disabled={changingPw} onClick={changePassword}>
+                {changingPw ? <Loader2 className="spin" /> : null}Đổi mật khẩu
+              </button>
+              {pwStatus === "ok" ? <p style={{ color: "var(--success-ink)", fontWeight: 700 }}>✓ Đã đổi mật khẩu</p> : null}
+            </div>
+          </section>
+          </>
+          )}
           {settingsTab === "ai" && (
           <section className="app-settings-section ai-setup">
             <div className="settings-section-title-row">

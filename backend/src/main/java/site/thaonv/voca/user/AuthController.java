@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -56,6 +57,25 @@ public class AuthController {
     @GetMapping("/me")
     public Map<String, Object> me(@AuthenticationPrincipal UserPrincipal principal) {
         return userDto(userService.requireUser(principal.id()));
+    }
+
+    public record ChangePasswordRequest(@NotBlank String currentPassword, @NotBlank String newPassword) {
+    }
+
+    @PostMapping("/change-password")
+    public Map<String, Object> changePassword(@AuthenticationPrincipal UserPrincipal principal,
+                                              @RequestBody @Valid ChangePasswordRequest req) {
+        userService.changePassword(principal.id(), req.currentPassword(), req.newPassword());
+        return Map.of("ok", true);
+    }
+
+    public record UpdateProfileRequest(String displayName) {
+    }
+
+    @PatchMapping("/me")
+    public Map<String, Object> updateMe(@AuthenticationPrincipal UserPrincipal principal,
+                                        @RequestBody UpdateProfileRequest req) {
+        return userDto(userService.updateProfile(principal.id(), req.displayName()));
     }
 
     private Map<String, Object> toAuthResponse(UserService.AuthResult result) {
