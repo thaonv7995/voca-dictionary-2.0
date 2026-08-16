@@ -5,7 +5,7 @@ import { fileURLToPath, URL } from "node:url";
 
 // In dev, proxy API calls to the Spring Boot backend. In production the SPA is served
 // by the backend itself (same origin), so no proxy is needed.
-const BACKEND = "http://localhost:8080";
+const BACKEND = "http://localhost:22052";
 
 export default defineConfig({
   plugins: [

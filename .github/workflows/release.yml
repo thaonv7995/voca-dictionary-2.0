@@ -1,0 +1,73 @@
+name: Release
+
+# Build a single fat jar (backend + embedded SPA + bundled seed) and publish it as a
+# GitHub Release asset. Triggers on a version tag push, or manually via the Actions tab.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v2.0.0)'
+        required: true
+        default: 'v2.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web (embedded SPA)
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Build fat jar (embeds web + seed cards)
+        working-directory: backend
+        run: |
+          chmod +x gradlew
+          ./gradlew bootJar -x test --no-daemon
+
+      - name: Collect artifact
+        run: |
+          JAR=$(find backend/build/libs -maxdepth 1 -name '*.jar' ! -name '*-plain.jar' | head -1)
+          test -n "$JAR" || { echo "No boot jar found"; exit 1; }
+          echo "Found: $JAR"
+          cp "$JAR" voca.jar
+          ls -la voca.jar
+
+      - name: Resolve tag
+        id: tag
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.tag.outputs.tag }}" \
+            voca.jar scripts/install.sh scripts/install.ps1 \
+            --title "Voca ${{ steps.tag.outputs.tag }}" \
+            --generate-notes \
+            --target "${{ github.sha }}" \
+          || gh release upload "${{ steps.tag.outputs.tag }}" \
+            voca.jar scripts/install.sh scripts/install.ps1 --clobber

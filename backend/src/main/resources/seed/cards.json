@@ -1,0 +1,599 @@
+[
+  {
+    "word": "accumulator",
+    "file": "accumulator.png",
+    "partOfSpeech": "noun",
+    "topic": "Finance & Technology",
+    "frequency": "3/5",
+    "meaningEn": "A device or entity that collects and stores something (such as electricity in a rechargeable battery or financial assets over time).",
+    "meaningVi": "Bộ tích lũy (điện, năng lượng) hoặc công cụ/người tích lũy tài sản.",
+    "useCases": [
+      "lead-acid accumulator (bình ắc quy chì-axit)",
+      "capital accumulator (công cụ/người gom vốn)",
+      "heat accumulator (bộ tích nhiệt)",
+      "share accumulator plan (kế hoạch tích lũy cổ phiếu)"
+    ],
+    "examples": [
+      "The technician replaced the faulty accumulator in the backup power system.",
+      "As a conservative accumulator of wealth, she prefers low-risk government bonds.",
+      "The company entered into an accumulator agreement to buy shares at a discounted rate over the next year."
+    ],
+    "memoryTip": "Link it to the verb 'accumulate' (tích lũy) + suffix '-or' (thing/person that does). An accumulator is simply a device or entity that accumulates.",
+    "toeicTrap": "Do not confuse 'accumulator' (the device or entity that gathers) with 'accumulation' (the process or result of gathering). TOEIC may test your ability to choose the correct noun form based on the context of the sentence.",
+    "practicePrompt": "Complete the sentence: The maintenance team is scheduled to inspect the power station's main ________ tomorrow morning. (A) accumulate (B) accumulator (C) accumulative (D) accumulation",
+    "answer": "B",
+    "tags": [
+      "finance & technology",
+      "noun",
+      "custom"
+    ],
+    "createdAt": "2026-06-09T13:21:24+07:00",
+    "level": "new",
+    "keyword": "accumulator",
+    "pronunciation": "/əˈkjuːmjəleɪtə(r)/"
+  },
+  {
+    "word": "reflect",
+    "file": "reflect.png",
+    "partOfSpeech": "verb",
+    "topic": "Business / Reports / Thinking",
+    "frequency": "High",
+    "meaningEn": "to show, express, or think carefully about something; to send back light or an image",
+    "meaningVi": "phản ánh, thể hiện; suy ngẫm; phản chiếu ánh sáng/hình ảnh",
+    "useCases": [
+      "reflect company values",
+      "reflect recent changes",
+      "reflect on performance",
+      "reflect light/images"
+    ],
+    "examples": [
+      "The survey results reflect customer satisfaction.",
+      "Please reflect on your goals before the meeting.",
+      "The glass wall reflects sunlight into the lobby."
+    ],
+    "memoryTip": "re- + flect = bend back: light or ideas come back to you.",
+    "toeicTrap": "Do not confuse reflect with affect. Reflect means show or think about; affect means influence. Common TOEIC phrase: reflect changes/results/costs.",
+    "practicePrompt": "Complete: The updated prices ______ higher shipping costs.",
+    "answer": "reflect",
+    "tags": [
+      "business / reports / thinking",
+      "verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-08T20:59:30+07:00",
+    "level": "new",
+    "pronunciation": "/rɪˈflekt/"
+  },
+  {
+    "word": "stood out",
+    "file": "stood-out.png",
+    "partOfSpeech": "phrasal verb",
+    "topic": "Workplace / Performance / Description",
+    "tags": [
+      "workplace / performance / description",
+      "phrasal verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-08T11:55:58+07:00",
+    "level": "known",
+    "pronunciation": "/stʊd aʊt/"
+  },
+  {
+    "word": "involves",
+    "file": "involves.png",
+    "partOfSpeech": "verb (present simple, third person singular)",
+    "topic": "Business tasks / Processes",
+    "tags": [
+      "business tasks / processes",
+      "verb (present simple, third person singular)",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T15:35:29+07:00",
+    "level": "learning",
+    "pronunciation": "/ɪnˈvɑːlvz/"
+  },
+  {
+    "word": "proposition",
+    "file": "proposition.png",
+    "partOfSpeech": "noun",
+    "topic": "Business / Negotiation",
+    "tags": [
+      "business / negotiation",
+      "noun",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T15:33:36+07:00",
+    "level": "learning",
+    "pronunciation": "/ˌprɑːpəˈzɪʃən/"
+  },
+  {
+    "word": "water pooling",
+    "file": "water-pooling.png",
+    "partOfSpeech": "noun phrase / gerund phrase",
+    "topic": "Facilities / Maintenance / Safety",
+    "tags": [
+      "facilities / maintenance / safety",
+      "noun phrase",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:58:23+07:00",
+    "level": "known",
+    "pronunciation": "/ˈwɔːtər ˈpuːlɪŋ/"
+  },
+  {
+    "word": "retain",
+    "file": "retain.png",
+    "partOfSpeech": "verb",
+    "topic": "Business / HR / Documents",
+    "tags": [
+      "business / hr / documents",
+      "verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:52:57+07:00",
+    "level": "new",
+    "pronunciation": "/rɪˈteɪn/"
+  },
+  {
+    "word": "analytics",
+    "file": "analytics.png",
+    "partOfSpeech": "noun",
+    "topic": "Business / Technology / Data",
+    "tags": [
+      "business / technology / data",
+      "noun",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:49:34+07:00",
+    "level": "new",
+    "pronunciation": "/ˌænəˈlɪtɪks/"
+  },
+  {
+    "word": "observed",
+    "file": "observed.png",
+    "partOfSpeech": "adjective; verb (past tense/past participle of observe)",
+    "topic": "Reports / Workplace / Science",
+    "tags": [
+      "reports / workplace / science",
+      "adjective; verb (past tense",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:46:14+07:00",
+    "level": "new",
+    "pronunciation": "/əbˈzɝːvd/ (US), /əbˈzɜːvd/ (UK)"
+  },
+  {
+    "word": "interrupting",
+    "file": "interrupting.png",
+    "partOfSpeech": "gerund / present participle verb",
+    "topic": "Workplace Communication",
+    "tags": [
+      "workplace communication",
+      "gerund",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:46:13+07:00",
+    "level": "new",
+    "pronunciation": "/ˌɪn.təˈrʌp.tɪŋ/"
+  },
+  {
+    "word": "cones",
+    "file": "cones.png",
+    "partOfSpeech": "plural noun",
+    "topic": "Roadwork / Safety / Food",
+    "tags": [
+      "roadwork / safety / food",
+      "plural noun",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:45:52+07:00",
+    "level": "new",
+    "pronunciation": "/koʊnz/"
+  },
+  {
+    "word": "drainage issue",
+    "file": "drainage-issue.png",
+    "partOfSpeech": "noun phrase",
+    "topic": "Facilities / Maintenance",
+    "tags": [
+      "facilities / maintenance",
+      "noun phrase",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:45:39+07:00",
+    "level": "new",
+    "pronunciation": "/ˈdreɪnɪdʒ ˈɪʃuː/"
+  },
+  {
+    "word": "brief",
+    "file": "brief.png",
+    "partOfSpeech": "adjective, verb, noun",
+    "topic": "Business communication",
+    "tags": [
+      "business communication",
+      "adjective, verb, noun",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:39:10+07:00",
+    "level": "new",
+    "pronunciation": "/briːf/"
+  },
+  {
+    "word": "representatives",
+    "file": "representatives.png",
+    "partOfSpeech": "plural noun",
+    "topic": "Business / Customer Service / Meetings",
+    "tags": [
+      "business / customer service / meetings",
+      "plural noun",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:32:50+07:00",
+    "level": "new",
+    "pronunciation": "/ˌrep.rɪˈzen.tə.tɪvz/"
+  },
+  {
+    "word": "shipments",
+    "file": "shipments.png",
+    "partOfSpeech": "noun plural",
+    "topic": "Shipping & Logistics",
+    "tags": [
+      "shipping & logistics",
+      "noun plural",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:18:39+07:00",
+    "level": "new",
+    "pronunciation": "/ˈʃɪp.mənts/"
+  },
+  {
+    "word": "inferred",
+    "file": "inferred.png",
+    "partOfSpeech": "verb / adjective",
+    "topic": "Reading Comprehension, Reports, Business Communication",
+    "tags": [
+      "reading comprehension, reports, business communication",
+      "verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:15:25+07:00",
+    "level": "new",
+    "pronunciation": "/ɪnˈfɜːrd/"
+  },
+  {
+    "word": "regional",
+    "file": "regional.png",
+    "partOfSpeech": "adjective",
+    "topic": "Business / Geography / Operations",
+    "tags": [
+      "business / geography / operations",
+      "adjective",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:15:05+07:00",
+    "level": "new",
+    "pronunciation": "/ˈriː.dʒən.əl/"
+  },
+  {
+    "word": "sustainable",
+    "file": "sustainable.png",
+    "partOfSpeech": "adjective",
+    "topic": "Business / Environment",
+    "tags": [
+      "business / environment",
+      "adjective",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:13:41+07:00",
+    "level": "new",
+    "pronunciation": "/səˈsteɪnəbl/"
+  },
+  {
+    "word": "obtained",
+    "file": "obtained.png",
+    "partOfSpeech": "verb, past tense/past participle; adjective",
+    "topic": "Business / Documents / Results",
+    "tags": [
+      "business / documents / results",
+      "verb, past tense",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:13:04+07:00",
+    "level": "new",
+    "pronunciation": "/əbˈteɪnd/"
+  },
+  {
+    "word": "emerge",
+    "file": "emerge.png",
+    "partOfSpeech": "verb",
+    "topic": "Business / News / Problems",
+    "tags": [
+      "business / news / problems",
+      "verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:11:10+07:00",
+    "level": "new",
+    "pronunciation": "/ɪˈmɝːdʒ/"
+  },
+  {
+    "word": "competency",
+    "file": "competency.png",
+    "partOfSpeech": "noun",
+    "topic": "HR / Training / Skills",
+    "tags": [
+      "hr / training / skills",
+      "noun",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:08:47+07:00",
+    "level": "new",
+    "pronunciation": "/ˈkɑːmpətənsi/"
+  },
+  {
+    "word": "lateral",
+    "file": "lateral.png",
+    "partOfSpeech": "adjective; noun",
+    "topic": "Office / Direction / Medical",
+    "tags": [
+      "office / direction / medical",
+      "adjective; noun",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:08:15+07:00",
+    "level": "new",
+    "pronunciation": "/ˈlætərəl/"
+  },
+  {
+    "word": "curiosity",
+    "file": "curiosity.png",
+    "partOfSpeech": "noun",
+    "topic": "Workplace / Learning / Customer Interest",
+    "tags": [
+      "workplace / learning / customer interest",
+      "noun",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:07:41+07:00",
+    "level": "new",
+    "pronunciation": "/ˌkjʊriˈɑːsəti/"
+  },
+  {
+    "word": "spark",
+    "file": "spark.png",
+    "partOfSpeech": "noun; verb",
+    "topic": "Business / Events / Cause and Effect",
+    "tags": [
+      "business / events / cause and effect",
+      "noun; verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:06:49+07:00",
+    "level": "new",
+    "pronunciation": "/spɑːrk/ (US), /spɑːk/ (UK)"
+  },
+  {
+    "word": "stimulate",
+    "file": "stimulate.png",
+    "partOfSpeech": "verb",
+    "topic": "Business / Economy / Productivity",
+    "tags": [
+      "business / economy / productivity",
+      "verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:05:59+07:00",
+    "level": "new",
+    "pronunciation": "/ˈstɪmjəleɪt/"
+  },
+  {
+    "word": "utilizing",
+    "file": "utilizing.png",
+    "partOfSpeech": "verb form / gerund-participle",
+    "topic": "Workplace / Business Operations",
+    "tags": [
+      "workplace / business operations",
+      "verb form",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:04:58+07:00",
+    "level": "new",
+    "pronunciation": "/ˈjuː.t̬əl.aɪ.zɪŋ/"
+  },
+  {
+    "word": "necessitates",
+    "file": "necessitates.png",
+    "partOfSpeech": "verb (3rd person singular)",
+    "topic": "Business / Operations",
+    "tags": [
+      "business / operations",
+      "verb (3rd person singular)",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:03:40+07:00",
+    "level": "new",
+    "pronunciation": "/nəˈsesɪteɪts/"
+  },
+  {
+    "word": "numerous",
+    "file": "numerous.png",
+    "partOfSpeech": "adjective",
+    "topic": "Business reports; general descriptions",
+    "tags": [
+      "business reports; general descriptions",
+      "adjective",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:02:52+07:00",
+    "level": "new",
+    "pronunciation": "/ˈnuːmərəs/ (US), /ˈnjuːmərəs/ (UK)"
+  },
+  {
+    "word": "rack",
+    "file": "rack.png",
+    "partOfSpeech": "noun; verb",
+    "topic": "Office / Retail / Storage",
+    "tags": [
+      "office / retail / storage",
+      "noun; verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:01:48+07:00",
+    "level": "new",
+    "pronunciation": "/ræk/"
+  },
+  {
+    "word": "collaborative",
+    "file": "collaborative.png",
+    "partOfSpeech": "adjective",
+    "topic": "Workplace / Teamwork",
+    "tags": [
+      "workplace / teamwork",
+      "adjective",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:01:29+07:00",
+    "level": "new",
+    "pronunciation": "/kəˈlæb.ə.rə.tɪv/"
+  },
+  {
+    "word": "persistence",
+    "file": "persistence.png",
+    "partOfSpeech": "noun",
+    "topic": "Work performance / Problem solving",
+    "tags": [
+      "work performance / problem solving",
+      "noun",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:00:49+07:00",
+    "level": "new",
+    "pronunciation": "/pərˈsɪstəns/"
+  },
+  {
+    "word": "inevitably",
+    "file": "inevitably.png",
+    "partOfSpeech": "adverb",
+    "topic": "Business changes / Results",
+    "tags": [
+      "business changes / results",
+      "adverb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T14:00:06+07:00",
+    "level": "new",
+    "pronunciation": "/ɪnˈevɪtəbli/"
+  },
+  {
+    "word": "deepen",
+    "file": "deepen.png",
+    "partOfSpeech": "verb",
+    "topic": "Business / Relationships / Knowledge",
+    "tags": [
+      "business / relationships / knowledge",
+      "verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T13:58:01+07:00",
+    "level": "new",
+    "pronunciation": "/ˈdiːpən/"
+  },
+  {
+    "word": "engaged with",
+    "file": "engaged-with.png",
+    "partOfSpeech": "phrasal adjective / verb phrase",
+    "topic": "Workplace communication; customer relations",
+    "tags": [
+      "workplace communication; customer relations",
+      "phrasal adjective",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T13:56:57+07:00",
+    "level": "new",
+    "pronunciation": "/ɪnˈɡeɪdʒd wɪð/"
+  },
+  {
+    "word": "proactive way",
+    "file": "proactive-way.png",
+    "partOfSpeech": "noun phrase",
+    "topic": "Workplace / Problem Solving",
+    "tags": [
+      "workplace / problem solving",
+      "noun phrase",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T13:55:57+07:00",
+    "level": "new",
+    "pronunciation": "/proh-AK-tiv way/"
+  },
+  {
+    "word": "bumble along",
+    "file": "bumble-along.png",
+    "partOfSpeech": "phrasal verb",
+    "topic": "Work progress / Performance",
+    "tags": [
+      "work progress / performance",
+      "phrasal verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T13:54:42+07:00",
+    "level": "new",
+    "pronunciation": "/ˈbʌm.bəl əˈlɔːŋ/"
+  },
+  {
+    "word": "tempting",
+    "file": "tempting.png",
+    "partOfSpeech": "adjective",
+    "topic": "Marketing / Offers / Workplace decisions",
+    "tags": [
+      "marketing / offers / workplace decisions",
+      "adjective",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T13:53:53+07:00",
+    "level": "new",
+    "pronunciation": "/ˈtemp.tɪŋ/"
+  },
+  {
+    "word": "be wired to",
+    "file": "be-wired-to.png",
+    "partOfSpeech": "phrase / passive verb phrase",
+    "topic": "Technology / Office equipment",
+    "tags": [
+      "technology / office equipment",
+      "phrase",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T13:53:26+07:00",
+    "level": "new",
+    "pronunciation": "/bi ˈwaɪərd tuː/"
+  },
+  {
+    "word": "reflexively",
+    "file": "reflexively.png",
+    "partOfSpeech": "adverb",
+    "topic": "Workplace behavior / automatic reactions",
+    "tags": [
+      "workplace behavior / automatic reactions",
+      "adverb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T13:47:08+07:00",
+    "level": "new",
+    "pronunciation": "/rɪˈfleksɪvli/"
+  },
+  {
+    "word": "refrains",
+    "file": "refrains.png",
+    "partOfSpeech": "verb / plural noun",
+    "topic": "Workplace communication / Behavior",
+    "tags": [
+      "workplace communication / behavior",
+      "verb",
+      "custom"
+    ],
+    "createdAt": "2026-05-06T13:41:00+07:00",
+    "level": "new",
+    "pronunciation": "/rɪˈfreɪnz/"
+  }
+]

@@ -19,7 +19,7 @@ spring:
     locations: classpath:db/migration
 
 server:
-  port: ${PORT:8080}
+  port: ${PORT:22052}
 
 app:
   admin:

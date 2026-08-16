@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import site.thaonv.voca.deck.Deck;
@@ -16,6 +17,7 @@ import site.thaonv.voca.user.User;
 import site.thaonv.voca.user.UserRepository;
 
 import java.io.File;
+import java.io.InputStream;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -51,12 +53,11 @@ public class CardImportRunner implements ApplicationRunner {
         if (cards.count() > 0) {
             return;
         }
-        File file = resolveCardsFile();
-        if (file == null) {
-            log.warn("Card import file not found (tried '{}' and common fallbacks). Skipping import.", cardsFile);
+        JsonNode root = readCards();
+        if (root == null) {
+            log.warn("Card seed not found (tried '{}', common paths, and bundled resource). Skipping import.", cardsFile);
             return;
         }
-        JsonNode root = mapper.readTree(file);
         JsonNode array = root.isArray() ? root : root.get("cards");
         if (array == null || !array.isArray()) {
             log.warn("Card import file is not a JSON array. Skipping import.");
@@ -108,18 +109,29 @@ public class CardImportRunner implements ApplicationRunner {
             cards.save(c);
             imported++;
         }
-        log.info("Imported {} cards from {}", imported, file.getName());
+        log.info("Imported {} cards.", imported);
     }
 
-    /** Tries the configured path, then common locations so import works regardless of the working directory. */
-    private File resolveCardsFile() {
+    /**
+     * Reads the seed cards from: the configured path, then common relative paths (dev), then the
+     * jar's bundled resource (classpath:seed/cards.json) so a downloaded release self-seeds anywhere.
+     */
+    private JsonNode readCards() throws Exception {
         for (String candidate : new String[]{cardsFile, "cards.json", "../cards.json", "../../cards.json", "../../../cards.json"}) {
             if (candidate == null || candidate.isBlank()) {
                 continue;
             }
             File f = new File(candidate);
             if (f.exists()) {
-                return f;
+                log.info("Importing seed cards from file {}", f.getPath());
+                return mapper.readTree(f);
+            }
+        }
+        ClassPathResource bundled = new ClassPathResource("seed/cards.json");
+        if (bundled.exists()) {
+            try (InputStream in = bundled.getInputStream()) {
+                log.info("Importing seed cards from bundled resource (classpath:seed/cards.json)");
+                return mapper.readTree(in);
             }
         }
         return null;

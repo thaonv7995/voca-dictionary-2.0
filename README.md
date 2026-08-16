@@ -19,11 +19,42 @@ Bản viết lại **version 2.0**: multi-user, đồng bộ đám mây, **một
 - **Bí mật giữ server-side**: khóa LLM/TTS lưu theo user ở server, không bao giờ trả về trình duyệt.
 - **PWA**: cài như app, có icon/favicon, service worker (`autoUpdate`).
 
+## Cài đặt nhanh (bản release)
+
+Tải **một file jar** (đã nhúng sẵn web + dữ liệu mẫu) rồi chạy. Yêu cầu: **Java 21+**. PostgreSQL sẽ được **tự dựng bằng Docker** (nếu máy có Docker), hoặc bạn tự chuẩn bị Postgres (`db=voca user=voca pass=voca` trên `:5432`). App chạy tại **http://localhost:22052**.
+
+> Thay `OWNER/REPO` bằng repo GitHub của bạn.
+
+**macOS / Linux**
+```bash
+REPO=OWNER/REPO
+curl -fsSL "https://github.com/$REPO/releases/latest/download/install.sh" | sh -s -- "$REPO"
+```
+
+**Windows (PowerShell)**
+```powershell
+$env:VOCA_REPO="OWNER/REPO"
+iwr "https://github.com/$env:VOCA_REPO/releases/latest/download/install.ps1" -UseBasicParsing | iex
+```
+
+**Thủ công (mọi OS có Java 21)** — nếu không muốn dùng script:
+```bash
+# 1) Postgres (nếu chưa có) — ví dụ bằng Docker:
+docker run -d --name voca-db -e POSTGRES_USER=voca -e POSTGRES_PASSWORD=voca -e POSTGRES_DB=voca -p 5432:5432 postgres:16
+# 2) Tải & chạy jar:
+curl -fL "https://github.com/OWNER/REPO/releases/latest/download/voca.jar" -o voca.jar
+java -jar voca.jar        # http://localhost:22052
+```
+
+Admin mặc định: `admin@voca.local` / `change-me`. Đổi port: `PORT=xxxx java -jar voca.jar`. DB khác: env `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`.
+
+*Bản release do **GitHub Actions** (`.github/workflows/release.yml`) tự build khi push tag `v*.*.*`.*
+
 ## Cấu trúc
 
 ```
 voca-v2/
-  backend/   Spring Boot 3.4 (Java 21) — 1 binary/1 port (8080), fat jar nhúng cả SPA
+  backend/   Spring Boot 3.4 (Java 21) — 1 binary/1 port (22052), fat jar nhúng cả SPA
   web/       React 19 + Vite 6 + TypeScript (PWA) — client, UI/UX như v1
   ios/       SwiftUI native                                   [Phase 3 — chưa làm]
 ```
@@ -45,10 +76,10 @@ Java 21, Node 20+, PostgreSQL 16 (hoặc `docker compose` trong `backend/`).
 # 1) Database
 cd backend && docker compose up -d           # Postgres :5432
 
-# 2) Backend (:8080)
+# 2) Backend (:22052)
 ./gradlew bootRun
 
-# 3) Web (:5173, proxy /api & /v1 sang :8080)
+# 3) Web (:5173, proxy /api & /v1 sang :22052)
 cd ../web && npm install && npm run dev
 ```
 
@@ -56,7 +87,7 @@ cd ../web && npm install && npm run dev
 ```bash
 cd web && npm run build                        # → web/dist
 cd ../backend && ./gradlew bootJar             # task copyWebApp tự nhúng web/dist vào jar
-java -jar build/libs/voca-backend-2.0.0-SNAPSHOT.jar   # http://localhost:8080 phục vụ CẢ web + API
+java -jar build/libs/voca-backend-2.0.0-SNAPSHOT.jar   # http://localhost:22052 phục vụ CẢ web + API
 ```
 
 ### Cấu hình
