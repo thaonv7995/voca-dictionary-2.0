@@ -65,6 +65,10 @@ public class CardImportRunner implements ApplicationRunner {
         }
 
         Long ownerId = users.findAll().stream().filter(User::isAdmin).map(User::getId).findFirst().orElse(null);
+        if (ownerId == null) {
+            log.warn("No admin user to own the seed cards; skipping import.");
+            return;
+        }
         Deck deck = decks.findFirstByNameIgnoreCase("TOEIC Vocabulary").orElseGet(() -> {
             Deck d = new Deck();
             d.setName("TOEIC Vocabulary");
@@ -80,10 +84,11 @@ public class CardImportRunner implements ApplicationRunner {
                 continue;
             }
             String slug = CardService.slugify(word);
-            if (cards.existsBySlugIgnoreCase(slug)) {
+            if (cards.existsByOwnerIdAndSlugIgnoreCase(ownerId, slug)) {
                 continue;
             }
             Card c = new Card();
+            c.setOwnerId(ownerId);
             c.setWord(word.trim());
             c.setSlug(slug);
             c.setDeckId(deck.getId());

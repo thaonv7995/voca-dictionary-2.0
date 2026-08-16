@@ -62,7 +62,8 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
         }
 
         ApiKeyPrincipal principal = new ApiKeyPrincipal(
-                key.getId(), key.getClient().getId(), key.getClient().getName(), key.scopeSet());
+                key.getId(), key.getClient().getId(), key.getClient().getName(),
+                key.getClient().getOwnerUserId(), key.scopeSet());
         UsernamePasswordAuthenticationToken authentication =
                 new UsernamePasswordAuthenticationToken(principal, null, authorities);
         SecurityContextHolder.getContext().setAuthentication(authentication);

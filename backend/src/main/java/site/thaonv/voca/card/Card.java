@@ -30,10 +30,13 @@ public class Card {
     @Column(name = "deck_id")
     private Long deckId;
 
+    @Column(name = "owner_id", nullable = false)
+    private Long ownerId;
+
     @Column(nullable = false)
     private String word;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String slug;
 
     private String ipa;

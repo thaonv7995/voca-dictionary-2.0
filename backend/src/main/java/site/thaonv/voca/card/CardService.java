@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+/** Vocabulary is per-user: every read/write is scoped to the owning user's id. */
 @Service
 public class CardService {
 
@@ -35,46 +36,45 @@ public class CardService {
     }
 
     /** Signature the clients poll with ifChangedSince to avoid re-downloading unchanged data. */
-    public String manifestVersion() {
-        long count = cards.count();
-        Instant max = cards.maxCreatedAt();
-        return "cards:" + count + ":" + (max == null ? 0 : max.toEpochMilli());
+    public String manifestVersion(Long ownerId) {
+        long count = cards.countByOwnerId(ownerId);
+        Instant max = cards.maxCreatedAtByOwner(ownerId);
+        return "cards:" + ownerId + ":" + count + ":" + (max == null ? 0 : max.toEpochMilli());
     }
 
-    public List<CardDto> listAll() {
-        return cards.findAllByOrderByCreatedAtDesc().stream().map(this::toDto).toList();
+    public List<CardDto> listAll(Long ownerId) {
+        return cards.findByOwnerIdOrderByCreatedAtDesc(ownerId).stream().map(this::toDto).toList();
     }
 
-    public CardDto getBySlug(String slug) {
-        return toDto(requireBySlug(slug));
+    public CardDto getBySlug(String slug, Long ownerId) {
+        return toDto(requireBySlug(slug, ownerId));
     }
 
     @Transactional
-    public CardDto setLevel(String slug, String level) {
+    public CardDto setLevel(String slug, String level, Long ownerId) {
         if (level == null || !LEVELS.contains(level)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LEVEL", "Level must be one of " + LEVELS);
         }
-        Card card = requireBySlug(slug);
+        Card card = requireBySlug(slug, ownerId);
         card.setLevel(level);
         return toDto(card);
     }
 
     @Transactional
-    public void deleteBySlug(String slug) {
-        Card card = requireBySlug(slug);
-        cards.delete(card);
+    public void deleteBySlug(String slug, Long ownerId) {
+        cards.delete(requireBySlug(slug, ownerId));
     }
 
-    /** Fills in missing meanings for cards matched by word. Returns how many were updated. */
+    /** Fills in missing meanings for the owner's cards matched by word. Returns how many were updated. */
     @Transactional
-    public int fillMeanings(List<Map<String, String>> updates) {
+    public int fillMeanings(List<Map<String, String>> updates, Long ownerId) {
         int count = 0;
         for (Map<String, String> u : updates) {
             String word = u.get("word");
             if (word == null || word.isBlank()) {
                 continue;
             }
-            Optional<Card> opt = cards.findFirstByWordIgnoreCase(word.trim());
+            Optional<Card> opt = cards.findFirstByOwnerIdAndWordIgnoreCase(ownerId, word.trim());
             if (opt.isEmpty()) {
                 continue;
             }
@@ -86,24 +86,49 @@ public class CardService {
         return count;
     }
 
-    /** Deletes every card (bulk clear). Review states/logs cascade via the DB. */
+    /** Clears the owner's whole list. Their review states/logs cascade via the DB. */
     @Transactional
-    public long deleteAll() {
-        long n = cards.count();
-        cards.deleteAll();
+    public long deleteAll(Long ownerId) {
+        long n = cards.countByOwnerId(ownerId);
+        cards.deleteByOwnerId(ownerId);
         return n;
     }
 
+    /** True if this user already owns a card with the given slug. */
+    public boolean userHasSlug(Long ownerId, String slug) {
+        return cards.existsByOwnerIdAndSlugIgnoreCase(ownerId, slug);
+    }
+
+    /** Any user's card with this slug (for copy-on-add de-dup), or null. */
+    public Card findAnyBySlug(String slug) {
+        return cards.findFirstBySlugIgnoreCase(slug).orElse(null);
+    }
+
+    /** Copies an existing card's content into a fresh card owned by ownerId (no LLM cost). Level starts at "new". */
     @Transactional
-    public CardDto create(CardInput input) {
+    public CardDto copyToUser(Card source, Long ownerId) {
+        CardInput input = new CardInput(
+                source.getWord(), source.getSlug(), source.getIpa(), source.getPronunciation(), source.getFrequency(),
+                source.getMeaningEn(), source.getMeaningVi(), source.getUseCases(), source.getExamples(), source.getMemoryTip(),
+                source.getToeicTrap(), source.getPartOfSpeech(), source.getTopic(), source.getTags(), source.getKeyword(),
+                source.getPracticePrompt(), source.getAnswer(), "new", source.getDeckId());
+        return create(input, ownerId);
+    }
+
+    @Transactional
+    public CardDto create(CardInput input, Long ownerId) {
+        if (ownerId == null) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "No owner for card.");
+        }
         if (input.word() == null || input.word().isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_WORD", "word is required.");
         }
         String slug = input.slug() == null || input.slug().isBlank() ? slugify(input.word()) : input.slug();
-        if (cards.existsBySlugIgnoreCase(slug)) {
-            throw new ApiException(HttpStatus.CONFLICT, "CARD_EXISTS", "A card with slug '" + slug + "' already exists.");
+        if (cards.existsByOwnerIdAndSlugIgnoreCase(ownerId, slug)) {
+            throw new ApiException(HttpStatus.CONFLICT, "CARD_EXISTS", "Từ '" + slug + "' đã có trong danh sách của bạn.");
         }
         Card card = new Card();
+        card.setOwnerId(ownerId);
         card.setWord(input.word().trim());
         card.setSlug(slug);
         card.setIpa(input.ipa());
@@ -127,12 +152,12 @@ public class CardService {
         return toDto(card);
     }
 
-    /** Fast word lookup used by the public /v1 API (exact then partial). */
-    public Map<String, Object> lookup(String word) {
+    /** Word lookup within the owner's cards (exact then partial). Used by the /v1 API (owner = key holder). */
+    public Map<String, Object> lookup(String word, Long ownerId) {
         String q = word.trim();
-        Optional<Card> exact = cards.findFirstBySlugIgnoreCase(q);
+        Optional<Card> exact = cards.findFirstByOwnerIdAndSlugIgnoreCase(ownerId, q);
         if (exact.isEmpty()) {
-            exact = cards.findFirstByWordIgnoreCase(q);
+            exact = cards.findFirstByOwnerIdAndWordIgnoreCase(ownerId, q);
         }
 
         List<Card> matches = new ArrayList<>();
@@ -140,14 +165,14 @@ public class CardService {
         if (exact.isPresent()) {
             matchType = "exact";
             matches.add(exact.get());
-            for (Card c : cards.search(q, PageRequest.of(0, 8))) {
+            for (Card c : cards.searchByOwner(ownerId, q, PageRequest.of(0, 8))) {
                 if (!c.getId().equals(exact.get().getId())) {
                     matches.add(c);
                 }
             }
         } else {
             matchType = "partial";
-            matches.addAll(cards.search(q, PageRequest.of(0, 8)));
+            matches.addAll(cards.searchByOwner(ownerId, q, PageRequest.of(0, 8)));
         }
 
         if (matches.isEmpty()) {
@@ -169,12 +194,12 @@ public class CardService {
                 c.getMeaningEn(), c.getMeaningVi(), c.getUseCases(), c.getExamples(), c.getMemoryTip(),
                 c.getToeicTrap(), c.getPartOfSpeech(), c.getTopic(), c.getTags(), c.getKeyword(),
                 c.getPracticePrompt(), c.getAnswer(), c.getLevel(),
-                c.getAudioKey() != null ? "/v1/audio/" + c.getSlug() : "/v1/audio/" + c.getSlug(),
+                "/v1/audio/" + c.getSlug(),
                 c.getCreatedAt());
     }
 
-    private Card requireBySlug(String slug) {
-        return cards.findFirstBySlugIgnoreCase(slug)
+    private Card requireBySlug(String slug, Long ownerId) {
+        return cards.findFirstByOwnerIdAndSlugIgnoreCase(ownerId, slug)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Card not found: " + slug));
     }
 

@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import site.thaonv.voca.ai.AiConfigResolver.LlmConfig;
+import site.thaonv.voca.card.Card;
 import site.thaonv.voca.card.CardDto;
 import site.thaonv.voca.card.CardService;
 import site.thaonv.voca.common.ApiException;
@@ -41,8 +42,21 @@ public class CardGenerationService {
         if (word == null || word.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_WORD", "word is required.");
         }
+        String w = word.trim();
+        String slug = CardService.slugify(w);
+
+        // Already in this user's list.
+        if (cardService.userHasSlug(userId, slug)) {
+            throw new ApiException(HttpStatus.CONFLICT, "CARD_EXISTS", "Từ '" + w + "' đã có trong danh sách của bạn.");
+        }
+        // Someone already generated this word — reuse its content instead of spending LLM tokens again.
+        Card existing = cardService.findAnyBySlug(slug);
+        if (existing != null) {
+            return cardService.copyToUser(existing, userId);
+        }
+
         LlmConfig cfg = resolver.resolveLlm(userId);
-        String prompt = prompts.cardCreationPrompt(List.of(word.trim()));
+        String prompt = prompts.cardCreationPrompt(List.of(w));
 
         List<Map<String, Object>> messages = new ArrayList<>();
         messages.add(message("system", "Return only valid JSON matching the requested schema."));
@@ -50,7 +64,7 @@ public class CardGenerationService {
 
         String text = llm.complete(cfg, messages);
         JsonNode entry = firstEntry(extractJson(text));
-        return cardService.create(toInput(word.trim(), entry));
+        return cardService.create(toInput(w, entry), userId);
     }
 
     private CardService.CardInput toInput(String word, JsonNode e) {

@@ -32,7 +32,7 @@ export function LoginPage() {
     <div className="auth-wrap">
       <form className="auth-card" onSubmit={submit}>
         <h1>Voca<span style={{ color: "var(--headword-color)" }}>.</span></h1>
-        <p className="sub">{mode === "login" ? "Đăng nhập để học từ vựng TOEIC" : "Tạo tài khoản mới"}</p>
+        <p className="sub">{mode === "login" ? "Đăng nhập để lưu trữ và học từ vựng" : "Tạo tài khoản mới"}</p>
         {mode === "register" && (
           <label style={{ marginBottom: 10 }}><span>Tên hiển thị</span>
             <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />

@@ -27,7 +27,7 @@
 ## Tính năng
 
 - **Đa người dùng** — JWT (access + refresh xoay vòng), bcrypt, vai trò `ADMIN`.
-- **Từ điển & học tập** — tìm kiếm/lọc thẻ, flashcard, đổi cấp độ, tạo thẻ bằng AI, phát âm.
+- **Kho từ riêng theo user** — mỗi tài khoản có danh sách độc lập (tìm kiếm/lọc, flashcard, cấp độ, tạo thẻ bằng AI, phát âm). Nội dung một từ chỉ sinh bằng LLM **một lần**, user khác thêm cùng từ sẽ được **copy** (tiết kiệm token).
 - **Spaced repetition (FSRS-5)** — tính phía server: độ ổn định/độ khó, thẻ đến hạn, thống kê.
 - **Trợ lý AI (streaming)** — hỏi đáp, quiz, sinh bài luyện tập (drills/reading) qua SSE.
 - **API key tự phục vụ** — mỗi user tự tạo/thu hồi/xóa key cho hệ thống khác gọi vào `/v1`, kèm tài liệu API tải về được.

@@ -41,7 +41,7 @@ public class ReviewService {
 
     @Transactional
     public Map<String, Object> review(Long userId, String slug, int grade) {
-        Card card = cards.findFirstBySlugIgnoreCase(slug)
+        Card card = cards.findFirstByOwnerIdAndSlugIgnoreCase(userId, slug)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Card not found: " + slug));
         Instant now = Instant.now();
 
@@ -97,7 +97,7 @@ public class ReviewService {
                 .collect(Collectors.toMap(ReviewState::getCardId, Function.identity(), (a, b) -> a));
 
         List<Map<String, Object>> out = new ArrayList<>();
-        for (Card card : cards.findAllByOrderByCreatedAtDesc()) {
+        for (Card card : cards.findByOwnerIdOrderByCreatedAtDesc(userId)) {
             ReviewState st = byCard.get(card.getId());
             boolean isDue = st == null || st.getDue() == null || !st.getDue().isAfter(now);
             if (isDue) {
@@ -120,7 +120,7 @@ public class ReviewService {
             byLevel.put(level, 0);
         }
         int dueNow = 0;
-        for (Card card : cards.findAll()) {
+        for (Card card : cards.findByOwnerIdOrderByCreatedAtDesc(userId)) {
             ReviewState st = byCard.get(card.getId());
             String level = LevelMapper.levelFor(st);
             byLevel.merge(level, 1, Integer::sum);
@@ -130,7 +130,7 @@ public class ReviewService {
         }
 
         Map<String, Object> res = new LinkedHashMap<>();
-        res.put("totalCards", cards.count());
+        res.put("totalCards", cards.countByOwnerId(userId));
         res.put("totalReviews", logs.countByUserId(userId));
         res.put("dueNow", dueNow);
         res.put("byLevel", byLevel);
