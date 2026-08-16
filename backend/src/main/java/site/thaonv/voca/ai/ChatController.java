@@ -145,23 +145,13 @@ public class ChatController {
     }
 
     private LlmConfig resolveConfig(Long userId, ChatRequest req) {
-        // v1 sends AI settings in the body; honour them when they carry a usable base URL + key.
-        if (req.settings() != null) {
-            String base = str(req.settings().get("baseURL"));
-            String key = str(req.settings().get("apiKey"));
-            String model = str(req.settings().get("model"));
-            if (base != null && !base.isBlank() && key != null && !key.isBlank()) {
-                return new LlmConfig(base.replaceAll("/+$", ""), key, model != null && !model.isBlank() ? model : "gpt-4o-mini");
-            }
-        }
+        // Keys are server-side per user — the authoritative source. We intentionally ignore any
+        // apiKey the browser may still carry in its settings (a stale/wrong client key must never
+        // override the good server-held one). Only the model name from the request is honoured.
         LlmConfig resolved = resolver.resolveLlm(userId);
         if (req.model() != null && !req.model().isBlank()) {
             return new LlmConfig(resolved.baseUrl(), resolved.apiKey(), req.model());
         }
         return resolved;
-    }
-
-    private static String str(Object o) {
-        return o == null ? null : String.valueOf(o);
     }
 }
