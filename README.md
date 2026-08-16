@@ -8,6 +8,25 @@ Bản viết lại **version 2.0**: multi-user, đồng bộ đám mây, **một
 
 > Đây là dự án cá nhân. Trước đây đặt tạm trong repo v1 để tham chiếu; nay là repo độc lập.
 
+## Ảnh chụp màn hình
+
+### Web (Desktop)
+
+![Voca Dictionary — lưới từ vựng & Global Agent](docs/web-dictionary.png)
+*Lưới từ vựng (lọc/tìm kiếm, chi tiết thẻ) cạnh Global Agent — sinh bài đọc hiểu TOEIC Part 6/7 kèm câu hỏi A/B/C/D.*
+
+![Global Agent — Drills & Assistant](docs/web-agent.png)
+*AI Agent toàn cục: trắc nghiệm (drills), luyện đọc/nghe hội thoại và trợ lý hỏi đáp.*
+
+### Mobile
+
+<p align="center">
+  <img src="docs/mobile-grid.png" width="31%" alt="Mobile Card Grid & Search" />&nbsp;&nbsp;
+  <img src="docs/mobile-preview.png" width="31%" alt="Mobile Card Preview" />&nbsp;&nbsp;
+  <img src="docs/mobile-assistant.png" width="31%" alt="Mobile Global Assistant & Practice" />
+</p>
+<p align="center"><em>Từ trái qua phải: Danh sách & Tìm kiếm, Chi tiết thẻ, Global AI Assistant — ảnh từ app native (v2 iOS đang ở Phase 3).</em></p>
+
 ## Tính năng chính
 
 - **Đa người dùng**: JWT (access + refresh, xoay vòng), bcrypt, vai trò `ADMIN`, seed admin lần đầu.
