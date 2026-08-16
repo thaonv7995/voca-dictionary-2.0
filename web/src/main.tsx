@@ -1,3 +1,4 @@
+import "./lib/api-envelope"; // install the API envelope interceptor before any request runs
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";

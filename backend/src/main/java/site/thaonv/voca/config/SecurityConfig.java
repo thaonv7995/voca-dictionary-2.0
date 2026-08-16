@@ -109,6 +109,11 @@ public class SecurityConfig {
                                    int status, String code, String message) throws IOException {
         res.setStatus(status);
         res.setContentType("application/json");
-        mapper.writeValue(res.getWriter(), Map.of("error", Map.of("code", code, "message", message)));
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("status", status);
+        body.put("code", code);
+        body.put("message", message);
+        body.put("data", null);
+        mapper.writeValue(res.getWriter(), body);
     }
 }

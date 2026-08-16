@@ -96,17 +96,30 @@ public class ApiDocsController {
 
             ## 3. Quy ước chung
 
-            ### 3.1. Định dạng dữ liệu
-            - Request/response body là JSON UTF-8, trừ:
-              - `GET /v1/audio/{id}` → nhị phân `audio/mpeg`.
-              - `POST /v1/practice/*` → luồng SSE `text/event-stream`.
-            - Thời gian theo chuẩn **ISO-8601 UTC** (ví dụ `2026-08-15T10:20:30Z`).
-            - Trường chuỗi có thể là `null` nếu chưa có dữ liệu.
-
-            ### 3.2. Định dạng lỗi
-            Mọi lỗi trả về JSON đồng nhất:
+            ### 3.1. Envelope thống nhất
+            **Mọi phản hồi JSON** (thành công lẫn lỗi) đều theo một envelope duy nhất:
             ```json
-            { "error": { "code": "UNAUTHORIZED", "message": "Invalid or inactive API key." } }
+            {
+              "status": 200,
+              "code": "OK",
+              "message": "Success",
+              "data": { ... }
+            }
+            ```
+            - `status` — mã HTTP (số). `code` — mã chuỗi (`OK` khi thành công, hoặc mã lỗi). `message` — mô tả.
+            - `data` — **phần dữ liệu thật**. Ở các ví dụ endpoint bên dưới, JSON hiển thị chính là nội dung nằm trong `data`.
+            - Không bọc envelope: `GET /v1/audio/{id}` (nhị phân `audio/mpeg`) và `POST /v1/practice/*` (SSE `text/event-stream`).
+            - Thời gian theo **ISO-8601 UTC** (`2026-08-15T10:20:30Z`); trường chuỗi có thể `null`.
+
+            ### 3.2. Lỗi
+            Lỗi dùng **cùng envelope**, `data` = `null`:
+            ```json
+            {
+              "status": 401,
+              "code": "UNAUTHORIZED",
+              "message": "Invalid or inactive API key.",
+              "data": null
+            }
             ```
 
             ### 3.3. Mã HTTP & mã lỗi
@@ -129,15 +142,23 @@ public class ApiDocsController {
 
             ## 4. Danh sách endpoint
 
+            > Các ví dụ **200 OK** bên dưới chỉ hiển thị phần **`data`** cho gọn — response thật luôn có
+            > lớp envelope `{ "status", "code", "message", "data" }` bao ngoài (xem 3.1).
+
             ### 4.1. GET /v1/health
             Kiểm tra tình trạng dịch vụ. **Không cần key.**
 
             ```
             curl "__BASE__/v1/health"
             ```
-            **200 OK**
+            **200 OK** — envelope đầy đủ (các endpoint sau chỉ in phần `data`):
             ```json
-            { "status": "ok", "service": "voca-api", "storage": "postgres", "version": "2.0" }
+            {
+              "status": 200,
+              "code": "OK",
+              "message": "Success",
+              "data": { "status": "ok", "service": "voca-api", "storage": "postgres", "version": "2.0" }
+            }
             ```
 
             ---
@@ -211,7 +232,7 @@ public class ApiDocsController {
             ```
             **400** nếu thiếu `word`:
             ```json
-            { "error": { "code": "MISSING_WORD", "message": "Missing word query parameter." } }
+            { "status": 400, "code": "MISSING_WORD", "message": "Missing word query parameter.", "data": null }
             ```
 
             ---
@@ -417,8 +438,9 @@ public class ApiDocsController {
               const res = await fetch(`${BASE}/v1/cards/lookup?word=${encodeURIComponent(word)}`, {
                 headers: { "X-API-Key": KEY },
               });
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              return res.json();
+              const env = await res.json();
+              if (!res.ok) throw new Error(env.message || `HTTP ${res.status}`);
+              return env.data; // dữ liệu thật nằm trong `data`
             }
 
             lookup("retain").then((r) => console.log(r.card?.meaningVi));
@@ -438,7 +460,7 @@ public class ApiDocsController {
                 timeout=10,
             )
             r.raise_for_status()
-            print(r.json()["card"]["meaningVi"])
+            print(r.json()["data"]["card"]["meaningVi"])  # dữ liệu thật nằm trong "data"
             ```
 
             ### Java (java.net.http.HttpClient)

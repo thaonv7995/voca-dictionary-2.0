@@ -89,7 +89,11 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
     private void writeError(HttpServletResponse response, int status, String code, String message) throws IOException {
         response.setStatus(status);
         response.setContentType("application/json");
-        objectMapper.writeValue(response.getWriter(),
-                Map.of("error", Map.of("code", code, "message", message)));
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("status", status);
+        body.put("code", code);
+        body.put("message", message);
+        body.put("data", null);
+        objectMapper.writeValue(response.getWriter(), body);
     }
 }
