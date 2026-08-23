@@ -159,28 +159,44 @@ final class ApiClient {
                            message: "Máy chủ trả lỗi \(http.statusCode) khi tạo nội dung AI.")
         }
 
-        for try await line in bytes.lines {
-            try Task.checkCancellation()
-            guard line.hasPrefix("data:") else { continue }
-            // SSE strips exactly one optional space after the colon; keep the rest (leading spaces
-            // are meaningful in plain-text deltas so words don't get glued together).
-            var payload = String(line.dropFirst(5))
-            if payload.first == " " { payload.removeFirst() }
-            if payload.isEmpty || payload == "[DONE]" { continue }
+        // Proper SSE framing: an event is one or more `data:` lines terminated by a blank line; the
+        // event payload is those lines joined by "\n". Buffering per-event (instead of yielding each
+        // `data:` line on its own) PRESERVES newlines inside plain-text deltas — critical for NDJSON
+        // drills, whose objects are newline-separated (dropping the newlines glued them into one
+        // unparseable line). /chat/completions sends one JSON object per event, unaffected.
+        var dataLines: [String] = []
 
-            // Two server formats:
-            //  • /chat/completions → OpenAI-style JSON chunks ({choices:[{delta:{content}}]})
-            //  • /agent/chat and /practice/* → plain-text delta pieces (LlmClient.streamDeltas)
+        func flush() {
+            guard !dataLines.isEmpty else { return }
+            let payload = dataLines.joined(separator: "\n")
+            dataLines.removeAll(keepingCapacity: true)
+            if payload == "[DONE]" { return }
+
             if let data = payload.data(using: .utf8),
                let chunk = try? decoder.decode(SSEChunk.self, from: data) {
+                // /chat/completions → OpenAI-style JSON chunk.
                 if let content = chunk.choices?.first?.delta?.content, !content.isEmpty {
                     continuation.yield(content)
                 }
                 // A JSON chunk without content (e.g. a role-only opening delta) is ignored.
-            } else {
+            } else if !payload.isEmpty {
+                // /agent/chat and /practice/* → plain-text delta piece (LlmClient.streamDeltas).
                 continuation.yield(payload)
             }
         }
+
+        for try await line in bytes.lines {
+            try Task.checkCancellation()
+            if line.isEmpty {
+                flush()                        // blank line = end of one SSE event
+            } else if line.hasPrefix("data:") {
+                var value = String(line.dropFirst(5))
+                if value.first == " " { value.removeFirst() }  // SSE strips one optional space
+                dataLines.append(value)
+            }
+            // Other SSE fields (event:, id:, retry:, comments) are ignored.
+        }
+        flush()   // flush a trailing event that had no terminating blank line
     }
 
     // MARK: - Core plumbing

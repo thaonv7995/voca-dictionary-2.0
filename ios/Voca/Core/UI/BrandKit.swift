@@ -36,6 +36,37 @@ struct Badge: View {
     }
 }
 
+/// Reusable pronunciation button. The icon⇄spinner swap happens inside a FIXED-size frame so
+/// tapping it never reflows surrounding content (fixes the "everything shifts down" bug).
+struct PronounceButton: View {
+    let text: String
+    var size: CGFloat = 30
+    var font: Font = .body
+
+    @State private var speaking = false
+
+    var body: some View {
+        Button {
+            guard !speaking, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            speaking = true
+            Task {
+                try? await TTSService().speak(text)
+                speaking = false
+            }
+        } label: {
+            ZStack {
+                ProgressView().controlSize(.small).opacity(speaking ? 1 : 0)
+                Image(systemName: "speaker.wave.2.fill").font(font).opacity(speaking ? 0 : 1)
+            }
+            .frame(width: size, height: size)          // fixed footprint → no layout shift
+            .foregroundStyle(Brand.green)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Phát âm")
+    }
+}
+
 extension View {
     /// Standard card surface used across practice/detail screens.
     func brandCard() -> some View {
