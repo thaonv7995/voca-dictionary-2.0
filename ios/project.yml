@@ -18,6 +18,9 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: Voca
+      - path: Shared
+    dependencies:
+      - target: VocaWidgetExtension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: site.thaonv.voca
@@ -28,6 +31,7 @@ targets:
         # Device builds: automatic signing — open in Xcode and pick your Team (Signing & Capabilities).
         # Headless simulator builds pass CODE_SIGNING_ALLOWED=NO on the command line instead.
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Voca/Voca.entitlements
     info:
       path: Voca/Info.plist
       properties:
@@ -35,6 +39,9 @@ targets:
         LSRequiresIPhoneOS: true
         NSCameraUsageDescription: "Voca dùng camera để quét văn bản và tạo thẻ từ vựng."
         NSPhotoLibraryUsageDescription: "Voca đọc ảnh bạn chọn để nhận diện từ và tạo thẻ."
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - voca
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: LaunchLogo
@@ -55,6 +62,26 @@ targets:
             localhost:
               NSExceptionAllowsInsecureHTTPLoads: true
               NSIncludesSubdomains: true
+
+  VocaWidgetExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: VocaWidget
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: site.thaonv.voca.widget
+        PRODUCT_NAME: VocaWidget
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: VocaWidget/VocaWidget.entitlements
+    info:
+      path: VocaWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Voca
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
 
   VocaUITests:
     type: bundle.ui-testing

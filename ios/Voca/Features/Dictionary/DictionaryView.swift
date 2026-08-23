@@ -17,6 +17,7 @@ final class DictionaryStore {
         errorMessage = nil
         do {
             cards = try await service.list()
+            WidgetSync.publish(cards)
         } catch {
             errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
         }
@@ -27,6 +28,7 @@ final class DictionaryStore {
     func refresh() async {
         do {
             cards = try await service.list()
+            WidgetSync.publish(cards)
             errorMessage = nil
         } catch {
             errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
