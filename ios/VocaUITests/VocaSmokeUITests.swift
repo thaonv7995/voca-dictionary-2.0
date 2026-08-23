@@ -54,6 +54,17 @@ final class VocaSmokeUITests: XCTestCase {
             if close.waitForExistence(timeout: 3) { close.tap(); Thread.sleep(forTimeInterval: 1) }
         }
         tapTabAndSnapshot(app, tab: "Trợ lý", name: "04-assistant")
+        // Send a long message to inspect the AI response bubble width/wrapping.
+        let msgField = app.textFields["Nhập tin nhắn…"]
+        if msgField.waitForExistence(timeout: 5) {
+            msgField.tap()
+            msgField.typeText("Giải thích chi tiết sự khác nhau giữa các từ đồng nghĩa và cho nhiều ví dụ thật dài để kiểm tra chiều rộng của bong bóng trả lời trên màn hình.")
+            let send = app.buttons["Gửi"]
+            if send.waitForExistence(timeout: 3) { send.tap() }
+            Thread.sleep(forTimeInterval: 5)
+            snapshot(app, "04b-ai-response")
+        }
+
         tapTabAndSnapshot(app, tab: "Hồ sơ", name: "05-profile")
     }
 

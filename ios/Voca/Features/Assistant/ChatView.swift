@@ -168,6 +168,8 @@ private struct ChatBubble: View {
         } else {
             Text(message.text)
                 .textSelection(.enabled)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)   // wrap long AI replies; grow vertically
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .foregroundStyle(foreground)

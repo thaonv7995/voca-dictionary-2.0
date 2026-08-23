@@ -60,13 +60,47 @@ struct ReadingQuestion: Decodable, Identifiable {
 enum PracticeParsing {
     private static let decoder = JSONDecoder()
 
-    /// Drills stream as NDJSON — decode each non-empty line independently, skipping malformed lines.
+    /// Drills usually stream as NDJSON, but models sometimes pretty-print objects across lines, wrap
+    /// them in a JSON array, or add ```json fences / prose. Extract every top-level `{ … }` object by
+    /// brace-matching (string-aware) and decode each — robust to all those shapes.
     static func drills(from raw: String) -> [Drill] {
-        raw.split(whereSeparator: \.isNewline).compactMap { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("{"), let data = trimmed.data(using: .utf8) else { return nil }
-            return try? decoder.decode(Drill.self, from: data)
+        topLevelObjects(in: raw).compactMap { try? decoder.decode(Drill.self, from: Data($0.utf8)) }
+    }
+
+    /// Returns every top-level `{ … }` JSON object in `raw`, ignoring braces inside string literals.
+    static func topLevelObjects(in raw: String) -> [String] {
+        var objects: [String] = []
+        var depth = 0
+        var start: String.Index?
+        var inString = false
+        var escaped = false
+        var i = raw.startIndex
+        while i < raw.endIndex {
+            let c = raw[i]
+            if inString {
+                if escaped { escaped = false }
+                else if c == "\\" { escaped = true }
+                else if c == "\"" { inString = false }
+            } else {
+                switch c {
+                case "\"": inString = true
+                case "{":
+                    if depth == 0 { start = i }
+                    depth += 1
+                case "}":
+                    if depth > 0 {
+                        depth -= 1
+                        if depth == 0, let s = start {
+                            objects.append(String(raw[s...i]))
+                            start = nil
+                        }
+                    }
+                default: break
+                }
+            }
+            i = raw.index(after: i)
         }
+        return objects
     }
 
     /// Reading is one JSON object, possibly wrapped in prose/code-fences — extract `{ … }` and decode.

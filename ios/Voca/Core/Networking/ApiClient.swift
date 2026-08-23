@@ -95,11 +95,17 @@ final class ApiClient {
 
     /// Streams an OpenAI-style SSE endpoint, yielding successive `delta.content` fragments.
     /// The server may deliver an upstream error as a normal content chunk — it is yielded like any text.
-    func streamContent(path: String, body: Encodable) -> AsyncThrowingStream<String, Error> {
+    /// - Parameter rawChunks: `true` for `/chat/completions` (each SSE event is an OpenAI JSON chunk;
+    ///   we extract `delta.content`). `false` (default) for `/agent/chat` and `/practice/*`, which stream
+    ///   PLAIN-TEXT delta pieces — yielded verbatim. Guessing the format is unsafe: a plain-text delta
+    ///   that happens to be a JSON object decodes as an (all-optional) SSEChunk with no content and would
+    ///   be silently dropped, which broke drills/reading/article parsing.
+    func streamContent(path: String, body: Encodable, rawChunks: Bool = false) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let work = Task {
                 do {
-                    try await runStream(path: path, body: body, continuation: continuation, retry: true)
+                    try await runStream(path: path, body: body, rawChunks: rawChunks,
+                                        continuation: continuation, retry: true)
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish()
@@ -111,7 +117,7 @@ final class ApiClient {
         }
     }
 
-    private func runStream(path: String, body: Encodable,
+    private func runStream(path: String, body: Encodable, rawChunks: Bool,
                            continuation: AsyncThrowingStream<String, Error>.Continuation,
                            retry: Bool) async throws {
         guard let url = url(for: path) else { throw ApiError.badResponse }
@@ -135,7 +141,8 @@ final class ApiClient {
 
         if http.statusCode == 401, retry {
             if await tokens.refresh() {
-                return try await runStream(path: path, body: body, continuation: continuation, retry: false)
+                return try await runStream(path: path, body: body, rawChunks: rawChunks,
+                                           continuation: continuation, retry: false)
             }
             await tokens.clear()
             await MainActor.run { onSessionExpired?() }
@@ -172,15 +179,16 @@ final class ApiClient {
             dataLines.removeAll(keepingCapacity: true)
             if payload == "[DONE]" { return }
 
-            if let data = payload.data(using: .utf8),
-               let chunk = try? decoder.decode(SSEChunk.self, from: data) {
-                // /chat/completions → OpenAI-style JSON chunk.
-                if let content = chunk.choices?.first?.delta?.content, !content.isEmpty {
+            if rawChunks {
+                // /chat/completions → OpenAI-style JSON chunk; pull out delta.content.
+                if let data = payload.data(using: .utf8),
+                   let chunk = try? decoder.decode(SSEChunk.self, from: data),
+                   let content = chunk.choices?.first?.delta?.content, !content.isEmpty {
                     continuation.yield(content)
                 }
-                // A JSON chunk without content (e.g. a role-only opening delta) is ignored.
             } else if !payload.isEmpty {
-                // /agent/chat and /practice/* → plain-text delta piece (LlmClient.streamDeltas).
+                // /agent/chat and /practice/* → plain-text delta piece; yield verbatim (never try to
+                // JSON-decode it, or a delta that IS a JSON object would be swallowed).
                 continuation.yield(payload)
             }
         }

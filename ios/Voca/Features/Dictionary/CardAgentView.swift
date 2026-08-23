@@ -225,6 +225,8 @@ private struct CardChatBubble: View {
             } else {
                 Text(message.text)
                     .textSelection(.enabled)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(.body)

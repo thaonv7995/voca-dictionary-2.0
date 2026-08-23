@@ -312,29 +312,32 @@ private struct CardRow: View {
     let card: Card
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(card.word)
-                    .font(.headline)
-                if let ipa = card.ipa, !ipa.isEmpty {
-                    Text(ipa)
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(card.word)
+                        .font(.headline)
+                    if let ipa = card.ipa, !ipa.isEmpty {
+                        Text(ipa)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let meaningVi = card.meaningVi, !meaningVi.isEmpty {
+                    Text(meaningVi)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
-                Spacer(minLength: 8)
-                PronounceButton(text: card.word)
-                if let level = CardLevel(card.level) {
-                    LevelBadge(level: level)
+                if let topic = card.topic, !topic.isEmpty {
+                    Badge(text: topic)
                 }
             }
-            if let meaningVi = card.meaningVi, !meaningVi.isEmpty {
-                Text(meaningVi)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            if let topic = card.topic, !topic.isEmpty {
-                Badge(text: topic)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            PronounceButton(text: card.word)
+            if let level = CardLevel(card.level) {
+                LevelBadge(level: level)
             }
         }
         .padding(.vertical, 2)

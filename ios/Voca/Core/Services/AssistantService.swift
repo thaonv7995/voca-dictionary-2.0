@@ -49,7 +49,7 @@ struct AssistantService {
                     let index = Self.vocabularyIndex(from: cards)
                     let prompt = ClientPrompts.conversation(index: index, selectedWord: selectedWord, format: format)
                     let body = ChatCompletionsBody(messages: [["role": "system", "content": prompt]])
-                    for try await chunk in api.streamContent(path: "/api/chat/completions", body: body) {
+                    for try await chunk in api.streamContent(path: "/api/chat/completions", body: body, rawChunks: true) {
                         continuation.yield(chunk)
                     }
                     continuation.finish()
