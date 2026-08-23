@@ -37,6 +37,10 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Voca dùng camera để quét văn bản và tạo thẻ từ vựng.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Voca đọc ảnh bạn chọn để nhận diện từ và tạo thẻ.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -10,6 +10,7 @@ struct CardCreateView: View {
     @State private var word = ""
     @State private var isCreating = false
     @State private var errorMessage: String?
+    @State private var showScan = false
 
     private let cards = CardsService()
 
@@ -46,6 +47,18 @@ struct CardCreateView: View {
                     }
                     .disabled(!canSubmit)
                 }
+
+                Section {
+                    Button {
+                        showScan = true
+                    } label: {
+                        Label("Quét ảnh tạo thẻ", systemImage: "camera.viewfinder")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(isCreating)
+                } footer: {
+                    Text("Chụp hoặc chọn ảnh, nhận diện chữ và tạo nhiều thẻ cùng lúc.")
+                }
             }
             .navigationTitle("Tạo thẻ mới")
             .navigationBarTitleDisplayMode(.inline)
@@ -55,6 +68,9 @@ struct CardCreateView: View {
                 }
             }
             .interactiveDismissDisabled(isCreating)
+            .sheet(isPresented: $showScan) {
+                ScanWordsView(onCreated: onCreated)
+            }
         }
     }
 

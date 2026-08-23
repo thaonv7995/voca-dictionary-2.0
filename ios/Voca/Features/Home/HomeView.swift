@@ -1,9 +1,12 @@
 import SwiftUI
 
-/// The signed-in shell: five tabs, one per feature area.
+/// The signed-in shell: five tabs. Settings now lives inside the Profile tab (see ProfileView).
 struct HomeView: View {
     var body: some View {
         TabView {
+            TodayView()
+                .tabItem { Label("Hôm nay", systemImage: "sun.max") }
+
             DictionaryView()
                 .tabItem { Label("Kho từ", systemImage: "rectangle.grid.2x2") }
 
@@ -12,9 +15,6 @@ struct HomeView: View {
 
             AssistantRootView()
                 .tabItem { Label("Trợ lý", systemImage: "sparkles") }
-
-            SettingsRootView()
-                .tabItem { Label("Cài đặt", systemImage: "gearshape") }
 
             ProfileView()
                 .tabItem { Label("Hồ sơ", systemImage: "person.crop.circle") }

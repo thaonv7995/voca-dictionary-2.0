@@ -33,6 +33,8 @@ targets:
       properties:
         CFBundleDisplayName: Voca
         LSRequiresIPhoneOS: true
+        NSCameraUsageDescription: "Voca dùng camera để quét văn bản và tạo thẻ từ vựng."
+        NSPhotoLibraryUsageDescription: "Voca đọc ảnh bạn chọn để nhận diện từ và tạo thẻ."
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: LaunchLogo

@@ -6,6 +6,7 @@ struct ProfileView: View {
     @State private var displayName = ""
     @State private var isSavingName = false
     @State private var statusMessage: String?
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -32,6 +33,11 @@ struct ProfileView: View {
 
                 Section {
                     NavigationLink("Đổi mật khẩu") { ChangePasswordView() }
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Label("Cài đặt (AI, TTS, API keys)", systemImage: "gearshape")
+                    }
                 }
 
                 if let statusMessage {
@@ -46,6 +52,7 @@ struct ProfileView: View {
             }
             .navigationTitle("Hồ sơ")
             .onAppear { displayName = auth.user?.displayName ?? "" }
+            .sheet(isPresented: $showSettings) { SettingsRootView() }
         }
     }
 
