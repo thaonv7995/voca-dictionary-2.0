@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The practice modes offered by the assistant tab.
 enum AssistantMode: String, CaseIterable, Identifiable {
-    case chat, drills, reading, article, speaking
+    case chat, drills, reading, article, speaking, conversation
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -11,6 +11,7 @@ enum AssistantMode: String, CaseIterable, Identifiable {
         case .reading: return "Đọc hiểu"
         case .article: return "Bài báo"
         case .speaking: return "Nói"
+        case .conversation: return "Hội thoại"
         }
     }
     var icon: String {
@@ -20,6 +21,7 @@ enum AssistantMode: String, CaseIterable, Identifiable {
         case .reading: return "doc.text"
         case .article: return "newspaper"
         case .speaking: return "waveform"
+        case .conversation: return "person.2.wave.2"
         }
     }
 }
@@ -34,6 +36,7 @@ struct AssistantRootView: View {
     @State private var readingVM = ReadingViewModel()
     @State private var articleVM = ArticleViewModel()
     @State private var speakingVM = SpeakingViewModel()
+    @State private var conversationVM = ConversationViewModel()
 
     var body: some View {
         NavigationStack {
@@ -48,6 +51,7 @@ struct AssistantRootView: View {
                 case .reading: ReadingView(vm: readingVM)
                 case .article: ArticleView(vm: articleVM)
                 case .speaking: SpeakingView(vm: speakingVM)
+                case .conversation: ConversationView(vm: conversationVM)
                 }
             }
             .navigationTitle("Trợ lý AI")

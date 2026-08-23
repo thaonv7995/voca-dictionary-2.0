@@ -12,4 +12,11 @@ struct TTSService {
                                          body: TTSBody(text: text, voiceModel: voiceModel))
         await AudioPlayer.shared.play(data)
     }
+
+    /// Synthesises `text` and suspends until playback finishes — for sequential "play all".
+    func speakAndWait(_ text: String, voiceModel: String? = nil) async throws {
+        let data = try await api.rawData(method: "POST", path: "/api/tts",
+                                         body: TTSBody(text: text, voiceModel: voiceModel))
+        await AudioPlayer.shared.playAndWait(data)
+    }
 }
