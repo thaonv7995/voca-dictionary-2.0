@@ -46,7 +46,16 @@ App icon (chữ **V** trên nền xanh gradient) và **launch screen** (nền xa
 - **M3** Học FSRS: màn ôn tập (Again/Hard/Good/Easy → `/review`), thống kê theo level ✅
 - **M4** Trợ lý AI: chat streaming (`/agent/chat`), drills + reading (`/practice/*`) render trắc nghiệm ✅
 - **M5** Cài đặt: LLM/TTS (`/api/user/settings`) + quản lý API keys ✅
-- **M6** Release: app icon, launch screen, TestFlight, App Store metadata — còn lại.
+- **M6** Release: app icon + launch screen ✅ · TestFlight/App Store metadata — còn lại.
+- **Đợt A** (parity V1): brand xanh lá; Trợ lý 6 mode (Trò chuyện/Trắc nghiệm/Đọc hiểu/Bài báo/Nói/Hội thoại);
+  Drills badge + loa từng đáp án + Prev/Next; Kho từ lọc topic/ngày/tag + nút loa từng dòng; per-card "Hỏi AI" ✅
+- **Đợt B**: tab **Hôm nay** (dashboard); **quét ảnh OCR** tạo thẻ (Vision); **Hội thoại** (client-side qua
+  `/api/chat/completions`); **Widget** màn hình chính (WidgetKit + App Group) ✅
+
+### Widget (WidgetKit)
+Target `VocaWidgetExtension` + App Group `group.site.thaonv.voca`. Để chạy trên **máy thật**: mở Xcode →
+chọn **Team cho CẢ HAI** target (Voca + VocaWidgetExtension) ở Signing & Capabilities (App Group tự cấp) →
+mở app một lần (vào tab Kho từ để đồng bộ thẻ) → giữ màn hình chính → thêm widget **"Từ vựng Voca"**.
 
 Đã verify end-to-end bằng XCUITest (`VocaUITests`) đăng nhập vào server thật `voca.thaonv.online`
 và đi qua cả 5 tab. Chạy lại:
