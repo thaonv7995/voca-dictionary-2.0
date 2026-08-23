@@ -48,10 +48,8 @@ struct SpeakingView: View {
                 } label: {
                     Label(vm.practice == nil ? "Tạo bài luyện nói" : "Tạo bài luyện nói mới",
                           systemImage: "waveform")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Brand.green)
+                .buttonStyle(BrandCTAButtonStyle())
                 .disabled(vm.isGenerating)
 
                 if vm.isGenerating {
@@ -133,7 +131,7 @@ private struct SpeakingSentenceCard: View {
                 Text(sentence.text ?? "")
                     .font(.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                SpeakerButton(text: sentence.text ?? "")
+                PronounceButton(text: sentence.text ?? "")
             }
 
             if let ipa = sentence.ipa, !ipa.isEmpty {

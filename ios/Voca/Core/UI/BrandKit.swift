@@ -40,6 +40,7 @@ struct Badge: View {
 /// tapping it never reflows surrounding content (fixes the "everything shifts down" bug).
 struct PronounceButton: View {
     let text: String
+    var voiceModel: String? = nil
     var size: CGFloat = 30
     var font: Font = .body
 
@@ -50,7 +51,7 @@ struct PronounceButton: View {
             guard !speaking, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
             speaking = true
             Task {
-                try? await TTSService().speak(text)
+                try? await TTSService().speak(text, voiceModel: voiceModel)
                 speaking = false
             }
         } label: {

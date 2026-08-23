@@ -47,6 +47,10 @@ struct CardAgentView: View {
                     ForEach(messages) { message in
                         CardChatBubble(message: message)
                             .id(message.id)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: message.role == .user ? .trailing : .leading)
+                                    .combined(with: .opacity),
+                                removal: .opacity))
                     }
                 }
                 .padding()
@@ -74,27 +78,32 @@ struct CardAgentView: View {
     // MARK: - Input
 
     private var inputBar: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 8) {
             starterChips
-            HStack(spacing: 8) {
+            HStack(alignment: .bottom, spacing: 6) {
                 TextField("Nhập câu hỏi…", text: $input, axis: .vertical)
-                    .lineLimit(1...4)
-                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...5)
+                    .padding(.leading, 14)
+                    .padding(.vertical, 8)
                     .focused($inputFocused)
                     .disabled(isStreaming)
                     .onSubmit { send(input) }
 
-                Button {
+                ChatSendButton(isStreaming: isStreaming, canSend: canSend) {
                     send(input)
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title)
-                        .foregroundStyle(canSend ? Brand.green : Color.secondary)
                 }
-                .disabled(!canSend)
+                .padding(4)
             }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Color(.separator).opacity(0.5), lineWidth: 1)
+            )
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
         }
         .background(.bar)
     }
@@ -140,9 +149,11 @@ struct CardAgentView: View {
 
         input = ""
         inputFocused = false
-        messages.append(CardChatMessage(role: .user, text: text))
         let replyId = UUID()
-        messages.append(CardChatMessage(id: replyId, role: .assistant, text: ""))
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            messages.append(CardChatMessage(role: .user, text: text))
+            messages.append(CardChatMessage(id: replyId, role: .assistant, text: ""))
+        }
         isStreaming = true
 
         Task {
@@ -210,7 +221,7 @@ private struct CardChatBubble: View {
         Group {
             if message.text.isEmpty {
                 // Assistant is "thinking" before the first chunk arrives.
-                ProgressView().padding(.vertical, 2)
+                TypingIndicator().padding(.vertical, 4)
             } else {
                 Text(message.text)
                     .textSelection(.enabled)

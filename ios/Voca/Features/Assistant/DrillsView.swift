@@ -70,10 +70,8 @@ struct DrillsView: View {
                 } label: {
                     Label(vm.drills.isEmpty ? "Tạo 5 câu hỏi" : "Tạo lại 5 câu hỏi",
                           systemImage: "wand.and.stars")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Brand.green)
+                .buttonStyle(BrandCTAButtonStyle())
                 .disabled(vm.isGenerating)
 
                 if vm.isGenerating {
@@ -191,12 +189,12 @@ private struct DrillCardView: View {
                 HStack(alignment: .top, spacing: 8) {
                     Text(scenario)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    SpeakerButton(text: questionText)
+                    PronounceButton(text: questionText)
                 }
             } else if !questionText.isEmpty {
                 HStack {
                     Spacer()
-                    SpeakerButton(text: questionText)
+                    PronounceButton(text: questionText)
                 }
             }
 

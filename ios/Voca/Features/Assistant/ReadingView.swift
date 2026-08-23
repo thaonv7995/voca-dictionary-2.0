@@ -56,9 +56,8 @@ struct ReadingView: View {
                     vm.generate()
                 } label: {
                     Label("Tạo bài đọc", systemImage: "doc.text")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandCTAButtonStyle())
                 .disabled(vm.isGenerating)
 
                 if vm.isGenerating {

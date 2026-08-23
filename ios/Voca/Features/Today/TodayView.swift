@@ -109,11 +109,8 @@ struct TodayView: View {
                 showSession = true
             } label: {
                 Label("Ôn tập ngay", systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Brand.green)
-            .controlSize(.large)
+            .buttonStyle(BrandCTAButtonStyle())
             .disabled(model.dueCount == 0)
         }
         .brandCard()

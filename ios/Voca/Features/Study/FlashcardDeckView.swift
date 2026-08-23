@@ -19,7 +19,6 @@ struct FlashcardDeckView: View {
     @State private var flyAway: CGSize?
     @State private var flipped = false
     @State private var isGrading = false
-    @State private var isSpeaking = false
     @State private var reviewError: String?
     @State private var lastGrade: ReviewGrade?
 
@@ -64,9 +63,7 @@ struct FlashcardDeckView: View {
         let base = FlashcardCardView(
             card: entry.item.card,
             flipped: isTop && flipped,
-            isTop: isTop,
-            isSpeaking: isTop && isSpeaking,
-            onSpeak: { speak(entry.item.card.word) }
+            isTop: isTop
         )
         .frame(maxWidth: 520)
         .scaleEffect(1 - CGFloat(depth) * 0.05)
@@ -253,15 +250,6 @@ struct FlashcardDeckView: View {
         flyAway = nil
         drag = .zero
         flipped = false
-    }
-
-    private func speak(_ text: String) {
-        guard !text.isEmpty, !isSpeaking else { return }
-        isSpeaking = true
-        Task { @MainActor in
-            try? await TTSService().speak(text)
-            isSpeaking = false
-        }
     }
 }
 

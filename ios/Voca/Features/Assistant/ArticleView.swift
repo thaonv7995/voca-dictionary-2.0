@@ -48,10 +48,8 @@ struct ArticleView: View {
                 } label: {
                     Label(vm.article == nil ? "Tạo bài báo" : "Tạo bài báo mới",
                           systemImage: "newspaper")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Brand.green)
+                .buttonStyle(BrandCTAButtonStyle())
                 .disabled(vm.isGenerating)
 
                 if vm.isGenerating {
@@ -168,7 +166,7 @@ private struct VocabularyNoteRow: View {
             HStack(spacing: 8) {
                 if let word = note.word, !word.isEmpty {
                     Text(word).font(.subheadline).bold().foregroundStyle(Brand.green)
-                    SpeakerButton(text: word, font: .subheadline)
+                    PronounceButton(text: word, size: 24, font: .subheadline)
                 }
             }
             if let vi = note.meaningVi, !vi.isEmpty {

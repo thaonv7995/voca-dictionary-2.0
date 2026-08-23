@@ -29,10 +29,12 @@ final class ChatViewModel {
         guard !text.isEmpty, !isStreaming else { return }
 
         input = ""
-        messages.append(ChatMessage(role: .user, text: text))
         let assistant = ChatMessage(role: .assistant, text: "")
-        messages.append(assistant)
         let assistantId = assistant.id
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            messages.append(ChatMessage(role: .user, text: text))
+            messages.append(assistant)
+        }
         isStreaming = true
 
         Task { @MainActor in
@@ -76,6 +78,10 @@ struct ChatView: View {
                         ForEach(vm.messages) { message in
                             ChatBubble(message: message)
                                 .id(message.id)
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: message.role == .user ? .trailing : .leading)
+                                        .combined(with: .opacity),
+                                    removal: .opacity))
                         }
                         Color.clear.frame(height: 1).id(bottomAnchor)
                     }
@@ -102,24 +108,31 @@ struct ChatView: View {
     }
 
     private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("Nhập tin nhắn…", text: $vm.input, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...4)
-                .disabled(vm.isStreaming)
-            Button {
-                vm.send()
-            } label: {
-                if vm.isStreaming {
-                    ProgressView().frame(width: 30, height: 30)
-                } else {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 30))
+        VStack(spacing: 0) {
+            Divider()
+            HStack(alignment: .bottom, spacing: 6) {
+                TextField("Nhập tin nhắn…", text: $vm.input, axis: .vertical)
+                    .lineLimit(1...5)
+                    .padding(.leading, 14)
+                    .padding(.vertical, 8)
+                    .disabled(vm.isStreaming)
+
+                ChatSendButton(isStreaming: vm.isStreaming, canSend: vm.canSend) {
+                    vm.send()
                 }
+                .padding(4)
             }
-            .disabled(!vm.canSend)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Color(.separator).opacity(0.5), lineWidth: 1)
+            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
-        .padding()
         .background(.bar)
     }
 
@@ -147,9 +160,9 @@ private struct ChatBubble: View {
     @ViewBuilder private var content: some View {
         if !isUser && message.text.isEmpty {
             // Waiting for the first streamed chunk.
-            ProgressView()
+            TypingIndicator()
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
                 .background(Color(.secondarySystemBackground),
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else {
@@ -168,7 +181,8 @@ private struct ChatBubble: View {
     }
 
     private var background: Color {
-        if isUser { return .accentColor }
+        if message.isError { return Color.red.opacity(0.12) }
+        if isUser { return Brand.green }
         return Color(.secondarySystemBackground)
     }
 }

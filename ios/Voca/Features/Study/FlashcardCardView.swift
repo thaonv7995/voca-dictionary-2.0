@@ -8,8 +8,6 @@ struct FlashcardCardView: View {
     var flipped: Bool = false
     /// The interactive top card shows the speaker + hint affordances; peeking cards don't.
     var isTop: Bool = false
-    var isSpeaking: Bool = false
-    var onSpeak: () -> Void = {}
 
     var body: some View {
         ZStack {
@@ -64,20 +62,8 @@ struct FlashcardCardView: View {
             }
 
             if isTop {
-                Button(action: onSpeak) {
-                    HStack(spacing: 8) {
-                        if isSpeaking {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "speaker.wave.2.fill")
-                        }
-                        Text("Phát âm")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .tint(Brand.green)
-                .disabled(isSpeaking)
-                .padding(.top, 4)
+                PronounceButton(text: card.word, size: 48, font: .title2)
+                    .padding(.top, 4)
             }
 
             Spacer(minLength: 0)

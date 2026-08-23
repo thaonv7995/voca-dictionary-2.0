@@ -10,7 +10,6 @@ struct CardDetailView: View {
 
     @State private var card: Card
     @State private var selectedLevel: CardLevel
-    @State private var isSpeaking = false
     @State private var isUpdatingLevel = false
     @State private var isDeleting = false
     @State private var showDeleteConfirm = false
@@ -96,8 +95,8 @@ struct CardDetailView: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 10) {
-            speakButton
+        HStack(spacing: 12) {
+            PronounceButton(text: card.word, size: 40, font: .title3)
             askAIButton
         }
     }
@@ -117,23 +116,6 @@ struct CardDetailView: View {
 
     private var hasMeta: Bool {
         !(card.partOfSpeech ?? "").isEmpty || !(card.topic ?? "").isEmpty
-    }
-
-    private var speakButton: some View {
-        Button {
-            speak()
-        } label: {
-            HStack(spacing: 6) {
-                if isSpeaking {
-                    ProgressView()
-                } else {
-                    Image(systemName: "speaker.wave.2.fill")
-                }
-                Text("Phát âm")
-            }
-        }
-        .buttonStyle(.bordered)
-        .disabled(isSpeaking)
     }
 
     // MARK: - Level
@@ -259,19 +241,6 @@ struct CardDetailView: View {
     }
 
     // MARK: - Actions
-
-    private func speak() {
-        isSpeaking = true
-        errorMessage = nil
-        Task {
-            do {
-                try await TTSService().speak(card.word)
-            } catch {
-                errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
-            }
-            isSpeaking = false
-        }
-    }
 
     private func updateLevel(to newValue: CardLevel) {
         guard CardLevel(card.level) != newValue else { return }

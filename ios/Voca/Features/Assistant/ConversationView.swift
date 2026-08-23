@@ -141,10 +141,8 @@ struct ConversationView: View {
             } label: {
                 Label(vm.conversation == nil ? "Tạo hội thoại" : "Tạo hội thoại mới",
                       systemImage: "person.2.wave.2")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Brand.green)
+            .buttonStyle(BrandCTAButtonStyle())
             .disabled(vm.isGenerating)
         }
     }
@@ -289,7 +287,7 @@ private struct ConversationBubble: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
-                LineSpeakerButton(text: line.text ?? "", voiceModel: voiceModel)
+                PronounceButton(text: line.text ?? "", voiceModel: voiceModel, size: 24, font: .footnote)
             }
 
             if let text = line.text, !text.isEmpty {
@@ -363,49 +361,6 @@ private struct Gloss: Identifiable {
     let term: String
     let meaning: String
     var id: String { term }
-}
-
-// MARK: - Per-line speaker button (supports a per-speaker voice model)
-
-/// Speaker button that fetches and plays `text` via TTS using a specific `voiceModel`.
-/// Mirrors `SpeakerButton` but carries the per-line voice; failures are swallowed.
-private struct LineSpeakerButton: View {
-    let text: String
-    var voiceModel: String? = nil
-
-    @State private var isBusy = false
-
-    private var cleaned: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    var body: some View {
-        Button {
-            play()
-        } label: {
-            if isBusy {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 22, height: 22)
-            } else {
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.footnote)
-                    .foregroundStyle(Brand.green)
-                    .frame(width: 22, height: 22)
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(isBusy || cleaned.isEmpty)
-        .accessibilityLabel("Phát âm")
-    }
-
-    private func play() {
-        let value = cleaned
-        guard !value.isEmpty else { return }
-        isBusy = true
-        Task { @MainActor in
-            defer { isBusy = false }
-            try? await TTSService().speak(value, voiceModel: voiceModel)
-        }
-    }
 }
 
 // MARK: - Vocabulary highlighting

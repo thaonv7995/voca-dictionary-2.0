@@ -72,13 +72,16 @@ struct PracticeChoicesView: View {
                 if speakChoices {
                     HStack(alignment: .center, spacing: 8) {
                         choiceButton(index: index, choice: choice)
-                        SpeakerButton(text: choice)
+                        PronounceButton(text: choice)
                     }
                 } else {
                     choiceButton(index: index, choice: choice)
                 }
             }
-            if selected != nil { reveal }
+            if selected != nil {
+                reveal
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
     }
 
@@ -88,7 +91,9 @@ struct PracticeChoicesView: View {
         let isPicked = selected == choice
 
         return Button {
-            if selected == nil { selected = choice }
+            if selected == nil {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.72)) { selected = choice }
+            }
         } label: {
             HStack(alignment: .top, spacing: 8) {
                 Text(choiceLetter(index))
@@ -97,9 +102,13 @@ struct PracticeChoicesView: View {
                 Text(choice)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if answered && correct {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .transition(.scale.combined(with: .opacity))
                 } else if answered && isPicked {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.red)
+                        .transition(.scale.combined(with: .opacity))
                 }
             }
             .padding(10)
@@ -111,6 +120,7 @@ struct PracticeChoicesView: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
+        .animation(.easeInOut(duration: 0.22), value: selected)
         .allowsHitTesting(!answered)
     }
 
@@ -153,47 +163,97 @@ struct PracticeChoicesView: View {
     }
 }
 
-// MARK: - Text-to-speech button
+// MARK: - Typing indicator
 
-/// A small speaker button that synthesises `text` and plays it via `TTSService`.
-/// Shows a spinner while the clip is being fetched and disables itself for empty text.
-/// Failures (e.g. 503 TTS not configured) are swallowed silently so they don't break layout.
-struct SpeakerButton: View {
-    let text: String
-    var font: Font = .body
-
-    @State private var isBusy = false
-
-    private var cleaned: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+/// Three green dots that pulse in sequence — shown inside an assistant bubble while
+/// awaiting the first streamed chunk. Replaces a plain spinner for a livelier "typing…" feel.
+struct TypingIndicator: View {
+    @State private var animating = false
 
     var body: some View {
-        Button {
-            play()
-        } label: {
-            if isBusy {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 22, height: 22)
-            } else {
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(font)
-                    .foregroundStyle(Brand.green)
-                    .frame(width: 22, height: 22)
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(Brand.green.opacity(0.7))
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(animating ? 1 : 0.5)
+                    .opacity(animating ? 1 : 0.35)
+                    .animation(
+                        .easeInOut(duration: 0.6)
+                            .repeatForever(autoreverses: true)
+                            .delay(Double(i) * 0.2),
+                        value: animating)
             }
         }
-        .buttonStyle(.plain)
-        .disabled(isBusy || cleaned.isEmpty)
-        .accessibilityLabel("Phát âm")
+        .onAppear { animating = true }
+        .accessibilityLabel("Đang soạn trả lời")
     }
+}
 
-    private func play() {
-        let value = cleaned
-        guard !value.isEmpty else { return }
-        isBusy = true
-        Task { @MainActor in
-            defer { isBusy = false }
-            try? await TTSService().speak(value)
+// MARK: - Chat send button
+
+/// V1-style circular send button that sits inside the rounded chat composer:
+/// a filled `Brand.green` circle (dimmed when disabled) with a white arrow, or a
+/// white spinner while the reply is streaming. Fixed size so the composer never reflows.
+struct ChatSendButton: View {
+    var isStreaming: Bool
+    var canSend: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(canSend || isStreaming ? Brand.green : Color.secondary.opacity(0.4))
+                if isStreaming {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                } else {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: 36, height: 36)
+            .animation(.easeInOut(duration: 0.18), value: canSend)
         }
+        .buttonStyle(PressableScaleStyle(scale: 0.88))
+        .disabled(!canSend)
+        .accessibilityLabel("Gửi")
+    }
+}
+
+// MARK: - Button styles
+
+/// Subtle press feedback for primary CTAs: scales down slightly and dims while pressed.
+struct PressableScaleStyle: ButtonStyle {
+    var scale: CGFloat = 0.94
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+/// Primary filled-green CTA (generate / "Ôn tập ngay" style) with a gentle press scale
+/// and an animated disabled fade. Replaces `.borderedProminent` where we want that extra polish.
+struct BrandCTAButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.headline)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(Brand.green, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .opacity(isEnabled ? 1 : 0.5)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(.easeInOut(duration: 0.2), value: isEnabled)
     }
 }
 

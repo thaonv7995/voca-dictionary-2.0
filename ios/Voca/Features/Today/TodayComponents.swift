@@ -104,50 +104,8 @@ struct RecentCardRow: View {
                 Badge(text: level.label, color: Brand.levelColor(level.rawValue))
             }
 
-            TodaySpeakerButton(text: card.word)
+            PronounceButton(text: card.word)
         }
         .contentShape(Rectangle())
-    }
-}
-
-// MARK: - Speaker button
-
-/// A small speaker button that synthesises `text` via `TTSService` and plays it.
-/// Shows a spinner while fetching and swallows failures (e.g. 503 TTS not configured).
-struct TodaySpeakerButton: View {
-    let text: String
-
-    @State private var isSpeaking = false
-
-    private var cleaned: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    var body: some View {
-        Button {
-            play()
-        } label: {
-            Group {
-                if isSpeaking {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "speaker.wave.2.fill")
-                }
-            }
-            .frame(width: 30, height: 30)
-            .foregroundStyle(Brand.green)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .disabled(isSpeaking || cleaned.isEmpty)
-        .accessibilityLabel("Phát âm \(cleaned)")
-    }
-
-    private func play() {
-        let value = cleaned
-        guard !value.isEmpty, !isSpeaking else { return }
-        isSpeaking = true
-        Task { @MainActor in
-            defer { isSpeaking = false }
-            try? await TTSService().speak(value)
-        }
     }
 }
