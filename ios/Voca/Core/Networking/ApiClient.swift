@@ -177,7 +177,7 @@ final class ApiClient {
             guard !dataLines.isEmpty else { return }
             let payload = dataLines.joined(separator: "\n")
             dataLines.removeAll(keepingCapacity: true)
-            if payload == "[DONE]" { return }
+            if payload.trimmingCharacters(in: .whitespaces) == "[DONE]" { return }
 
             if rawChunks {
                 // /chat/completions → OpenAI-style JSON chunk; pull out delta.content.
@@ -193,17 +193,36 @@ final class ApiClient {
             }
         }
 
-        for try await line in bytes.lines {
-            try Task.checkCancellation()
+        func processLine(_ line: String) {
             if line.isEmpty {
                 flush()                        // blank line = end of one SSE event
             } else if line.hasPrefix("data:") {
-                var value = String(line.dropFirst(5))
-                if value.first == " " { value.removeFirst() }  // SSE strips one optional space
-                dataLines.append(value)
+                // Do NOT strip a leading space. Spring's SseEmitter writes "data:" with no separator
+                // space, so any space after the colon IS content. LLM deltas routinely begin with the
+                // word-boundary space (" world"); stripping it glued every word together.
+                dataLines.append(String(line.dropFirst(5)))
             }
             // Other SSE fields (event:, id:, retry:, comments) are ignored.
         }
+
+        // Scan lines MANUALLY from the raw bytes. `bytes.lines` silently DROPS empty lines, which
+        // are the SSE event delimiters — with them gone, flush() never ran mid-stream and the final
+        // flush joined every `data:` line with "\n", injecting a newline between EVERY delta:
+        // chat became one-word-per-line and a newline landed inside JSON string literals, breaking
+        // drills/reading/article parsing.
+        var buffer = Data()
+        for try await byte in bytes {
+            if byte == 0x0A {                                    // \n
+                var line = String(decoding: buffer, as: UTF8.self)
+                buffer.removeAll(keepingCapacity: true)
+                if line.hasSuffix("\r") { line.removeLast() }
+                try Task.checkCancellation()
+                processLine(line)
+            } else {
+                buffer.append(byte)
+            }
+        }
+        if !buffer.isEmpty { processLine(String(decoding: buffer, as: UTF8.self)) }
         flush()   // flush a trailing event that had no terminating blank line
     }
 

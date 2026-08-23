@@ -79,7 +79,10 @@ struct CardDetailView: View {
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }
-            if let pronunciation = card.pronunciation, !pronunciation.isEmpty {
+            // `pronunciation` often mirrors `ipa` (same transcription, maybe wrapped in slashes) —
+            // only show it when it actually differs, otherwise the header reads twice.
+            if let pronunciation = card.pronunciation, !pronunciation.isEmpty,
+               normalizedTranscription(pronunciation) != normalizedTranscription(card.ipa ?? "") {
                 Text(pronunciation)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -271,4 +274,10 @@ struct CardDetailView: View {
             }
         }
     }
+}
+
+/// Normalises an IPA/pronunciation string for duplicate detection: strips slashes,
+/// brackets and whitespace, lowercased — so "/rɪˈteɪn/" == "rɪˈteɪn".
+fileprivate func normalizedTranscription(_ raw: String) -> String {
+    raw.lowercased().filter { !"/[]() \t\n".contains($0) }
 }

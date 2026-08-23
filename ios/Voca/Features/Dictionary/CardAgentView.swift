@@ -212,6 +212,7 @@ private struct CardChatBubble: View {
         HStack(spacing: 0) {
             if isUser { Spacer(minLength: 40) }
             bubble
+                .layoutPriority(1)   // beat the Spacer — otherwise the bubble collapses to one-word-per-line
             if !isUser { Spacer(minLength: 40) }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
@@ -222,10 +223,15 @@ private struct CardChatBubble: View {
             if message.text.isEmpty {
                 // Assistant is "thinking" before the first chunk arrives.
                 TypingIndicator().padding(.vertical, 4)
-            } else {
+            } else if isUser || message.isError {
                 Text(message.text)
                     .textSelection(.enabled)
                     .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                // Assistant replies are Markdown — render headings/bold/lists/tables properly.
+                MarkdownText(text: message.text)
+                    .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

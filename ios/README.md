@@ -65,3 +65,29 @@ xcodebuild test -project Voca.xcodeproj -scheme Voca \
   -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
 ```
 Lưu ý: `VocaUITests/VocaSmokeUITests.swift` đang hard-code tài khoản test throwaway — đổi/bỏ khi cần.
+
+## E2E AI modes (local backend + mock LLM — không tốn credit)
+
+Chạy toàn bộ 6 mode AI (chat/drills/reading/article/speaking/conversation) với nội dung stream thật
+từ một mock LLM (OpenAI-compatible), chụp ảnh từng mode:
+
+```bash
+# 1. Hạ tầng local
+cd backend && docker compose up -d                       # Postgres
+python3 ../scripts/mock-llm.py &                         # mock LLM :23000
+VOCA_LLM_BASE_URL=http://127.0.0.1:23000/v1 VOCA_LLM_API_KEY=mock \
+VOCA_TTS_BASE_URL=http://127.0.0.1:23000/v1 VOCA_TTS_API_KEY=mock \
+./gradlew bootRun                                        # backend :22052
+
+# 2. User e2e (1 lần): đăng ký e2e@voca.local / E2e12345! + vài thẻ (user mới không có
+#    settings riêng → dùng env → mock; KHÔNG đụng key thật của bạn)
+
+# 3. Test (env TEST_RUNNER_* phải là biến môi trường, không phải build setting)
+cd ios
+export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+export TEST_RUNNER_VOCA_E2E=1 TEST_RUNNER_VOCA_BASE_URL=http://localhost:22052
+export TEST_RUNNER_VOCA_TEST_EMAIL=e2e@voca.local TEST_RUNNER_VOCA_TEST_PASSWORD='E2e12345!'
+xcodebuild test -project Voca.xcodeproj -scheme Voca \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:VocaUITests/VocaSmokeUITests/testAIModesE2E CODE_SIGNING_ALLOWED=NO
+```

@@ -153,6 +153,7 @@ private struct ChatBubble: View {
         HStack {
             if isUser { Spacer(minLength: 40) }
             content
+                .layoutPriority(1)   // beat the Spacer — otherwise the bubble collapses to one-word-per-line
             if !isUser { Spacer(minLength: 40) }
         }
     }
@@ -166,14 +167,21 @@ private struct ChatBubble: View {
                 .background(Color(.secondarySystemBackground),
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else {
-            Text(message.text)
-                .textSelection(.enabled)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)   // wrap long AI replies; grow vertically
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .foregroundStyle(foreground)
-                .background(background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            Group {
+                if isUser || message.isError {
+                    Text(message.text)
+                        .multilineTextAlignment(.leading)
+                } else {
+                    // Assistant replies are Markdown (headings, bold, tables) — render them properly.
+                    MarkdownText(text: message.text)
+                }
+            }
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)   // wrap long AI replies; grow vertically
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .foregroundStyle(foreground)
+            .background(background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
