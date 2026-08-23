@@ -308,6 +308,7 @@ struct DictionaryView: View {
 /// A single row in the dictionary list.
 private struct CardRow: View {
     let card: Card
+    @State private var speaking = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -320,6 +321,7 @@ private struct CardRow: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
+                speakButton
                 if let level = CardLevel(card.level) {
                     LevelBadge(level: level)
                 }
@@ -335,6 +337,31 @@ private struct CardRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// Inline pronunciation button — `.borderless` so it taps independently of the row's NavigationLink.
+    private var speakButton: some View {
+        Button {
+            guard !speaking else { return }
+            speaking = true
+            Task {
+                try? await TTSService().speak(card.word)
+                speaking = false
+            }
+        } label: {
+            Group {
+                if speaking {
+                    ProgressView()
+                } else {
+                    Image(systemName: "speaker.wave.2.fill")
+                }
+            }
+            .frame(width: 30, height: 30)
+            .foregroundStyle(Brand.green)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Phát âm \(card.word)")
     }
 }
 

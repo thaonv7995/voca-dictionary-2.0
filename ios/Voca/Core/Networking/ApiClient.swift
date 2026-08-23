@@ -149,21 +149,37 @@ final class ApiClient {
             if let env = try? decoder.decode(ErrorEnvelope.self, from: body) {
                 throw Self.friendly(env)
             }
+            // Fallback: Spring's default error body { timestamp, status, error, path } / { message }.
+            if let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+               let msg = (obj["message"] as? String) ?? (obj["error"] as? String), !msg.isEmpty {
+                throw ApiError(status: http.statusCode, code: "STREAM_ERROR",
+                               message: "Không tạo được nội dung AI: \(msg) (\(http.statusCode)).")
+            }
             throw ApiError(status: http.statusCode, code: "STREAM_ERROR",
                            message: "Máy chủ trả lỗi \(http.statusCode) khi tạo nội dung AI.")
         }
 
         for try await line in bytes.lines {
             try Task.checkCancellation()
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("data:") else { continue }
-            let payload = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("data:") else { continue }
+            // SSE strips exactly one optional space after the colon; keep the rest (leading spaces
+            // are meaningful in plain-text deltas so words don't get glued together).
+            var payload = String(line.dropFirst(5))
+            if payload.first == " " { payload.removeFirst() }
             if payload.isEmpty || payload == "[DONE]" { continue }
-            guard let data = payload.data(using: .utf8),
-                  let chunk = try? decoder.decode(SSEChunk.self, from: data),
-                  let content = chunk.choices?.first?.delta?.content, !content.isEmpty
-            else { continue }
-            continuation.yield(content)
+
+            // Two server formats:
+            //  • /chat/completions → OpenAI-style JSON chunks ({choices:[{delta:{content}}]})
+            //  • /agent/chat and /practice/* → plain-text delta pieces (LlmClient.streamDeltas)
+            if let data = payload.data(using: .utf8),
+               let chunk = try? decoder.decode(SSEChunk.self, from: data) {
+                if let content = chunk.choices?.first?.delta?.content, !content.isEmpty {
+                    continuation.yield(content)
+                }
+                // A JSON chunk without content (e.g. a role-only opening delta) is ignored.
+            } else {
+                continuation.yield(payload)
+            }
         }
     }
 

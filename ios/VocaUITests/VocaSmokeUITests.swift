@@ -43,6 +43,15 @@ final class VocaSmokeUITests: XCTestCase {
         snapshot(app, "01-dictionary")
 
         tapTabAndSnapshot(app, tab: "Học", name: "02-study")
+        // Enter the swipe-flashcard deck if there are due cards.
+        let startReview = app.buttons["Bắt đầu ôn tập"]
+        if startReview.waitForExistence(timeout: 5), startReview.isEnabled {
+            startReview.tap()
+            Thread.sleep(forTimeInterval: 2)
+            snapshot(app, "02b-study-deck")
+            let close = app.buttons["Đóng"].firstMatch
+            if close.waitForExistence(timeout: 3) { close.tap(); Thread.sleep(forTimeInterval: 1) }
+        }
         tapTabAndSnapshot(app, tab: "Trợ lý", name: "03-assistant")
         tapTabAndSnapshot(app, tab: "Cài đặt", name: "04-settings")
         tapTabAndSnapshot(app, tab: "Hồ sơ", name: "05-profile")

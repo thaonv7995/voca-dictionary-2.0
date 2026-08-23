@@ -33,6 +33,7 @@ struct StatsView: View {
         }
         .navigationTitle("Thống kê")
         .navigationBarTitleDisplayMode(.inline)
+        .tint(Brand.green)
         .task { await load() }
         .refreshable { await load() }
     }
@@ -42,7 +43,11 @@ struct StatsView: View {
             Section("Tổng quan") {
                 LabeledContent("Tổng số thẻ", value: "\(stats.totalCards)")
                 LabeledContent("Tổng lượt ôn", value: "\(stats.totalReviews)")
-                LabeledContent("Cần ôn hiện tại", value: "\(stats.dueNow)")
+                LabeledContent("Cần ôn hiện tại") {
+                    Text("\(stats.dueNow)")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Brand.green)
+                }
             }
 
             Section("Phân bố theo cấp độ") {
@@ -52,18 +57,9 @@ struct StatsView: View {
                         label: level.label,
                         count: stats.byLevel[level.rawValue] ?? 0,
                         maxCount: maxCount,
-                        color: color(for: level))
+                        color: Brand.levelColor(level.rawValue))
                 }
             }
-        }
-    }
-
-    private func color(for level: CardLevel) -> Color {
-        switch level {
-        case .new: return .gray
-        case .learning: return .orange
-        case .known: return .blue
-        case .mastered: return .green
         }
     }
 
