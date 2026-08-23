@@ -70,8 +70,11 @@ export function useManifest() {
 
   useEffect(() => {
     const onFocus = () => {
-      refreshIfChanged().catch(() => {
-        setState((current) => ({ ...current, error: "Cannot refresh manifest" }));
+      refreshIfChanged().catch((error) => {
+        setState((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : "Cannot refresh manifest",
+        }));
       });
     };
     window.addEventListener("focus", onFocus);

@@ -24,3 +24,11 @@ export const useAuthStore = create<AuthState>()(
     { name: "voca-auth" },
   ),
 );
+
+// Refresh tokens rotate, so a second tab holding the pre-rotation token would refresh with a
+// token the server has already deleted and log itself out. Pull in whatever the other tab wrote.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === "voca-auth") void useAuthStore.persist.rehydrate();
+  });
+}
