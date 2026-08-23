@@ -67,10 +67,6 @@ public class PublicCardController {
     }
 
     private static Long requireOwner(ApiKeyPrincipal principal) {
-        if (principal == null || principal.ownerUserId() == null) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "KEY_NO_OWNER",
-                    "API key is not linked to a user account.");
-        }
-        return principal.ownerUserId();
+        return ApiKeyPrincipal.requireOwner(principal);
     }
 }

@@ -1,6 +1,5 @@
 package site.thaonv.voca.ai;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -9,7 +8,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import site.thaonv.voca.apikey.ApiKeyPrincipal;
 import site.thaonv.voca.card.CardDto;
-import site.thaonv.voca.common.ApiException;
 import site.thaonv.voca.user.UserPrincipal;
 
 /** Card creation via LLM (no PNG). App path uses JWT; public path uses an API key with scope cards:create. */
@@ -33,9 +31,6 @@ public class CardCreateController {
     @PostMapping("/v1/cards/create")
     @PreAuthorize("hasAuthority('SCOPE_cards:create')")
     public CardDto createForThirdParty(@RequestBody CreateRequest req, @AuthenticationPrincipal ApiKeyPrincipal principal) {
-        if (principal == null || principal.ownerUserId() == null) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "KEY_NO_OWNER", "API key is not linked to a user account.");
-        }
-        return generation.createFromWord(principal.ownerUserId(), req.word());
+        return generation.createFromWord(ApiKeyPrincipal.requireOwner(principal), req.word());
     }
 }
