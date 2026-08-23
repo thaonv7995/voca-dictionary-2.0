@@ -169,13 +169,15 @@ private struct DrillCardView: View {
                 }
             }
 
-            HStack(spacing: 6) {
-                Text("Câu \(number)").font(.subheadline).bold()
-                if let skill = drill.testedSkill, !skill.isEmpty {
-                    Text(skill).chip()
-                }
-                if let word = drill.targetWord, !word.isEmpty {
-                    Text(word).chip()
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    Text("Câu \(number)").font(.subheadline).bold()
+                    if let skill = drill.testedSkill, !skill.isEmpty {
+                        Text(skill).chip()
+                    }
+                    if let word = drill.targetWord, !word.isEmpty {
+                        Text(word).chip()
+                    }
                 }
             }
 

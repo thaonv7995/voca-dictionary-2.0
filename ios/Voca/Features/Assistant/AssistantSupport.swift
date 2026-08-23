@@ -28,6 +28,7 @@ private struct ChipStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .font(.caption2)
+            .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(Color(.tertiarySystemFill), in: Capsule())
