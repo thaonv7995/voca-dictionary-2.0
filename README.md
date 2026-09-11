@@ -48,6 +48,8 @@ REPO=thaonv7995/voca-dictionary-2.0
 curl -fsSL "https://github.com/$REPO/releases/latest/download/install.sh" | sh -s -- "$REPO"
 ```
 
+Chạy lại cùng lệnh để update. Installer sẽ dừng tiến trình `voca.jar` cũ, thay file và khởi động bản mới.
+
 **Windows (PowerShell)**
 ```powershell
 $env:VOCA_REPO="thaonv7995/voca-dictionary-2.0"
@@ -82,7 +84,7 @@ cd ../web && npm install && npm run dev
 ```bash
 cd web && npm run build                    # → web/dist
 cd ../backend && ./gradlew bootJar         # nhúng web/dist vào jar
-java -jar build/libs/voca-backend-2.0.0-SNAPSHOT.jar
+java -jar build/libs/voca-backend-2.1.1.jar
 ```
 
 Release được **GitHub Actions** build tự động khi push tag `v*.*.*` (`.github/workflows/release.yml`).

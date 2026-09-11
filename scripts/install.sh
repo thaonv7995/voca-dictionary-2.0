@@ -19,8 +19,16 @@ PORT="${PORT:-22052}"
 mkdir -p "$DIR"
 cd "$DIR"
 
+DOWNLOAD="voca.jar.download"
+PID_FILE=".voca.pid"
+
+cleanup_download() {
+  rm -f "$DOWNLOAD"
+}
+trap cleanup_download EXIT HUP INT TERM
+
 echo "→ Tải voca.jar (release mới nhất của $REPO) ..."
-curl -fL "https://github.com/$REPO/releases/latest/download/voca.jar" -o voca.jar
+curl -fL "https://github.com/$REPO/releases/latest/download/voca.jar" -o "$DOWNLOAD"
 
 if ! command -v java >/dev/null 2>&1; then
   echo "✗ Chưa có Java. Cài JDK 21+ (vd: 'brew install openjdk@21', hoặc apt/dnf) rồi chạy lại." >&2
@@ -44,5 +52,49 @@ else
   echo "! Không thấy Docker. Hãy đảm bảo có PostgreSQL (db=voca user=voca pass=voca) trên :5432."
 fi
 
+listener_pid=""
+if [ -f "$PID_FILE" ]; then
+  saved_pid=$(cat "$PID_FILE" 2>/dev/null || true)
+  case "$saved_pid" in
+    ''|*[!0-9]*) ;;
+    *)
+      if kill -0 "$saved_pid" 2>/dev/null; then listener_pid="$saved_pid"; fi
+      ;;
+  esac
+fi
+if [ -z "$listener_pid" ] && command -v lsof >/dev/null 2>&1; then
+  listener_pid=$(lsof -nP -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)
+elif [ -z "$listener_pid" ] && command -v ss >/dev/null 2>&1; then
+  listener_pid=$(ss -ltnp "sport = :$PORT" 2>/dev/null | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1 || true)
+fi
+
+if [ -n "$listener_pid" ]; then
+  listener_command=$(ps -p "$listener_pid" -o command= 2>/dev/null || true)
+  case "$listener_command" in
+    *java*"voca.jar"*)
+      echo "→ Dừng Voca cũ (PID $listener_pid) ..."
+      kill "$listener_pid" 2>/dev/null || true
+      attempts=0
+      while kill -0 "$listener_pid" 2>/dev/null && [ "$attempts" -lt 15 ]; do
+        sleep 1
+        attempts=$((attempts + 1))
+      done
+      if kill -0 "$listener_pid" 2>/dev/null; then
+        echo "→ Tiến trình cũ chưa dừng; buộc dừng ..."
+        kill -9 "$listener_pid" 2>/dev/null || true
+      fi
+      ;;
+    *)
+      echo "✗ Cổng $PORT đang được tiến trình khác sử dụng (PID $listener_pid)." >&2
+      echo "  Hãy dừng tiến trình đó hoặc chạy với PORT khác rồi thử lại." >&2
+      exit 1
+      ;;
+  esac
+fi
+
+mv "$DOWNLOAD" voca.jar
+trap - EXIT HUP INT TERM
+
 echo "→ Khởi động Voca tại http://localhost:$PORT (Ctrl+C để dừng) ..."
-exec java -jar voca.jar
+echo "$$" > "$PID_FILE"
+exec java -jar voca.jar --server.port="$PORT"
