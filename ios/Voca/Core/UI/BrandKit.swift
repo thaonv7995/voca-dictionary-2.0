@@ -41,6 +41,7 @@ struct Badge: View {
 struct PronounceButton: View {
     let text: String
     var voiceModel: String? = nil
+    var language: CardLanguage = .english
     var size: CGFloat = 30
     var font: Font = .body
 
@@ -51,7 +52,10 @@ struct PronounceButton: View {
             guard !speaking, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
             speaking = true
             Task {
-                try? await TTSService().speak(text, voiceModel: voiceModel)
+                let voice = voiceModel ?? (language == .chinese
+                    ? "edge-tts/zh-CN-XiaoxiaoNeural"
+                    : nil)
+                try? await TTSService().speak(text, voiceModel: voice)
                 speaking = false
             }
         } label: {

@@ -4,6 +4,8 @@ import SwiftUI
 struct CardCreateView: View {
     @Environment(\.dismiss) private var dismiss
 
+    let language: CardLanguage
+
     /// Called after a card is created successfully (so the list can refresh).
     var onCreated: () -> Void = {}
 
@@ -22,13 +24,15 @@ struct CardCreateView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Nhập từ vựng", text: $word)
+                    TextField(language == .chinese ? "Nhập Hán tự" : "Nhập từ vựng", text: $word)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .disabled(isCreating)
                         .onSubmit { if canSubmit { create() } }
                 } footer: {
-                    Text("AI sẽ tự tạo nghĩa, phát âm, ví dụ và mẹo ghi nhớ cho từ này.")
+                    Text(language == .chinese
+                         ? "AI sẽ tạo pinyin, nghĩa Việt và một ví dụ ngắn."
+                         : "AI sẽ tự tạo nghĩa, phát âm, ví dụ và mẹo ghi nhớ cho từ này.")
                 }
 
                 if let errorMessage {
@@ -69,7 +73,7 @@ struct CardCreateView: View {
             }
             .interactiveDismissDisabled(isCreating)
             .sheet(isPresented: $showScan) {
-                ScanWordsView(onCreated: onCreated)
+                ScanWordsView(language: language, onCreated: onCreated)
             }
         }
     }
@@ -80,7 +84,8 @@ struct CardCreateView: View {
         Task {
             do {
                 _ = try await cards.createWithAI(
-                    word: word.trimmingCharacters(in: .whitespacesAndNewlines))
+                    word: word.trimmingCharacters(in: .whitespacesAndNewlines),
+                    language: language)
                 onCreated()
                 dismiss()
             } catch {

@@ -84,8 +84,8 @@ struct RecentCardRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(card.word)
                         .font(.headline)
-                    if let ipa = card.ipa, !ipa.isEmpty {
-                        Text(ipa)
+                    if let phonetic = card.phonetic {
+                        Text(phonetic)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -104,7 +104,7 @@ struct RecentCardRow: View {
                 Badge(text: level.label, color: Brand.levelColor(level.rawValue))
             }
 
-            PronounceButton(text: card.word)
+            PronounceButton(text: card.word, language: card.cardLanguage)
         }
         .contentShape(Rectangle())
     }

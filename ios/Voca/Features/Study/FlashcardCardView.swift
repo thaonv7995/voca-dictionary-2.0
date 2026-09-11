@@ -50,7 +50,7 @@ struct FlashcardCardView: View {
             }
 
             Text(card.word)
-                .font(.system(size: 42, weight: .bold, design: .rounded))
+                .font(.system(size: card.isChinese ? 60 : 42, weight: .bold, design: .rounded))
                 .multilineTextAlignment(.center)
                 .minimumScaleFactor(0.5)
                 .lineLimit(3)
@@ -62,7 +62,7 @@ struct FlashcardCardView: View {
             }
 
             if isTop {
-                PronounceButton(text: card.word, size: 48, font: .title2)
+                PronounceButton(text: card.word, language: card.cardLanguage, size: 48, font: .title2)
                     .padding(.top, 4)
             }
 
@@ -78,9 +78,7 @@ struct FlashcardCardView: View {
     }
 
     private var frontPhonetic: String? {
-        if let ipa = card.ipa, !ipa.isEmpty { return ipa }
-        if let pron = card.pronunciation, !pron.isEmpty { return pron }
-        return nil
+        card.phonetic
     }
 
     // MARK: - Back
@@ -97,7 +95,7 @@ struct FlashcardCardView: View {
                 }
             }
 
-            if let en = card.meaningEn, !en.isEmpty {
+            if !card.isChinese, let en = card.meaningEn, !en.isEmpty {
                 block("Meaning") {
                     Text(en).font(.body)
                 }
@@ -105,7 +103,16 @@ struct FlashcardCardView: View {
 
             if let example = card.examples?.first(where: { !$0.isEmpty }) {
                 block("Ví dụ") {
-                    Text(example).font(.callout).italic()
+                    if card.isChinese {
+                        let parsed = ChineseExample(example)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(parsed.hanzi).font(.headline)
+                            if let pinyin = parsed.pinyin { Text(pinyin).foregroundStyle(Brand.green) }
+                            if let meaning = parsed.meaningVi { Text(meaning).foregroundStyle(.secondary) }
+                        }
+                    } else {
+                        Text(example).font(.callout).italic()
+                    }
                 }
             }
 

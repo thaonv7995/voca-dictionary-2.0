@@ -9,8 +9,9 @@ struct VocaEntry: TimelineEntry {
 }
 
 struct VocaProvider: TimelineProvider {
-    private let sample = WidgetCard(word: "retain", ipa: "/rɪˈteɪn/",
-                                    meaningVi: "giữ lại, duy trì", partOfSpeech: "verb")
+    private let sample = WidgetCard(word: "retain", ipa: "/rɪˈteɪn/", pronunciation: nil,
+                                    language: "en", meaningVi: "giữ lại, duy trì",
+                                    partOfSpeech: "verb")
 
     func placeholder(in context: Context) -> VocaEntry {
         VocaEntry(date: Date(), card: sample)
@@ -69,7 +70,9 @@ struct VocaWidgetEntryView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(card.word)
-                    .font(family == .systemSmall ? .title3.bold() : .title2.bold())
+                    .font(card.language == "zh-CN"
+                          ? .system(size: family == .systemSmall ? 30 : 36, weight: .bold)
+                          : (family == .systemSmall ? .title3.bold() : .title2.bold()))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
                 Spacer(minLength: 4)
@@ -81,8 +84,8 @@ struct VocaWidgetEntryView: View {
                         .foregroundStyle(brandGreen)
                 }
             }
-            if let ipa = card.ipa, !ipa.isEmpty {
-                Text(ipa).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if let phonetic = card.phonetic {
+                Text(phonetic).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             if let vi = card.meaningVi, !vi.isEmpty {
                 Text(vi)

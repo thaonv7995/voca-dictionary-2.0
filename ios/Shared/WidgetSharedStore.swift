@@ -4,8 +4,17 @@ import Foundation
 struct WidgetCard: Codable, Hashable {
     let word: String
     let ipa: String?
+    let pronunciation: String?
+    let language: String?
     let meaningVi: String?
     let partOfSpeech: String?
+
+    var phonetic: String? {
+        if language == "zh-CN", let pronunciation, !pronunciation.isEmpty { return pronunciation }
+        if let ipa, !ipa.isEmpty { return ipa }
+        if let pronunciation, !pronunciation.isEmpty { return pronunciation }
+        return nil
+    }
 }
 
 /// Reads/writes the shared card snapshot in the App Group container (app writes, widget reads).

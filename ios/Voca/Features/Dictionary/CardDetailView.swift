@@ -29,22 +29,11 @@ struct CardDetailView: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 levelSection
-
-                if let text = card.meaningEn, !text.isEmpty {
-                    section("Nghĩa (EN)", text: text, icon: "textformat")
+                if card.isChinese {
+                    chineseContent
+                } else {
+                    englishContent
                 }
-                if let text = card.meaningVi, !text.isEmpty {
-                    section("Nghĩa (VI)", text: text, icon: "character.book.closed")
-                }
-                examplesSection
-                useCasesSection
-                if let text = card.memoryTip, !text.isEmpty {
-                    section("Mẹo ghi nhớ", text: text, icon: "lightbulb")
-                }
-                if let text = card.toeicTrap, !text.isEmpty {
-                    section("Bẫy TOEIC", text: text, icon: "exclamationmark.triangle")
-                }
-                tagsSection
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -70,18 +59,18 @@ struct CardDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(card.word)
-                    .font(.largeTitle.bold())
+                    .font(card.isChinese ? .system(size: 52, weight: .bold) : .largeTitle.bold())
                 Spacer(minLength: 8)
                 LevelBadge(level: selectedLevel)
             }
-            if let ipa = card.ipa, !ipa.isEmpty {
-                Text(ipa)
+            if let phonetic = card.phonetic {
+                Text(phonetic)
                     .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(card.isChinese ? Brand.green : .secondary)
             }
             // `pronunciation` often mirrors `ipa` (same transcription, maybe wrapped in slashes) —
             // only show it when it actually differs, otherwise the header reads twice.
-            if let pronunciation = card.pronunciation, !pronunciation.isEmpty,
+            if !card.isChinese, let pronunciation = card.pronunciation, !pronunciation.isEmpty,
                normalizedTranscription(pronunciation) != normalizedTranscription(card.ipa ?? "") {
                 Text(pronunciation)
                     .font(.subheadline)
@@ -99,7 +88,7 @@ struct CardDetailView: View {
 
     private var actionRow: some View {
         HStack(spacing: 12) {
-            PronounceButton(text: card.word, size: 40, font: .title3)
+            PronounceButton(text: card.word, language: card.cardLanguage, size: 40, font: .title3)
             askAIButton
         }
     }
@@ -144,6 +133,45 @@ struct CardDetailView: View {
     }
 
     // MARK: - Lists
+
+    @ViewBuilder private var englishContent: some View {
+        if let text = card.meaningEn, !text.isEmpty {
+            section("Nghĩa (EN)", text: text, icon: "textformat")
+        }
+        if let text = card.meaningVi, !text.isEmpty {
+            section("Nghĩa (VI)", text: text, icon: "character.book.closed")
+        }
+        examplesSection
+        useCasesSection
+        if let text = card.memoryTip, !text.isEmpty {
+            section("Mẹo ghi nhớ", text: text, icon: "lightbulb")
+        }
+        if let text = card.toeicTrap, !text.isEmpty {
+            section("Bẫy TOEIC", text: text, icon: "exclamationmark.triangle")
+        }
+        tagsSection
+    }
+
+    @ViewBuilder private var chineseContent: some View {
+        if let text = card.meaningVi, !text.isEmpty {
+            section("Nghĩa", text: text, icon: "character.book.closed")
+        }
+        if let raw = card.examples?.first(where: { !$0.isEmpty }) {
+            let example = ChineseExample(raw)
+            VStack(alignment: .leading, spacing: 6) {
+                sectionHeader("Ví dụ", icon: "text.quote")
+                Text(example.hanzi).font(.title3.weight(.semibold))
+                if let pinyin = example.pinyin {
+                    Text(pinyin).foregroundStyle(Brand.green)
+                }
+                if let meaning = example.meaningVi {
+                    Text(meaning).foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        HanziWritingView(word: card.word)
+    }
 
     @ViewBuilder private var examplesSection: some View {
         let examples = (card.examples ?? []).filter { !$0.isEmpty }

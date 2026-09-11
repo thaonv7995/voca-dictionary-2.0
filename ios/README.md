@@ -1,5 +1,14 @@
 # Voca iOS
 
+## Hán ngữ
+
+Kho từ hỗ trợ chuyển giữa `English` và `中文`. Thẻ Hán ngữ dùng chung backend với web,
+hiển thị Hán tự, pinyin, nghĩa Việt, ví dụ ngắn, giọng đọc Mandarin và ô 田字格 để xem
+animation thứ tự nét hoặc luyện viết. Dữ liệu nét được lưu trong cache sau lần tải đầu tiên.
+
+Hanzi Writer được đóng gói trong ứng dụng; dữ liệu nét lấy từ `hanzi-writer-data` 2.0.1.
+License của hai thành phần nằm trong `Voca/Resources/HanziWriter`.
+
 Client iOS native (SwiftUI) cho Voca Dictionary. Xem kế hoạch đầy đủ: [`../docs/ios-plan.md`](../docs/ios-plan.md).
 
 ## Yêu cầu

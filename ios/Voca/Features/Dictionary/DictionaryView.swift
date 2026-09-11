@@ -54,12 +54,17 @@ enum DateFilter: String, CaseIterable, Identifiable {
 
 /// Root of the Dictionary tab: a searchable, filterable list of vocabulary cards.
 struct DictionaryView: View {
+    @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
     @State private var store = DictionaryStore()
     @State private var searchText = ""
     @State private var levelFilter: CardLevel?
     @State private var topicFilter: String?
     @State private var dateFilter: DateFilter = .all
     @State private var showCreate = false
+
+    private var language: CardLanguage {
+        CardLanguage(rawValue: languageRaw) ?? .english
+    }
 
     // MARK: - Date parsing (null-safe)
 
@@ -81,7 +86,8 @@ struct DictionaryView: View {
 
     /// Distinct, sorted topics present in the loaded cards.
     private var topics: [String] {
-        let all = store.cards.compactMap { $0.topic }.filter { !$0.isEmpty }
+        let all = store.cards.filter { $0.cardLanguage == language }
+            .compactMap { $0.topic }.filter { !$0.isEmpty }
         return Array(Set(all)).sorted()
     }
 
@@ -90,17 +96,26 @@ struct DictionaryView: View {
     }
 
     private var filteredCards: [Card] {
-        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        let query = normalized(searchText)
         return store.cards.filter { card in
+            if card.cardLanguage != language { return false }
             if let levelFilter, CardLevel(card.level) != levelFilter { return false }
             if let topicFilter, card.topic != topicFilter { return false }
             if !matchesDate(card) { return false }
             guard !query.isEmpty else { return true }
-            return card.word.lowercased().contains(query)
-                || (card.meaningVi?.lowercased().contains(query) ?? false)
-                || (card.meaningEn?.lowercased().contains(query) ?? false)
-                || (card.tags?.contains { $0.lowercased().contains(query) } ?? false)
+            let fields = [card.word, card.phonetic, card.meaningVi, card.meaningEn,
+                          card.topic, card.tags?.joined(separator: " ")]
+            return fields.compactMap { $0 }.contains { normalized($0).contains(query) }
         }
+    }
+
+    private var languageCards: [Card] {
+        store.cards.filter { $0.cardLanguage == language }
+    }
+
+    private func normalized(_ value: String) -> String {
+        value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func matchesDate(_ card: Card) -> Bool {
@@ -143,9 +158,13 @@ struct DictionaryView: View {
                     CardDetailView(card: card, onDeleted: { Task { await store.load() } })
                 }
                 .sheet(isPresented: $showCreate) {
-                    CardCreateView { Task { await store.load() } }
+                    CardCreateView(language: language) { Task { await store.load() } }
                 }
                 .task { if store.cards.isEmpty { await store.load() } }
+                .onChange(of: languageRaw) { _, _ in
+                    searchText = ""
+                    resetFilters()
+                }
         }
     }
 
@@ -163,17 +182,33 @@ struct DictionaryView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(Brand.green)
             }
-        } else if store.cards.isEmpty {
-            ContentUnavailableView(
-                "Chưa có thẻ nào",
-                systemImage: "tray",
-                description: Text("Nhấn + để tạo thẻ từ vựng đầu tiên."))
         } else {
             VStack(spacing: 0) {
-                filterBar
-                cardList
+                languagePicker
+                if languageCards.isEmpty {
+                    ContentUnavailableView(
+                        language == .chinese ? "Chưa có thẻ Hán ngữ" : "Chưa có thẻ English",
+                        systemImage: "tray",
+                        description: Text("Nhấn + để tạo thẻ từ vựng đầu tiên."))
+                    .frame(maxHeight: .infinity)
+                } else {
+                    filterBar
+                    cardList
+                }
             }
         }
+    }
+
+    private var languagePicker: some View {
+        Picker("Ngôn ngữ", selection: $languageRaw) {
+            ForEach(CardLanguage.allCases) { language in
+                Text(language.label).tag(language.rawValue)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(.bar)
     }
 
     private var cardList: some View {
@@ -316,12 +351,17 @@ private struct CardRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(card.word)
-                        .font(.headline)
-                    if let ipa = card.ipa, !ipa.isEmpty {
-                        Text(ipa)
+                        .font(card.isChinese ? .title2.bold() : .headline)
+                    if !card.isChinese, let phonetic = card.phonetic {
+                        Text(phonetic)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
+                }
+                if card.isChinese, let pinyin = card.phonetic {
+                    Text(pinyin)
+                        .font(.subheadline)
+                        .foregroundStyle(Brand.green)
                 }
                 if let meaningVi = card.meaningVi, !meaningVi.isEmpty {
                     Text(meaningVi)
@@ -335,7 +375,7 @@ private struct CardRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            PronounceButton(text: card.word)
+            PronounceButton(text: card.word, language: card.cardLanguage)
             if let level = CardLevel(card.level) {
                 LevelBadge(level: level)
             }

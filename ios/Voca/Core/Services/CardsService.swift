@@ -17,8 +17,11 @@ struct CardsService {
     }
 
     /// Generates a new card from a word via the server-side LLM (`POST /api/cards/create`).
-    func createWithAI(word: String) async throws -> Card {
-        try await api.post("/api/cards/create", body: ["word": word])
+    func createWithAI(word: String, language: CardLanguage = .english) async throws -> Card {
+        try await api.post("/api/cards/create", body: [
+            "word": word,
+            "language": language.rawValue,
+        ])
     }
 
     func setLevel(slug: String, level: String) async throws -> Card {

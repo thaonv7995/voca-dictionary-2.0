@@ -47,7 +47,7 @@ final class ScanWordsModel {
     // MARK: OCR
 
     /// Recognises text in `image` and turns it into candidate words.
-    func recognize(_ image: UIImage) async {
+    func recognize(_ image: UIImage, language: CardLanguage) async {
         self.image = image
         words = []
         selected = []
@@ -55,7 +55,7 @@ final class ScanWordsModel {
         finished = false
         phase = .recognizing
 
-        let found = await Self.recognizeText(image)
+        let found = await Self.recognizeText(image, language: language)
         words = found
         phase = found.isEmpty ? .noWords : .results
     }
@@ -82,7 +82,7 @@ final class ScanWordsModel {
 
     /// Creates one card per selected word, sequentially, reporting progress and
     /// a per-word success/failure list. Calls `onCreated` if at least one succeeded.
-    func create(onCreated: @escaping () -> Void) async {
+    func create(language: CardLanguage, onCreated: @escaping () -> Void) async {
         // Preserve chip order rather than Set order.
         let queue = words.filter { selected.contains($0) }
         guard !queue.isEmpty else { return }
@@ -94,7 +94,7 @@ final class ScanWordsModel {
         for (index, word) in queue.enumerated() {
             progressText = "Đang tạo \(index + 1)/\(queue.count)…"
             do {
-                _ = try await cards.createWithAI(word: word)
+                _ = try await cards.createWithAI(word: word, language: language)
                 results.append(WordResult(word: word, success: true, message: nil))
             } catch {
                 let message = (error as? ApiError)?.message ?? error.localizedDescription
@@ -114,7 +114,7 @@ final class ScanWordsModel {
     // MARK: - Vision (off the main thread)
 
     /// Runs `VNRecognizeTextRequest` on a background queue and returns candidate words.
-    nonisolated private static func recognizeText(_ image: UIImage) async -> [String] {
+    nonisolated private static func recognizeText(_ image: UIImage, language: CardLanguage) async -> [String] {
         guard let cgImage = image.cgImage else { return [] }
         return await withCheckedContinuation { (continuation: CheckedContinuation<[String], Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -129,10 +129,11 @@ final class ScanWordsModel {
                     let text = (request.results as? [VNRecognizedTextObservation] ?? [])
                         .compactMap { $0.topCandidates(1).first?.string }
                         .joined(separator: " ")
-                    resume(tokenize(text))
+                    resume(tokenize(text, language: language))
                 }
                 request.recognitionLevel = .accurate
                 request.usesLanguageCorrection = true
+                request.recognitionLanguages = language == .chinese ? ["zh-Hans"] : ["en-US"]
 
                 do {
                     try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
@@ -158,13 +159,13 @@ final class ScanWordsModel {
 
     /// Lowercases, splits on non-letters, drops short tokens and stop-words,
     /// dedupes (preserving order) and caps the list.
-    nonisolated private static func tokenize(_ text: String) -> [String] {
+    nonisolated private static func tokenize(_ text: String, language: CardLanguage) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
 
         for token in text.lowercased().components(separatedBy: CharacterSet.letters.inverted) {
-            guard token.count >= 3 else { continue }
-            guard !stopWords.contains(token) else { continue }
+            guard language == .chinese ? !token.isEmpty : token.count >= 3 else { continue }
+            guard language == .chinese || !stopWords.contains(token) else { continue }
             guard !seen.contains(token) else { continue }
             seen.insert(token)
             result.append(token)
@@ -180,6 +181,8 @@ final class ScanWordsModel {
 /// card for each selected word via the server-side LLM.
 struct ScanWordsView: View {
     @Environment(\.dismiss) private var dismiss
+
+    let language: CardLanguage
 
     /// Called after cards are created so the dictionary list can refresh.
     var onCreated: () -> Void = {}
@@ -223,7 +226,7 @@ struct ScanWordsView: View {
             .photosPicker(isPresented: $showLibrary, selection: $pickerItem, matching: .images)
             .fullScreenCover(isPresented: $showCamera) {
                 CameraPicker { image in
-                    Task { await model.recognize(image) }
+                    Task { await model.recognize(image, language: language) }
                 }
                 .ignoresSafeArea()
             }
@@ -232,7 +235,7 @@ struct ScanWordsView: View {
                 Task {
                     if let data = try? await newItem.loadTransferable(type: Data.self),
                        let image = UIImage(data: data) {
-                        await model.recognize(image)
+                        await model.recognize(image, language: language)
                     }
                     pickerItem = nil
                 }
@@ -275,7 +278,9 @@ struct ScanWordsView: View {
             Image(systemName: "text.viewfinder")
                 .font(.system(size: 44))
                 .foregroundStyle(Brand.green)
-            Text("Chụp hoặc chọn một ảnh có chữ tiếng Anh")
+            Text(language == .chinese
+                 ? "Chụp hoặc chọn một ảnh có chữ Hán"
+                 : "Chụp hoặc chọn một ảnh có chữ tiếng Anh")
                 .font(.headline)
                 .multilineTextAlignment(.center)
             Text("Voca sẽ nhận diện chữ trong ảnh, gợi ý các từ và tạo thẻ cho những từ bạn chọn.")
@@ -305,7 +310,9 @@ struct ScanWordsView: View {
                 .foregroundStyle(.secondary)
             Text("Không tìm thấy từ nào")
                 .font(.headline)
-            Text("Thử chọn ảnh rõ nét hơn hoặc có nhiều chữ tiếng Anh hơn.")
+            Text(language == .chinese
+                 ? "Thử chọn ảnh rõ nét hơn hoặc có nhiều chữ Hán hơn."
+                 : "Thử chọn ảnh rõ nét hơn hoặc có nhiều chữ tiếng Anh hơn.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -367,7 +374,7 @@ struct ScanWordsView: View {
             .padding(.top, 4)
         } else {
             Button {
-                Task { await model.create(onCreated: onCreated) }
+                Task { await model.create(language: language, onCreated: onCreated) }
             } label: {
                 HStack {
                     if model.isCreating { ProgressView().padding(.trailing, 4) }
