@@ -68,7 +68,7 @@ private struct HanziCharacterPractice: View {
     @State private var status = ""
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             Group {
                 if let strokeJSON {
                     HanziWriterWebView(character: character, strokeJSON: strokeJSON,
@@ -86,8 +86,6 @@ private struct HanziCharacterPractice: View {
             .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
             .clipShape(RoundedRectangle(cornerRadius: 10))
 
-            Text(character).font(.title2.bold())
-
             HStack(spacing: 12) {
                 iconButton("play.fill", label: "Xem thứ tự nét") {
                     command = HanziCommand(kind: .animate)
@@ -100,7 +98,7 @@ private struct HanziCharacterPractice: View {
                 Text(status).font(.caption).foregroundStyle(Brand.green)
             }
         }
-        .padding(12)
+        .padding(10)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
         .task(id: character) { await loadData() }
     }

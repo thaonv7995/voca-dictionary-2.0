@@ -28,10 +28,10 @@ struct CardDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
-                levelSection
                 if card.isChinese {
                     chineseContent
                 } else {
+                    levelSection
                     englishContent
                 }
 
@@ -61,7 +61,7 @@ struct CardDetailView: View {
                 Text(card.word)
                     .font(card.isChinese ? .system(size: 52, weight: .bold) : .largeTitle.bold())
                 Spacer(minLength: 8)
-                LevelBadge(level: selectedLevel)
+                if !card.isChinese { LevelBadge(level: selectedLevel) }
             }
             if let phonetic = card.phonetic {
                 Text(phonetic)
@@ -76,7 +76,7 @@ struct CardDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            if hasMeta {
+            if !card.isChinese && hasMeta {
                 HStack(spacing: 8) {
                     if let pos = card.partOfSpeech, !pos.isEmpty { metaChip(pos) }
                     if let topic = card.topic, !topic.isEmpty { Badge(text: topic) }
@@ -153,13 +153,56 @@ struct CardDetailView: View {
     }
 
     @ViewBuilder private var chineseContent: some View {
-        if let text = card.meaningVi, !text.isEmpty {
-            section("Nghĩa", text: text, icon: "character.book.closed")
+        HanziWritingView(word: card.word)
+        chineseInfoCard
+        chineseExampleCard
+    }
+
+    private var chineseInfoCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let meaning = card.meaningVi, !meaning.isEmpty {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "character.book.closed.fill")
+                        .foregroundStyle(Brand.green)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Nghĩa").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(meaning).font(.title3.weight(.semibold))
+                    }
+                }
+            }
+
+            Divider()
+
+            HStack(spacing: 8) {
+                if let pos = card.partOfSpeech, !pos.isEmpty { metaChip(pos) }
+                if let topic = card.topic, !topic.isEmpty { Badge(text: topic) }
+                Spacer(minLength: 4)
+                if isUpdatingLevel { ProgressView().controlSize(.small) }
+                Picker("Cấp độ", selection: $selectedLevel) {
+                    ForEach(CardLevel.allCases) { level in
+                        Text(level.label).tag(level)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(isUpdatingLevel)
+                .onChange(of: selectedLevel) { _, newValue in updateLevel(to: newValue) }
+                .tint(selectedLevel.tint)
+            }
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder private var chineseExampleCard: some View {
         if let raw = card.examples?.first(where: { !$0.isEmpty }) {
             let example = ChineseExample(raw)
-            VStack(alignment: .leading, spacing: 6) {
-                sectionHeader("Ví dụ", icon: "text.quote")
+            VStack(alignment: .leading, spacing: 7) {
+                Label("Ví dụ", systemImage: "text.quote")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
                 Text(example.hanzi).font(.title3.weight(.semibold))
                 if let pinyin = example.pinyin {
                     Text(pinyin).foregroundStyle(Brand.green)
@@ -168,9 +211,11 @@ struct CardDetailView: View {
                     Text(meaning).foregroundStyle(.secondary)
                 }
             }
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        HanziWritingView(word: card.word)
     }
 
     @ViewBuilder private var examplesSection: some View {
