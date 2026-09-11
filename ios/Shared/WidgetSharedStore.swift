@@ -21,6 +21,7 @@ struct WidgetCard: Codable, Hashable {
 enum WidgetSharedStore {
     static let appGroup = "group.site.thaonv.voca"
     private static let fileName = "widget-cards.json"
+    private static let languageKey = "voca.widget.language"
 
     private static var fileURL: URL? {
         FileManager.default
@@ -38,6 +39,11 @@ enum WidgetSharedStore {
               let data = try? Data(contentsOf: url),
               let cards = try? JSONDecoder().decode([WidgetCard].self, from: data)
         else { return [] }
-        return cards
+        let language = UserDefaults(suiteName: appGroup)?.string(forKey: languageKey) ?? "en"
+        return cards.filter { ($0.language ?? "en") == language }
+    }
+
+    static func setSelectedLanguage(_ language: String) {
+        UserDefaults(suiteName: appGroup)?.set(language, forKey: languageKey)
     }
 }

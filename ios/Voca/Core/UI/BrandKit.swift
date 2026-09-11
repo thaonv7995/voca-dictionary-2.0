@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 /// Shared brand styling so every feature looks like one app (green brand, ported from V1).
 enum Brand {
@@ -30,6 +31,13 @@ struct CardLanguagePicker: View {
         }
         .pickerStyle(.segmented)
         .accessibilityLabel("Chọn ngôn ngữ học")
+        .onAppear { syncWidgetLanguage(selection) }
+        .onChange(of: selection) { _, value in syncWidgetLanguage(value) }
+    }
+
+    private func syncWidgetLanguage(_ value: String) {
+        WidgetSharedStore.setSelectedLanguage(value)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }
 
