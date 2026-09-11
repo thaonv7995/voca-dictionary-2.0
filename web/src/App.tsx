@@ -55,6 +55,7 @@ import { type Card, type CardLanguage, slugify } from "@voca/core/data/schema";
 import { visibleTags } from "@voca/core/data/tags";
 import { useManifest } from "./hooks/useManifest";
 import { readJson, useStoredState, writeJson } from "./lib/storage";
+import { api, apiFetch, ApiError } from "./lib/api";
 import { bridgeAuthorizationHeader, defaultVocaApiToken, patchBridgeCardLevel, resolvedLocalBridgeOrigin } from "./local-bridge";
 import {
   maybeParseQuickQuiz,
@@ -279,16 +280,38 @@ const defaultGlobalContextScope: GlobalContextScope = {
 
 
 
+type ApiKeyRow = {
+  id: number;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  status: string;
+  lastUsedAt?: string | null;
+  createdAt: string;
+};
+
+type AdminUserRow = {
+  id: number;
+  email: string;
+  displayName?: string | null;
+  admin: boolean;
+  apiKeyCount: number;
+  createdAt: string;
+};
+
+type ServerAiSettings = {
+  llmBaseUrl?: string;
+  llmModel?: string;
+  hasLlmKey?: boolean;
+  hasTtsKey?: boolean;
+};
+
 async function fetchLlm(settings: AiSettings, body: any): Promise<Response> {
   const bridgeOrigin = resolvedLocalBridgeOrigin(settings.localBridgeOrigin);
   let isBridgeReachable = false;
   try {
-    const response = await fetch(`${bridgeOrigin}/api/chat/completions`, {
+    const response = await apiFetch(`${bridgeOrigin}/api/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...bridgeAuthorizationHeader(settings.bridgeApiToken),
-      },
       body: JSON.stringify({
         ...body,
         settings,
@@ -301,7 +324,9 @@ async function fetchLlm(settings: AiSettings, body: any): Promise<Response> {
     }
     return response;
   } catch (err) {
-    if (isBridgeReachable) {
+    // An expired session is not an unreachable proxy — falling back to the direct call would
+    // hit the provider with an empty client-side key and report a confusing error.
+    if (isBridgeReachable || err instanceof ApiError) {
       throw err;
     }
     console.warn("Local bridge LLM proxy unavailable, falling back to direct call:", err);
@@ -615,9 +640,8 @@ async function speakEnglish(text: string, settings?: AiSettings, options?: { tts
   if (requestSettings) {
     try {
       // Server-side TTS: the mp3 is synthesized by the backend using the user's server-held key.
-      const response = await fetch("/api/tts", {
+      const response = await apiFetch("/api/tts", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
         body: JSON.stringify({ text: cleanText, voiceModel: model }),
       });
       if (!response.ok) throw new Error(`TTS failed: ${response.status}`);
@@ -651,6 +675,7 @@ async function prefetchEnglishAudioUrl(text: string, settings: AiSettings, ttsMo
 
   try {
     const bridgeOrigin = resolvedLocalBridgeOrigin(settings.localBridgeOrigin);
+    // Legacy v1 local-bridge route (not under /api) — plain fetch, no 401 refresh path.
     const response = await fetch(`${bridgeOrigin}/tts-cache`, {
       method: "POST",
       headers: {
@@ -673,9 +698,8 @@ async function prefetchEnglishAudioUrl(text: string, settings: AiSettings, ttsMo
     // Fall back to direct TTS below when the local bridge cache is unavailable.
   }
 
-  const response = await fetch("/api/tts", {
+  const response = await apiFetch("/api/tts", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
     body: JSON.stringify({ text: cleanText, voiceModel: model }),
   });
   if (!response.ok) throw new Error(`TTS failed: ${response.status}`);
@@ -1311,8 +1335,7 @@ export function App() {
   // The API key lives server-side per user; hydrate the (non-secret) LLM base URL + model
   // from the server on load so the agent recognises the config on any device / fresh browser.
   useEffect(() => {
-    void fetch("/api/user/settings", { headers: { ...bridgeAuthorizationHeader() } })
-      .then((r) => (r.ok ? r.json() : null))
+    void api<{ llmBaseUrl?: string; llmModel?: string }>("/api/user/settings")
       .then((s) => {
         if (!s) return;
         setSettings((prev) => ({
@@ -1515,12 +1538,8 @@ export function App() {
     const bridgeOrigin = resolvedLocalBridgeOrigin(settings.localBridgeOrigin);
 
     try {
-      const response = await fetch(`${bridgeOrigin}/api/cards/create`, {
+      const response = await apiFetch(`${bridgeOrigin}/api/cards/create`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...bridgeAuthorizationHeader(settings.bridgeApiToken),
-        },
         body: JSON.stringify({ word: normalizedWord, language: activeLanguage, settings }),
       });
       if (!response.ok) {
@@ -1710,16 +1729,7 @@ export function App() {
   const deleteCard = (card: Card) => {
     const bridgeOrigin = resolvedLocalBridgeOrigin(settings.localBridgeOrigin);
     const cardId = String(card.slug || slugify(card.word)).trim() || cardKey(card);
-    fetch(`${bridgeOrigin}/api/cards/${encodeURIComponent(cardId)}`, {
-      method: "DELETE",
-      headers: {
-        ...bridgeAuthorizationHeader(settings.bridgeApiToken),
-      },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Status ${res.status}`);
-        return res.json();
-      })
+    api(`${bridgeOrigin}/api/cards/${encodeURIComponent(cardId)}`, { method: "DELETE" })
       .then(() => {
         setSelectedKey(null);
         setChatOpen(false);
@@ -2011,9 +2021,7 @@ function AppSettingsPanel({
   const apiBaseUrl = typeof window !== "undefined" ? `${window.location.origin}/v1` : "/v1";
 
   // Self-service API keys (any user can mint keys for other systems to call the /v1 API).
-  const [apiKeys, setApiKeys] = useState<
-    { id: number; name: string; prefix: string; scopes: string[]; status: string; lastUsedAt?: string | null; createdAt: string }[] | null
-  >(null);
+  const [apiKeys, setApiKeys] = useState<ApiKeyRow[] | null>(null);
   const [newKeyName, setNewKeyName] = useState("");
   const [creatingKey, setCreatingKey] = useState(false);
   const [freshKey, setFreshKey] = useState<string | null>(null);
@@ -2023,9 +2031,7 @@ function AppSettingsPanel({
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Admin user management
-  const [usersList, setUsersList] = useState<
-    { id: number; email: string; displayName?: string | null; admin: boolean; apiKeyCount: number; createdAt: string }[] | null
-  >(null);
+  const [usersList, setUsersList] = useState<AdminUserRow[] | null>(null);
   const [userBusy, setUserBusy] = useState<number | null>(null);
   const [userError, setUserError] = useState<string | null>(null);
   const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<number | null>(null);
@@ -2049,8 +2055,7 @@ function AppSettingsPanel({
   const [pwError, setPwError] = useState<string | null>(null);
 
   useEffect(() => {
-    void fetch("/api/user/settings", { headers: { ...bridgeAuthorizationHeader() } })
-      .then((r) => (r.ok ? r.json() : null))
+    void api<ServerAiSettings>("/api/user/settings")
       .then((s) => {
         if (s) setServerAi({ hasLlmKey: !!s.hasLlmKey, hasTtsKey: !!s.hasTtsKey });
       })
@@ -2082,7 +2087,7 @@ function AppSettingsPanel({
   async function downloadApiDocs() {
     setKeyError(null);
     try {
-      const r = await fetch("/api/docs/v1", { headers: { ...bridgeAuthorizationHeader() } });
+      const r = await apiFetch("/api/docs/v1");
       if (!r.ok) throw new Error();
       const text = await r.text();
       const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
@@ -2101,9 +2106,7 @@ function AppSettingsPanel({
 
   async function refreshApiKeys() {
     try {
-      const r = await fetch("/api/user/api-keys", { headers: { ...bridgeAuthorizationHeader() } });
-      if (!r.ok) throw new Error();
-      const d = await r.json();
+      const d = await api<{ keys?: ApiKeyRow[] }>("/api/user/api-keys");
       setApiKeys(d.keys || []);
     } catch {
       setApiKeys([]);
@@ -2116,13 +2119,10 @@ function AppSettingsPanel({
     setFreshKey(null);
     setCreatingKey(true);
     try {
-      const r = await fetch("/api/user/api-keys", {
+      const d = await api<{ key: string }>("/api/user/api-keys", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
         body: JSON.stringify({ name: newKeyName.trim() || "API key" }),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d?.error?.message || "Không tạo được API key.");
       setFreshKey(d.key);
       setNewKeyName("");
       await refreshApiKeys();
@@ -2136,8 +2136,7 @@ function AppSettingsPanel({
   async function revokeApiKey(id: number) {
     setKeyBusyId(id);
     try {
-      const r = await fetch(`/api/user/api-keys/${id}/revoke`, { method: "POST", headers: { ...bridgeAuthorizationHeader() } });
-      if (!r.ok) throw new Error();
+      await api(`/api/user/api-keys/${id}/revoke`, { method: "POST" });
       await refreshApiKeys();
     } catch {
       /* ignore */
@@ -2149,8 +2148,7 @@ function AppSettingsPanel({
   async function deleteApiKey(id: number) {
     setKeyBusyId(id);
     try {
-      const r = await fetch(`/api/user/api-keys/${id}`, { method: "DELETE", headers: { ...bridgeAuthorizationHeader() } });
-      if (!r.ok) throw new Error();
+      await api(`/api/user/api-keys/${id}`, { method: "DELETE" });
       setConfirmDeleteKeyId(null);
       await refreshApiKeys();
     } catch {
@@ -2163,9 +2161,7 @@ function AppSettingsPanel({
   async function refreshUsers() {
     setUserError(null);
     try {
-      const r = await fetch("/api/admin/users", { headers: { ...bridgeAuthorizationHeader() } });
-      if (!r.ok) throw new Error();
-      setUsersList(await r.json());
+      setUsersList(await api<AdminUserRow[]>("/api/admin/users"));
     } catch {
       setUsersList([]);
     }
@@ -2175,13 +2171,10 @@ function AppSettingsPanel({
     setUserBusy(u.id);
     setUserError(null);
     try {
-      const r = await fetch(`/api/admin/users/${u.id}`, {
+      await api(`/api/admin/users/${u.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
         body: JSON.stringify({ admin: !u.admin }),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d?.error?.message || "Không cập nhật được.");
       await refreshUsers();
     } catch (e) {
       setUserError(e instanceof Error ? e.message : "Không cập nhật được.");
@@ -2194,9 +2187,7 @@ function AppSettingsPanel({
     setUserBusy(id);
     setUserError(null);
     try {
-      const r = await fetch(`/api/admin/users/${id}`, { method: "DELETE", headers: { ...bridgeAuthorizationHeader() } });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d?.error?.message || "Không xóa được.");
+      await api(`/api/admin/users/${id}`, { method: "DELETE" });
       setConfirmDeleteUserId(null);
       await refreshUsers();
     } catch (e) {
@@ -2216,9 +2207,8 @@ function AppSettingsPanel({
     }
     setCreatingUser(true);
     try {
-      const r = await fetch("/api/admin/users", {
+      const d = await api<{ email: string; password: string }>("/api/admin/users", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
         body: JSON.stringify({
           email: newUserEmail.trim(),
           displayName: newUserName.trim() || null,
@@ -2226,8 +2216,6 @@ function AppSettingsPanel({
           password: newUserPassword.trim() || null,
         }),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d?.error?.message || "Không tạo được user.");
       setCreatedCred({ email: d.email, password: d.password });
       setNewUserEmail("");
       setNewUserName("");
@@ -2269,13 +2257,10 @@ function AppSettingsPanel({
     setNameSaved(false);
     setSavingName(true);
     try {
-      const r = await fetch("/api/auth/me", {
+      const d = await api<{ displayName?: string | null }>("/api/auth/me", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
         body: JSON.stringify({ displayName: profileName.trim() || null }),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error();
       if (authUser) useAuthStore.getState().setUser({ ...authUser, displayName: d.displayName ?? null });
       setNameSaved(true);
     } catch {
@@ -2303,13 +2288,10 @@ function AppSettingsPanel({
     }
     setChangingPw(true);
     try {
-      const r = await fetch("/api/auth/change-password", {
+      await api("/api/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
         body: JSON.stringify({ currentPassword: pwCurrent, newPassword: pwNew }),
       });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d?.error?.message || "Không đổi được mật khẩu.");
       setPwStatus("ok");
       setPwCurrent("");
       setPwNew("");
@@ -2343,13 +2325,10 @@ function AppSettingsPanel({
         payload.llmApiKey = key;
         payload.ttsApiKey = key;
       }
-      const res = await fetch("/api/user/settings", {
+      const s = await api<ServerAiSettings>("/api/user/settings", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error(`Save failed (${res.status})`);
-      const s = await res.json();
       setServerAi({ hasLlmKey: !!s.hasLlmKey, hasTtsKey: !!s.hasTtsKey });
       setKeyInput("");
       onSettingsChange({ ...settings, apiKey: "" }); // never keep the key in the browser
@@ -2357,9 +2336,8 @@ function AppSettingsPanel({
       // Quick connection test (config resolves server-side → the stream starts with 200).
       setTestStatus("testing");
       try {
-        const t = await fetch("/api/chat/completions", {
+        const t = await apiFetch("/api/chat/completions", {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...bridgeAuthorizationHeader() },
           body: JSON.stringify({ messages: [{ role: "user", content: "ping" }] }),
         });
         setTestStatus(t.ok ? "ok" : "fail");
@@ -2378,16 +2356,7 @@ function AppSettingsPanel({
     setClearingAll(true);
     const bridgeOrigin = resolvedLocalBridgeOrigin(settings.localBridgeOrigin);
     try {
-      const response = await fetch(`${bridgeOrigin}/api/cards`, {
-        method: "DELETE",
-        headers: {
-          ...bridgeAuthorizationHeader(settings.bridgeApiToken),
-        },
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload?.error?.message || `DELETE failed with status ${response.status}`);
-      }
+      await api(`${bridgeOrigin}/api/cards`, { method: "DELETE" });
       setConfirmingClearAll(false);
       setClearAllInput("");
       onRefresh();
@@ -2491,21 +2460,10 @@ ${batch.map((c) => `- Word: "${c.word}", Part of speech: "${c.partOfSpeech}", To
       }
 
       setFillingStatus("Đang lưu nghĩa vào cơ sở dữ liệu...");
-      const saveResponse = await fetch(`/api/cards/fill-meanings`, {
+      const saveResult = await api<{ updatedCount: number }>(`/api/cards/fill-meanings`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...bridgeAuthorizationHeader(),
-        },
         body: JSON.stringify({ updates: allUpdates }),
       });
-
-      if (!saveResponse.ok) {
-        const payload = await saveResponse.json().catch(() => ({}));
-        throw new Error(payload.error || `Save meanings failed (${saveResponse.status})`);
-      }
-
-      const saveResult = await saveResponse.json();
       setFillingStatus(`Successfully filled ${saveResult.updatedCount} meanings!`);
       onRefresh();
     } catch (error) {
@@ -4939,6 +4897,8 @@ function GlobalAgentPanel({
         return next;
       });
       const bridgeOrigin = resolvedLocalBridgeOrigin(settings.localBridgeOrigin);
+      // /v1/** is the API-key realm, not the JWT one: a 401 here means "no API key", so this must
+      // stay a plain fetch — routing it through apiFetch would clear a perfectly good session.
       fetch(`${bridgeOrigin}/v1/listen/record-used-words`, {
         method: "POST",
         headers: {

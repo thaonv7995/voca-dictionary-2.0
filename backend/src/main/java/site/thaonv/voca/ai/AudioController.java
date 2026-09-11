@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import site.thaonv.voca.apikey.ApiKeyPrincipal;
 import site.thaonv.voca.card.CardRepository;
 import site.thaonv.voca.common.ApiException;
 import site.thaonv.voca.user.UserPrincipal;
@@ -42,8 +43,10 @@ public class AudioController {
 
     @PostMapping("/v1/audio/{id}")
     @PreAuthorize("hasAuthority('SCOPE_audio:read')")
-    public Map<String, Object> generatePublic(@PathVariable String id, @RequestBody(required = false) AudioRequest req) {
-        return generate(null, id, req);
+    public Map<String, Object> generatePublic(@PathVariable String id,
+                                              @RequestBody(required = false) AudioRequest req,
+                                              @AuthenticationPrincipal ApiKeyPrincipal principal) {
+        return generate(ApiKeyPrincipal.requireOwner(principal), id, req);
     }
 
     // ---- App (JWT) ----

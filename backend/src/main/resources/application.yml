@@ -27,7 +27,7 @@ app:
     password: ${VOCA_ADMIN_PASSWORD:change-me}
   jwt:
     secret: ${VOCA_JWT_SECRET:dev-only-change-me-please-32bytes-minimum-secret-key-0001}
-    access-ttl-seconds: ${VOCA_JWT_ACCESS_TTL:43200}   # 12h — avoids mid-session expiry (v1's raw fetches don't auto-refresh)
+    access-ttl-seconds: ${VOCA_JWT_ACCESS_TTL:1800}    # 30m — the web client refreshes on 401, so a short-lived access token is safe
   auth:
     refresh-ttl-days: ${VOCA_REFRESH_TTL_DAYS:30}
   apikey:

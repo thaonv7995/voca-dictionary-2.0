@@ -1,5 +1,5 @@
 import { parseManifest, type Manifest } from "@voca/core/data/schema";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 
 const cacheBust = () => `v=${Date.now()}`;
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -35,6 +35,9 @@ export async function fetchManifest(): Promise<Manifest> {
       return await fetchManifestOnce();
     } catch (error) {
       lastError = error;
+      // api() already refreshed once and cleared the session — the token will not get better
+      // by trying again, and the auth gate is about to swap us out for the login screen.
+      if (error instanceof ApiError && error.status === 401) break;
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Cannot load manifest");

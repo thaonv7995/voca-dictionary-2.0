@@ -70,8 +70,11 @@ export function useManifest() {
 
   useEffect(() => {
     const onFocus = () => {
-      refreshIfChanged().catch(() => {
-        setState((current) => ({ ...current, error: "Không thể làm mới danh sách từ vựng." }));
+      refreshIfChanged().catch((error) => {
+        setState((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : "Không thể làm mới danh sách từ vựng.",
+        }));
       });
     };
     window.addEventListener("focus", onFocus);
