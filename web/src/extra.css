@@ -12,6 +12,37 @@
 .card-face .face-section li { margin: 4px 0; line-height: 1.5; }
 .card-face-mini { padding: 8px 2px; line-height: 1.55; color: var(--ink); }
 .card-face-mini p { margin: 0; }
+.language-switch { display: inline-flex; align-items: center; border: 1px solid var(--line-strong); border-radius: 7px; overflow: hidden; background: var(--panel); }
+.language-switch button { min-height: 38px; border: 0; border-radius: 0; padding: 0 11px; color: var(--muted); background: transparent; font-size: 12px; }
+.language-switch button + button { border-left: 1px solid var(--line); }
+.language-switch button.active { color: #fff; background: var(--accent); }
+.hanzi-title { font-size: 42px !important; letter-spacing: .08em; }
+.row-main strong.hanzi-word { font-size: 27px; letter-spacing: .06em; }
+.row-main .hanzi-card-pinyin { display: block; margin-top: 3px; overflow: visible; color: var(--ink); font-family: var(--font-ipa); font-size: 14px; font-weight: 750; line-height: 1.25; letter-spacing: .02em; text-overflow: clip; }
+.chinese-card-face { gap: 18px; }
+.chinese-example { display: grid; gap: 3px; }
+.chinese-example p { margin: 0; }
+.chinese-example > p:first-child { font-size: 20px; font-weight: 700; }
+.chinese-example-pinyin { color: var(--accent); font-size: 14px; font-weight: 700; }
+.chinese-example-meaning { color: var(--muted); font-size: 14px; }
+.hanzi-writer-list { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; }
+.hanzi-writer-card { display: grid; justify-items: center; gap: 8px; width: 146px; }
+.hanzi-writer-target { position: relative; display: grid; width: 132px; height: 132px; place-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--ink), transparent 58%); border-radius: 10px; background: #fff; box-shadow: 0 5px 16px rgba(15, 23, 42, .1); touch-action: none; }
+.hanzi-writer-target::before,
+.hanzi-writer-target::after { content: ""; position: absolute; z-index: 0; pointer-events: none; opacity: .75; }
+.hanzi-writer-target::before { inset: 50% 0 auto; border-top: 1px dashed #cbd5e1; }
+.hanzi-writer-target::after { inset: 0 auto 0 50%; border-left: 1px dashed #cbd5e1; }
+.hanzi-writer-target svg,
+.hanzi-writer-target canvas { position: relative; z-index: 1; width: 132px; height: 132px; }
+.hanzi-load-fallback { position: relative; z-index: 1; color: #111827; font-family: "Noto Sans SC", "PingFang SC", sans-serif; font-size: 82px; font-weight: 800; }
+.hanzi-writer-actions { display: flex; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 2px 8px rgba(15, 23, 42, .06); }
+.hanzi-writer-actions .hanzi-writer-icon-button { display: grid; width: 44px; min-height: 36px; place-items: center; border: 0; border-radius: 0; padding: 0; background: transparent; color: var(--muted); }
+.hanzi-writer-actions .hanzi-writer-icon-button + .hanzi-writer-icon-button { border-left: 1px solid var(--line); }
+.hanzi-writer-actions .hanzi-writer-icon-button:hover:not(:disabled) { background: var(--panel-soft); color: var(--ink); }
+.hanzi-writer-actions .hanzi-writer-icon-button.active { background: var(--accent); color: #fff; }
+.hanzi-writer-actions .hanzi-writer-icon-button svg { width: 17px; height: 17px; }
+.hanzi-practice-status { margin: 0 !important; color: var(--muted); font-size: 11px; text-align: center; }
+.hanzi-practice-status.complete { color: var(--accent); font-weight: 800; }
 
 /* POS badge uppercase (match the original v1 screenshots) */
 .pos-badge { text-transform: uppercase !important; letter-spacing: .04em; }

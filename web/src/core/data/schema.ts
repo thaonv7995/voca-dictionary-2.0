@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { visibleTags } from "./tags";
 
+export type CardLanguage = "en" | "zh-CN";
+
 export const cardSchema = z.object({
   word: z.string().min(1),
+  language: z.enum(["en", "zh-CN"]).catch("en"),
   slug: z.string().optional(),
   file: z.string().min(1),
   pronunciation: z.string().optional(),
@@ -64,6 +67,7 @@ function normalizeCard(card: z.infer<typeof cardSchema>): Card {
     tags,
     searchText: [
       card.word,
+      card.language,
       slug,
       card.file,
       pronunciation,

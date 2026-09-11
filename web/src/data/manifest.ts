@@ -1,22 +1,18 @@
 import { parseManifest, type Manifest } from "@voca/core/data/schema";
-import { bridgeAuthorizationHeader } from "../local-bridge";
+import { api } from "../lib/api";
 
 const cacheBust = () => `v=${Date.now()}`;
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 /** Loads the vocabulary manifest from the v2 backend (JWT). Shape: { version, cards: [...] }. */
 async function fetchManifestOnce(): Promise<Manifest> {
-  const response = await fetch(`/api/cards?${cacheBust()}`, {
-    cache: "no-store",
-    headers: { Accept: "application/json", ...bridgeAuthorizationHeader() },
-  });
-  if (!response.ok) {
-    throw new Error(`Cannot load cards (${response.status})`);
-  }
-  const payload = (await response.json()) as {
+  const payload = await api<{
     version?: string;
     cards?: Array<Record<string, unknown>>;
-  };
+  }>(`/api/cards?${cacheBust()}`, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
   // v1's card schema uses .optional() (string | undefined) — nulls from the backend must be stripped.
   // It also requires a non-empty `file`; v2 dropped PNGs, so synthesize one from the slug.
   const rawCards = (Array.isArray(payload.cards) ? payload.cards : []).map((c) => {

@@ -8,9 +8,11 @@ import org.springframework.transaction.annotation.Transactional;
 import site.thaonv.voca.common.ApiException;
 
 import java.time.Instant;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -28,11 +30,22 @@ public class CardService {
     }
 
     public static String slugify(String value) {
-        String slug = value.toLowerCase()
-                .replaceAll("[^a-z0-9]+", "-")
+        String slug = Normalizer.normalize(value, Normalizer.Form.NFKC)
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^\\p{L}\\p{N}]+", "-")
                 .replaceAll("-+", "-")
                 .replaceAll("^-|-$", "");
         return slug.isBlank() ? "word" : slug;
+    }
+
+    public static String normalizeLanguage(String language) {
+        return "zh-CN".equalsIgnoreCase(language) || "zh".equalsIgnoreCase(language) ? "zh-CN" : "en";
+    }
+
+    public static String slugFor(String language, String word) {
+        String normalizedLanguage = normalizeLanguage(language);
+        String slug = slugify(word);
+        return "zh-CN".equals(normalizedLanguage) ? "zh-" + slug : slug;
     }
 
     /** Signature the clients poll with ifChangedSince to avoid re-downloading unchanged data. */
@@ -94,21 +107,20 @@ public class CardService {
         return n;
     }
 
-    /** True if this user already owns a card with the given slug. */
-    public boolean userHasSlug(Long ownerId, String slug) {
-        return cards.existsByOwnerIdAndSlugIgnoreCase(ownerId, slug);
+    public boolean userHasWord(Long ownerId, String language, String word) {
+        return cards.existsByOwnerIdAndLanguageAndWordIgnoreCase(ownerId, normalizeLanguage(language), word.trim());
     }
 
-    /** Any user's card with this slug (for copy-on-add de-dup), or null. */
-    public Card findAnyBySlug(String slug) {
-        return cards.findFirstBySlugIgnoreCase(slug).orElse(null);
+    /** Any user's matching card (for copy-on-add de-dup), or null. */
+    public Card findAnyByWord(String language, String word) {
+        return cards.findFirstByLanguageAndWordIgnoreCase(normalizeLanguage(language), word.trim()).orElse(null);
     }
 
     /** Copies an existing card's content into a fresh card owned by ownerId (no LLM cost). Level starts at "new". */
     @Transactional
     public CardDto copyToUser(Card source, Long ownerId) {
         CardInput input = new CardInput(
-                source.getWord(), source.getSlug(), source.getIpa(), source.getPronunciation(), source.getFrequency(),
+                source.getWord(), source.getSlug(), source.getLanguage(), source.getIpa(), source.getPronunciation(), source.getFrequency(),
                 source.getMeaningEn(), source.getMeaningVi(), source.getUseCases(), source.getExamples(), source.getMemoryTip(),
                 source.getToeicTrap(), source.getPartOfSpeech(), source.getTopic(), source.getTags(), source.getKeyword(),
                 source.getPracticePrompt(), source.getAnswer(), "new", source.getDeckId());
@@ -123,13 +135,16 @@ public class CardService {
         if (input.word() == null || input.word().isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_WORD", "word is required.");
         }
-        String slug = input.slug() == null || input.slug().isBlank() ? slugify(input.word()) : input.slug();
-        if (cards.existsByOwnerIdAndSlugIgnoreCase(ownerId, slug)) {
+        String language = normalizeLanguage(input.language());
+        String slug = input.slug() == null || input.slug().isBlank() ? slugFor(language, input.word()) : input.slug();
+        if (cards.existsByOwnerIdAndLanguageAndWordIgnoreCase(ownerId, language, input.word().trim())
+                || cards.existsByOwnerIdAndSlugIgnoreCase(ownerId, slug)) {
             throw new ApiException(HttpStatus.CONFLICT, "CARD_EXISTS", "Từ '" + slug + "' đã có trong danh sách của bạn.");
         }
         Card card = new Card();
         card.setOwnerId(ownerId);
         card.setWord(input.word().trim());
+        card.setLanguage(language);
         card.setSlug(slug);
         card.setIpa(input.ipa());
         card.setPronunciation(input.pronunciation() != null ? input.pronunciation() : input.ipa());
@@ -190,7 +205,7 @@ public class CardService {
 
     public CardDto toDto(Card c) {
         return new CardDto(
-                c.getId(), c.getSlug(), c.getWord(), c.getIpa(), c.getPronunciation(), c.getFrequency(),
+                c.getId(), c.getSlug(), c.getWord(), c.getLanguage(), c.getIpa(), c.getPronunciation(), c.getFrequency(),
                 c.getMeaningEn(), c.getMeaningVi(), c.getUseCases(), c.getExamples(), c.getMemoryTip(),
                 c.getToeicTrap(), c.getPartOfSpeech(), c.getTopic(), c.getTags(), c.getKeyword(),
                 c.getPracticePrompt(), c.getAnswer(), c.getLevel(),
@@ -208,7 +223,7 @@ public class CardService {
     }
 
     public record CardInput(
-            String word, String slug, String ipa, String pronunciation, String frequency,
+            String word, String slug, String language, String ipa, String pronunciation, String frequency,
             String meaningEn, String meaningVi, List<String> useCases, List<String> examples,
             String memoryTip, String toeicTrap, String partOfSpeech, String topic, List<String> tags,
             String keyword, String practicePrompt, String answer, String level, Long deckId) {

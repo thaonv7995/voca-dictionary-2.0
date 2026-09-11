@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import HanziWriter from "hanzi-writer";
 import {
   Activity,
   Check,
@@ -23,6 +24,8 @@ import {
   KeyRound,
   Loader2,
   Moon,
+  PenLine,
+  Play,
   Plus,
   RefreshCw,
   Search,
@@ -48,7 +51,7 @@ import {
   type Filters,
 } from "@voca/core/data/search";
 import { extractLlmDeltaText, extractLlmResponseText } from "@voca/core/data/llm";
-import { type Card, slugify } from "@voca/core/data/schema";
+import { type Card, type CardLanguage, slugify } from "@voca/core/data/schema";
 import { visibleTags } from "@voca/core/data/tags";
 import { useManifest } from "./hooks/useManifest";
 import { readJson, useStoredState, writeJson } from "./lib/storage";
@@ -215,6 +218,7 @@ const defaultFilters: Filters = {
 };
 
 const defaultTtsModel = "edge-tts/en-US-SteffanNeural";
+const defaultChineseTtsModel = "edge-tts/zh-CN-XiaoxiaoNeural";
 const ttsVoiceOptions = [
   { value: "edge-tts/en-US-SteffanNeural", label: "Steffan (US) · M" },
   { value: "edge-tts/en-US-AvaNeural", label: "Ava (US) · F" },
@@ -548,17 +552,19 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-function speakWithBrowserVoice(text: string, options?: { waitForEnd?: boolean }) {
+function speakWithBrowserVoice(text: string, language: CardLanguage = "en", options?: { waitForEnd?: boolean }) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return Promise.resolve();
   const cleanText = text.trim();
   if (!cleanText) return Promise.resolve();
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(cleanText);
-  utterance.lang = "en-US";
+  utterance.lang = language === "zh-CN" ? "zh-CN" : "en-US";
   utterance.rate = 0.88;
   utterance.pitch = 1;
   const voices = window.speechSynthesis.getVoices();
-  const preferredVoice = voices.find((voice) => voice.lang.toLowerCase().startsWith("en-us")) || voices.find((voice) => voice.lang.toLowerCase().startsWith("en"));
+  const voicePrefix = language === "zh-CN" ? "zh-cn" : "en-us";
+  const languagePrefix = language === "zh-CN" ? "zh" : "en";
+  const preferredVoice = voices.find((voice) => voice.lang.toLowerCase().startsWith(voicePrefix)) || voices.find((voice) => voice.lang.toLowerCase().startsWith(languagePrefix));
   if (preferredVoice) utterance.voice = preferredVoice;
   const ended = options?.waitForEnd
     ? new Promise<void>((resolve, reject) => {
@@ -584,12 +590,12 @@ function speakWithBrowserVoice(text: string, options?: { waitForEnd?: boolean })
   return ended;
 }
 
-async function speakEnglish(text: string, settings?: AiSettings, options?: { ttsModel?: string; waitForEnd?: boolean }) {
+async function speakEnglish(text: string, settings?: AiSettings, options?: { ttsModel?: string; waitForEnd?: boolean; language?: CardLanguage }) {
   const cleanText = text.trim();
   if (!cleanText) return;
   stopCurrentSpeech();
   const apiSettings = settings?.useApiTts !== false ? settings : null;
-  const model = options?.ttsModel || apiSettings?.ttsModel || defaultTtsModel;
+  const model = options?.ttsModel || (options?.language === "zh-CN" ? defaultChineseTtsModel : apiSettings?.ttsModel || defaultTtsModel);
   const requestSettings = apiSettings ? { ...apiSettings, ttsModel: model } : null;
   const cachedAudioUrl = speechAudioUrlCache.get(speechCacheKey(cleanText, model));
 
@@ -630,7 +636,7 @@ async function speakEnglish(text: string, settings?: AiSettings, options?: { tts
     }
   }
 
-  await speakWithBrowserVoice(cleanText, options);
+  await speakWithBrowserVoice(cleanText, options?.language, options);
 }
 
 async function prefetchEnglishAudioUrl(text: string, settings: AiSettings, ttsModel?: string): Promise<string | null> {
@@ -681,7 +687,7 @@ async function prefetchEnglishAudioUrl(text: string, settings: AiSettings, ttsMo
   return audioUrl;
 }
 
-function SpeakButton({ text, label, settings }: { text: string; label?: string; settings?: AiSettings }) {
+function SpeakButton({ text, label, settings, language = "en" }: { text: string; label?: string; settings?: AiSettings; language?: CardLanguage }) {
   const [loading, setLoading] = useState(false);
   return (
     <button
@@ -694,7 +700,7 @@ function SpeakButton({ text, label, settings }: { text: string; label?: string; 
         event.preventDefault();
         event.stopPropagation();
         setLoading(true);
-        void speakEnglish(text, settings).finally(() => setLoading(false));
+        void speakEnglish(text, settings, { language }).finally(() => setLoading(false));
       }}
     >
       {loading ? <Loader2 className="spin" /> : <Volume2 />}
@@ -1261,6 +1267,7 @@ function MarkdownText({ value }: { value: string }) {
 export function App() {
   const { cards: manifestCards, manifest, loading, refreshing, error, lastLoadedAt, refresh } = useManifest();
   const [theme, setTheme] = useStoredState<Theme>("voca.theme", "light");
+  const [activeLanguage, setActiveLanguage] = useStoredState<CardLanguage>("voca.language", "en");
   const [storedSettings, setSettings] = useStoredState<AiSettings>("voca.ai.settings", defaultSettings);
   const [layout, setLayout] = useStoredState<LayoutColumns>("voca.layout.columns", defaultLayout);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
@@ -1325,7 +1332,7 @@ export function App() {
   const searchMode = settings.searchMode || "default";
 
   /** Library levels come only from the manifest (cards.json via /cards.json or bridge /api/cards)—no browser-only overrides. */
-  const cards = manifestCards;
+  const cards = useMemo(() => manifestCards.filter((card) => card.language === activeLanguage), [manifestCards, activeLanguage]);
   const topics = useMemo(() => uniqueSortedValues(cards, "topic"), [cards]);
   const partsOfSpeech = useMemo(() => uniqueSortedValues(cards, "partOfSpeech"), [cards]);
   const filtered = useMemo(() => sortCardsByCreatedNewest(filterCards(cards, filters)), [cards, filters]);
@@ -1459,7 +1466,7 @@ export function App() {
         event.preventDefault();
         const targetWord = selected?.word || contextListCards[0]?.word;
         if (targetWord) {
-          void speakEnglish(targetWord, settings);
+          void speakEnglish(targetWord, settings, { language: selected?.language || activeLanguage });
         }
       }
     };
@@ -1468,9 +1475,16 @@ export function App() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selected, contextListCards, filters, settings]);
+  }, [selected, contextListCards, filters, settings, activeLanguage]);
 
   const clearFilters = () => setFilters(defaultFilters);
+  const changeLanguage = (language: CardLanguage) => {
+    setActiveLanguage(language);
+    setFilters(defaultFilters);
+    setSelectedKey(null);
+    setChatOpen(false);
+    setCreateCardState({ word: "", status: "idle", message: "" });
+  };
   const createMissingCard = async (word: string) => {
     const normalizedWord = word.trim();
     if (!normalizedWord || createCardState.status === "creating") return;
@@ -1507,7 +1521,7 @@ export function App() {
           "Content-Type": "application/json",
           ...bridgeAuthorizationHeader(settings.bridgeApiToken),
         },
-        body: JSON.stringify({ word: normalizedWord, settings }),
+        body: JSON.stringify({ word: normalizedWord, language: activeLanguage, settings }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -1642,7 +1656,7 @@ export function App() {
     if (contextListCards.length > 0) {
       const targetWord = selected?.word || contextListCards[0]?.word;
       if (targetWord) {
-        void speakEnglish(targetWord, settings);
+        void speakEnglish(targetWord, settings, { language: selected?.language || activeLanguage });
       }
       return;
     }
@@ -1770,6 +1784,10 @@ export function App() {
             {globalAgentOpen ? <p className="list-context-note">Agent context: {contextDescription}</p> : null}
           </div>
           <div className="list-actions">
+            <div className="language-switch" role="group" aria-label="Vocabulary language">
+              <button type="button" className={activeLanguage === "en" ? "active" : ""} onClick={() => changeLanguage("en")}>English</button>
+              <button type="button" className={activeLanguage === "zh-CN" ? "active" : ""} onClick={() => changeLanguage("zh-CN")}>中文</button>
+            </div>
             <button
               className={`icon-button ${flashcardOpen ? "active" : ""}`}
               type="button"
@@ -3444,14 +3462,20 @@ function CardList({
                     <div className="card-top-row">
                       <span className="row-main">
                         <span className="row-title-line">
-                          <strong className={card.word.length > 18 ? "long-word" : card.word.length > 12 ? "medium-word" : ""}>
+                          <strong
+                            className={`${card.word.length > 18 ? "long-word" : card.word.length > 12 ? "medium-word" : ""} ${card.language === "zh-CN" ? "hanzi-word" : ""}`}
+                            lang={card.language === "zh-CN" ? "zh-CN" : "en"}
+                          >
                             {card.word}
                           </strong>
-                          <SpeakButton text={card.word} settings={settings} />
+                          <SpeakButton text={card.word} settings={settings} language={card.language} />
                         </span>
+                        {card.language === "zh-CN" && cardPronunciation(card) ? (
+                          <span className="hanzi-card-pinyin" lang="zh-Latn-pinyin">{cardPronunciation(card)}</span>
+                        ) : null}
                         <span className="row-meta-line">
                           <span className="pos-badge" title={card.partOfSpeech}>{card.partOfSpeech}</span>
-                          {cardPronunciation(card) ? <span className="row-ipa">{cardPronunciation(card)}</span> : null}
+                          {card.language !== "zh-CN" && cardPronunciation(card) ? <span className="row-ipa">{cardPronunciation(card)}</span> : null}
                         </span>
                       </span>
                       <span className={`level-badge level-${card.level}`}>
@@ -3503,7 +3527,7 @@ function QuickCardPreview({ card, settings, onClose }: { card: Card; settings: A
             <p className="eyebrow">Quick Preview</p>
             <div className="quick-preview-title-line">
               <h3>{card.word}</h3>
-              <SpeakButton text={card.word} settings={settings} />
+              <SpeakButton text={card.word} settings={settings} language={card.language} />
             </div>
             <p>{card.partOfSpeech} · {card.topic}</p>
             {cardPronunciation(card) ? <p className="viewer-ipa">{cardPronunciation(card)}</p> : null}
@@ -3526,6 +3550,121 @@ function QuickCardPreview({ card, settings, onClose }: { card: Card; settings: A
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+function ChineseExample({ value }: { value: string }) {
+  const [hanzi, pinyin, meaningVi] = value.split("|").map((part) => part.trim());
+  return (
+    <div className="chinese-example">
+      <p lang="zh-CN">{hanzi || value}</p>
+      {pinyin ? <p className="chinese-example-pinyin">{pinyin}</p> : null}
+      {meaningVi ? <p className="chinese-example-meaning">{meaningVi}</p> : null}
+    </div>
+  );
+}
+
+function ChineseWritingGuide({ word }: { word: string }) {
+  const characters = Array.from(word).filter((character) => /\p{Script=Han}/u.test(character));
+  if (!characters.length) return null;
+  return (
+    <div className="face-section chinese-writing">
+      <h4>Tập viết</h4>
+      <div className="hanzi-writer-list">
+        {characters.map((character, index) => (
+          <HanziCharacterWriter character={character} key={`${character}-${index}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HanziCharacterWriter({ character }: { character: string }) {
+  const targetRef = useRef<HTMLDivElement | null>(null);
+  const writerRef = useRef<HanziWriter | null>(null);
+  const [mode, setMode] = useState<"idle" | "animating" | "practicing" | "complete">("idle");
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    const target = targetRef.current;
+    if (!target) return;
+    target.replaceChildren();
+    setLoadError(false);
+    writerRef.current = HanziWriter.create(target, character, {
+      width: 132,
+      height: 132,
+      padding: 8,
+      showOutline: true,
+      showCharacter: true,
+      strokeColor: "#111827",
+      outlineColor: "#cbd5e1",
+      drawingColor: "#059669",
+      highlightColor: "#10b981",
+      strokeWidth: 4,
+      outlineWidth: 2,
+      drawingWidth: 7,
+      strokeAnimationSpeed: 1.25,
+      delayBetweenStrokes: 180,
+      onLoadCharDataError: () => setLoadError(true),
+    });
+    return () => {
+      writerRef.current?.cancelQuiz();
+      writerRef.current = null;
+      target.replaceChildren();
+    };
+  }, [character]);
+
+  const animate = async () => {
+    const writer = writerRef.current;
+    if (!writer) return;
+    writer.cancelQuiz();
+    setMode("animating");
+    await writer.hideCharacter({ duration: 120 });
+    await writer.animateCharacter({ onComplete: () => setMode("idle") });
+  };
+
+  const practice = async () => {
+    const writer = writerRef.current;
+    if (!writer) return;
+    writer.cancelQuiz();
+    setMode("practicing");
+    await writer.hideCharacter({ duration: 100 });
+    await writer.quiz({
+      showHintAfterMisses: 2,
+      highlightOnComplete: true,
+      onComplete: () => setMode("complete"),
+    });
+  };
+
+  return (
+    <div className="hanzi-writer-card">
+      <div className="hanzi-writer-target" ref={targetRef} aria-label={`Thứ tự nét chữ ${character}`}>
+        {loadError ? <span className="hanzi-load-fallback" lang="zh-CN">{character}</span> : null}
+      </div>
+      <div className="hanzi-writer-actions" role="group" aria-label={`Điều khiển tập viết chữ ${character}`}>
+        <button
+          type="button"
+          className={`hanzi-writer-icon-button${mode === "animating" ? " active" : ""}`}
+          onClick={() => void animate()}
+          disabled={mode === "animating"}
+          aria-label={mode === "animating" ? "Đang vẽ thứ tự nét" : "Xem thứ tự nét"}
+          title={mode === "animating" ? "Đang vẽ…" : "Xem thứ tự nét"}
+        >
+          <Play aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={`hanzi-writer-icon-button${mode === "practicing" || mode === "complete" ? " active" : ""}`}
+          onClick={() => void practice()}
+          aria-label={mode === "complete" ? "Luyện viết lại" : "Luyện viết"}
+          title={mode === "complete" ? "Luyện viết lại" : "Luyện viết"}
+        >
+          <PenLine aria-hidden="true" />
+        </button>
+      </div>
+      {mode === "practicing" ? <p className="hanzi-practice-status">Viết theo đúng thứ tự nét trong ô.</p> : null}
+      {mode === "complete" ? <p className="hanzi-practice-status complete">Hoàn thành</p> : null}
     </div>
   );
 }
@@ -3626,7 +3765,7 @@ function FlashcardPanel({
         
         <div className="flashcard-ipa-row" onClick={(e) => e.stopPropagation()}>
           {cardPronunciation(card) ? <span className="flashcard-ipa">{cardPronunciation(card)}</span> : null}
-          <SpeakButton text={card.word} settings={settings} />
+          <SpeakButton text={card.word} settings={settings} language={card.language} />
         </div>
 
         <div className="flashcard-meaning">
@@ -3672,8 +3811,8 @@ function CardPreview({
         <div>
           <p className="eyebrow">Preview · {manifestSource}</p>
           <div className="viewer-title-line">
-            <h2>{card.word}</h2>
-            <SpeakButton text={card.word} settings={settings} />
+            <h2 className={card.language === "zh-CN" ? "hanzi-title" : ""} lang={card.language === "zh-CN" ? "zh-CN" : "en"}>{card.word}</h2>
+            <SpeakButton text={card.word} settings={settings} language={card.language} />
           </div>
           <p>{card.partOfSpeech} · {card.topic}</p>
           {cardPronunciation(card) ? <p className="viewer-ipa">{cardPronunciation(card)}</p> : null}
@@ -3753,17 +3892,27 @@ function CardPreview({
         </div>
       </header>
       <div className="image-stage">
-        <div className="card-face">
-          {card.meaningVi ? <div className="face-section"><h4>Nghĩa</h4><p>{card.meaningVi}</p></div> : null}
-          {card.meaningEn ? <div className="face-section"><h4>Meaning</h4><p>{card.meaningEn}</p></div> : null}
-          {card.examples?.length ? (
-            <div className="face-section"><h4>Examples</h4><ul>{card.examples.map((e, i) => <li key={i}>{e}</li>)}</ul></div>
-          ) : null}
-          {card.useCases?.length ? (
-            <div className="face-section"><h4>Collocations</h4><ul>{card.useCases.map((e, i) => <li key={i}>{e}</li>)}</ul></div>
-          ) : null}
-          {card.memoryTip ? <div className="face-section"><h4>Memory tip</h4><p>{card.memoryTip}</p></div> : null}
-          {card.toeicTrap ? <div className="face-section"><h4>TOEIC trap</h4><p>{card.toeicTrap}</p></div> : null}
+        <div className={`card-face ${card.language === "zh-CN" ? "chinese-card-face" : ""}`}>
+          {card.language === "zh-CN" ? (
+            <>
+              {card.meaningVi ? <div className="face-section"><h4>Nghĩa</h4><p>{card.meaningVi}</p></div> : null}
+              {card.examples?.[0] ? <div className="face-section"><h4>Ví dụ</h4><ChineseExample value={card.examples[0]} /></div> : null}
+              <ChineseWritingGuide word={card.word} />
+            </>
+          ) : (
+            <>
+              {card.meaningVi ? <div className="face-section"><h4>Nghĩa</h4><p>{card.meaningVi}</p></div> : null}
+              {card.meaningEn ? <div className="face-section"><h4>Meaning</h4><p>{card.meaningEn}</p></div> : null}
+              {card.examples?.length ? (
+                <div className="face-section"><h4>Examples</h4><ul>{card.examples.map((e, i) => <li key={i}>{e}</li>)}</ul></div>
+              ) : null}
+              {card.useCases?.length ? (
+                <div className="face-section"><h4>Collocations</h4><ul>{card.useCases.map((e, i) => <li key={i}>{e}</li>)}</ul></div>
+              ) : null}
+              {card.memoryTip ? <div className="face-section"><h4>Memory tip</h4><p>{card.memoryTip}</p></div> : null}
+              {card.toeicTrap ? <div className="face-section"><h4>TOEIC trap</h4><p>{card.toeicTrap}</p></div> : null}
+            </>
+          )}
         </div>
       </div>
     </section>

@@ -37,6 +37,9 @@ public class Card {
     private String word;
 
     @Column(nullable = false)
+    private String language = "en";
+
+    @Column(nullable = false)
     private String slug;
 
     private String ipa;

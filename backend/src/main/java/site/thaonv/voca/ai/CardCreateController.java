@@ -22,12 +22,12 @@ public class CardCreateController {
         this.generation = generation;
     }
 
-    public record CreateRequest(String word) {
+    public record CreateRequest(String word, String language) {
     }
 
     @PostMapping("/api/cards/create")
     public CardDto createForApp(@RequestBody CreateRequest req, @AuthenticationPrincipal UserPrincipal principal) {
-        return generation.createFromWord(principal.id(), req.word());
+        return generation.createFromWord(principal.id(), req.word(), req.language());
     }
 
     @PostMapping("/v1/cards/create")
@@ -36,6 +36,6 @@ public class CardCreateController {
         if (principal == null || principal.ownerUserId() == null) {
             throw new ApiException(HttpStatus.FORBIDDEN, "KEY_NO_OWNER", "API key is not linked to a user account.");
         }
-        return generation.createFromWord(principal.ownerUserId(), req.word());
+        return generation.createFromWord(principal.ownerUserId(), req.word(), req.language());
     }
 }

@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16
-    container_name: voca-v2-postgres
+    container_name: voca-postgres
     environment:
       POSTGRES_DB: voca
       POSTGRES_USER: voca

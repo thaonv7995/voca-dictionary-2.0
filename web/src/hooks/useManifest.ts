@@ -71,7 +71,7 @@ export function useManifest() {
   useEffect(() => {
     const onFocus = () => {
       refreshIfChanged().catch(() => {
-        setState((current) => ({ ...current, error: "Cannot refresh manifest" }));
+        setState((current) => ({ ...current, error: "Không thể làm mới danh sách từ vựng." }));
       });
     };
     window.addEventListener("focus", onFocus);

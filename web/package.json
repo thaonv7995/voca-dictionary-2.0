@@ -1,7 +1,7 @@
 {
   "name": "voca-web",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.12",
+    "hanzi-writer": "^3.7.3",
     "lucide-react": "^0.475.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

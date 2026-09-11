@@ -90,6 +90,7 @@ public class CardImportRunner implements ApplicationRunner {
             Card c = new Card();
             c.setOwnerId(ownerId);
             c.setWord(word.trim());
+            c.setLanguage("en");
             c.setSlug(slug);
             c.setDeckId(deck.getId());
             c.setPronunciation(text(n, "pronunciation"));

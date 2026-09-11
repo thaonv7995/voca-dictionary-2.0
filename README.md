@@ -1,4 +1,4 @@
-# Voca Dictionary v2
+# Voca Dictionary
 
 Ứng dụng lưu trữ và học **từ vựng** với spaced repetition (FSRS), phát âm và trợ lý AI — đóng gói thành
 **một binary chạy trên một cổng**, hỗ trợ đa người dùng và cung cấp **API cho hệ thống bên thứ ba**.
@@ -22,12 +22,14 @@
   <img src="docs/mobile-preview.png" width="31%" alt="Mobile — card preview" />&nbsp;&nbsp;
   <img src="docs/mobile-assistant.png" width="31%" alt="Mobile — assistant & practice" />
 </p>
-<p align="center"><sub>App di động (native) — client iOS cho v2 nằm trong roadmap.</sub></p>
+<p align="center"><sub>Ứng dụng iOS native được phát triển cùng web app và backend hiện tại.</sub></p>
 
 ## Tính năng
 
 - **Đa người dùng** — JWT (access + refresh xoay vòng), bcrypt, vai trò `ADMIN`.
 - **Kho từ riêng theo user** — mỗi tài khoản có danh sách độc lập (tìm kiếm/lọc, flashcard, cấp độ, tạo thẻ bằng AI, phát âm). Nội dung một từ chỉ sinh bằng LLM **một lần**, user khác thêm cùng từ sẽ được **copy** (tiết kiệm token).
+- **English và Hán ngữ** — chuyển nhanh giữa hai kho từ trên cùng giao diện; thẻ Hán ngữ có pinyin, nghĩa Việt, một ví dụ ngắn, phát âm Mandarin và ô tập viết Hán tự.
+- **Mobile Hán ngữ** — kế hoạch triển khai parity với web nằm tại [`docs/ios-hanzi-plan.md`](docs/ios-hanzi-plan.md).
 - **Spaced repetition (FSRS-5)** — tính phía server: độ ổn định/độ khó, thẻ đến hạn, thống kê.
 - **Trợ lý AI (streaming)** — hỏi đáp, quiz, sinh bài luyện tập (drills/reading) qua SSE.
 - **API key tự phục vụ** — mỗi user tự tạo/thu hồi/xóa key cho hệ thống khác gọi vào `/v1`, kèm tài liệu API tải về được.
@@ -88,10 +90,10 @@ Release được **GitHub Actions** build tự động khi push tag `v*.*.*` (`.
 ## Kiến trúc
 
 ```
-voca-v2/
+voca-dictionary/
 ├── backend/   Spring Boot 3.4 (Java 21) — API + nhúng SPA, một binary/một port
 ├── web/       React 19 + Vite 6 + TypeScript (PWA) — UI kế thừa từ v1
-└── ios/       SwiftUI native — roadmap
+└── ios/       SwiftUI native
 ```
 
 Một cổng, ba vùng định tuyến & bảo mật:

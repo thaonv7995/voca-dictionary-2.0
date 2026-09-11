@@ -38,25 +38,25 @@ public class CardGenerationService {
         this.mapper = mapper;
     }
 
-    public CardDto createFromWord(Long userId, String word) {
+    public CardDto createFromWord(Long userId, String word, String requestedLanguage) {
         if (word == null || word.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_WORD", "word is required.");
         }
         String w = word.trim();
-        String slug = CardService.slugify(w);
+        String language = CardService.normalizeLanguage(requestedLanguage);
 
         // Already in this user's list.
-        if (cardService.userHasSlug(userId, slug)) {
+        if (cardService.userHasWord(userId, language, w)) {
             throw new ApiException(HttpStatus.CONFLICT, "CARD_EXISTS", "Từ '" + w + "' đã có trong danh sách của bạn.");
         }
         // Someone already generated this word — reuse its content instead of spending LLM tokens again.
-        Card existing = cardService.findAnyBySlug(slug);
+        Card existing = cardService.findAnyByWord(language, w);
         if (existing != null) {
             return cardService.copyToUser(existing, userId);
         }
 
         LlmConfig cfg = resolver.resolveLlm(userId);
-        String prompt = prompts.cardCreationPrompt(List.of(w));
+        String prompt = prompts.cardCreationPrompt(List.of(w), language);
 
         List<Map<String, Object>> messages = new ArrayList<>();
         messages.add(message("system", "Return only valid JSON matching the requested schema."));
@@ -64,10 +64,10 @@ public class CardGenerationService {
 
         String text = llm.complete(cfg, messages);
         JsonNode entry = firstEntry(extractJson(text));
-        return cardService.create(toInput(w, entry), userId);
+        return cardService.create(toInput(w, language, entry), userId);
     }
 
-    private CardService.CardInput toInput(String word, JsonNode e) {
+    private CardService.CardInput toInput(String word, String language, JsonNode e) {
         String pos = text(e, "partOfSpeech");
         String topic = text(e, "topic");
         List<String> tags = new ArrayList<>();
@@ -78,6 +78,7 @@ public class CardGenerationService {
         return new CardService.CardInput(
                 e.hasNonNull("word") ? e.get("word").asText() : word,
                 null,
+                language,
                 text(e, "pronunciation"),
                 text(e, "pronunciation"),
                 text(e, "frequency"),

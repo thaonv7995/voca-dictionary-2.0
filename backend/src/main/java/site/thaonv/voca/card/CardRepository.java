@@ -14,6 +14,8 @@ public interface CardRepository extends JpaRepository<Card, Long> {
     // ---- Global (any owner) — used only for the copy-on-add de-dup check ----
     Optional<Card> findFirstBySlugIgnoreCase(String slug);
 
+    Optional<Card> findFirstByLanguageAndWordIgnoreCase(String language, String word);
+
     // ---- Per-owner (the normal app scope) ----
     List<Card> findByOwnerIdOrderByCreatedAtDesc(Long ownerId);
 
@@ -22,6 +24,8 @@ public interface CardRepository extends JpaRepository<Card, Long> {
     Optional<Card> findFirstByOwnerIdAndWordIgnoreCase(Long ownerId, String word);
 
     boolean existsByOwnerIdAndSlugIgnoreCase(Long ownerId, String slug);
+
+    boolean existsByOwnerIdAndLanguageAndWordIgnoreCase(Long ownerId, String language, String word);
 
     long countByOwnerId(Long ownerId);
 

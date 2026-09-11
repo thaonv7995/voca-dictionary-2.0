@@ -76,7 +76,12 @@ const partOfSpeechOrder = [
 ];
 
 export function normalizeFilterValue(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
 
 function titleCase(value: string): string {
@@ -182,7 +187,8 @@ export function isCardInCreatedDateFilter(card: Pick<Card, "createdAt">, filter:
 export function filterCards(cards: Card[], filters: Filters): Card[] {
   const query = normalizeFilterValue(filters.query);
   return cards.filter((card) => {
-    const queryOk = !query || card.word.toLowerCase().includes(query);
+    const searchable = normalizeFilterValue(card.searchText);
+    const queryOk = !query || searchable.includes(query) || searchable.replace(/\s+/g, "").includes(query.replace(/\s+/g, ""));
     const topicOk = filters.topic === "all" || canonicalTopic(card.topic) === filters.topic;
     const posOk = filters.partOfSpeech === "all" || canonicalPartOfSpeech(card.partOfSpeech) === filters.partOfSpeech;
     const dateOk = isCardInCreatedDateFilter(card, filters.createdDate);

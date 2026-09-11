@@ -7,6 +7,7 @@ public record CardDto(
         Long id,
         String slug,
         String word,
+        String language,
         String ipa,
         String pronunciation,
         String frequency,

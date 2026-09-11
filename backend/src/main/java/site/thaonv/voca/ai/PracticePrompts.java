@@ -101,8 +101,20 @@ public class PracticePrompts {
     }
 
     /** Card generation prompt (ported from skills/scripts/voca-create-card.mjs), no PNG/drawing field. */
-    public String cardCreationPrompt(List<String> words) {
+    public String cardCreationPrompt(List<String> words, String language) {
         String joined = String.join(", ", words);
+        if ("zh-CN".equals(language)) {
+            return "Create compact Mandarin Chinese vocabulary card data for Vietnamese learners for: " + joined + ".\n\n"
+                    + "Return only a JSON array. Each item must contain: word, pronunciation, partOfSpeech, topic, frequency, "
+                    + "meaningEn, meaningVi, useCases, examples, memoryTip, toeicTrap, practicePrompt, answer.\n\n"
+                    + "Rules:\n"
+                    + "- Return exactly one item per requested word in order; word must use Simplified Chinese.\n"
+                    + "- pronunciation must be standard Hanyu Pinyin with tone marks.\n"
+                    + "- meaningVi must be one short, natural Vietnamese meaning; meaningEn must be compact.\n"
+                    + "- Include exactly one short example formatted as: Chinese | Pinyin | Vietnamese.\n"
+                    + "- Include at most two short use cases. Keep memoryTip and toeicTrap to one short sentence each.\n"
+                    + "- Do not include explanations, markdown, images, or extra fields.";
+        }
         return "Create compact TOEIC-focused bilingual vocabulary card data for these words/phrases: " + joined + ".\n\n"
                 + "Return only a JSON array. Each item must contain: word, pronunciation, partOfSpeech, topic, frequency, "
                 + "meaningEn, meaningVi, useCases, examples, memoryTip, toeicTrap, practicePrompt, answer.\n\n"

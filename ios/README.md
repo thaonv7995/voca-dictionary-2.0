@@ -1,6 +1,6 @@
 # Voca iOS
 
-Client iOS native (SwiftUI) cho Voca Dictionary v2. Xem kế hoạch đầy đủ: [`../docs/ios-plan.md`](../docs/ios-plan.md).
+Client iOS native (SwiftUI) cho Voca Dictionary. Xem kế hoạch đầy đủ: [`../docs/ios-plan.md`](../docs/ios-plan.md).
 
 ## Yêu cầu
 - Xcode 16+ (repo này build & verify bằng Xcode 27 / iOS 27 SDK)
@@ -51,6 +51,8 @@ App icon (chữ **V** trên nền xanh gradient) và **launch screen** (nền xa
   Drills badge + loa từng đáp án + Prev/Next; Kho từ lọc topic/ngày/tag + nút loa từng dòng; per-card "Hỏi AI" ✅
 - **Đợt B**: tab **Hôm nay** (dashboard); **quét ảnh OCR** tạo thẻ (Vision); **Hội thoại** (client-side qua
   `/api/chat/completions`); **Widget** màn hình chính (WidgetKit + App Group) ✅
+- **Đợt C — Hán ngữ**: model/API đa ngôn ngữ, card có pinyin, Mandarin TTS, chi tiết ngắn gọn,
+  animation thứ tự nét và luyện viết native — [kế hoạch triển khai](../docs/ios-hanzi-plan.md).
 
 ### Widget (WidgetKit)
 Target `VocaWidgetExtension` + App Group `group.site.thaonv.voca`. Để chạy trên **máy thật**: mở Xcode →

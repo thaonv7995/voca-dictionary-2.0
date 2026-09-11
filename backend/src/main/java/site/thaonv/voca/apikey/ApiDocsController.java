@@ -252,9 +252,14 @@ public class ApiDocsController {
             | Trường (body) | Bắt buộc | Kiểu | Mô tả |
             |---------------|----------|------|-------|
             | word | có | string | Từ/cụm từ cần tạo thẻ |
+            | language | không | string | `en` (mặc định) hoặc `zh-CN` |
 
             ```
             curl -X POST -H "X-API-Key: voca_..." -H "Content-Type: application/json" -d '{"word":"resilient"}' "__BASE__/v1/cards/create"
+            ```
+            Ví dụ tạo thẻ Hán ngữ:
+            ```
+            curl -X POST -H "X-API-Key: voca_..." -H "Content-Type: application/json" -d '{"word":"学习","language":"zh-CN"}' "__BASE__/v1/cards/create"
             ```
             > Endpoint này gọi LLM phía server; nếu chủ Voca chưa cấu hình LLM sẽ trả **503**
             > `LLM_NOT_CONFIGURED`. Thời gian phản hồi có thể vài giây.
@@ -379,6 +384,7 @@ public class ApiDocsController {
             | id | number | Khóa nội bộ |
             | slug | string | Định danh URL-safe (dùng cho `/cards/{slug}`, `/audio/{id}`) |
             | word | string | Từ vựng |
+            | language | string | Ngôn ngữ của thẻ: `en` hoặc `zh-CN` |
             | ipa | string | Phiên âm IPA |
             | pronunciation | string | Phiên âm hiển thị |
             | frequency | string | Mức độ phổ biến |

@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "site.thaonv.voca"
-version = "2.0.0-SNAPSHOT"
+version = "2.1.0"
 
 java {
     toolchain {
@@ -58,7 +58,7 @@ tasks.withType<Test> {
     useJUnitPlatform()
 }
 
-// Bundle the web app (voca-v2/web/dist) into the jar so one binary serves API + SPA on a single port.
+// Bundle the web app (voca-dictionary/web/dist) into the jar so one binary serves API + SPA on a single port.
 val copyWebApp = tasks.register<Copy>("copyWebApp") {
     val dist = layout.projectDirectory.dir("../web/dist")
     onlyIf { dist.asFile.exists() }
