@@ -3,7 +3,10 @@ import SwiftUI
 /// Study progress overview: overall totals plus a per-level breakdown drawn as proportional bars.
 /// Pushed from `StudyRootView`, so it relies on the enclosing `NavigationStack`.
 struct StatsView: View {
+    @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
     @State private var stats: StudyStats?
+    @State private var cards: [Card] = []
+    @State private var due: DueResponse?
     @State private var isLoading = false
     @State private var errorMessage: String?
 
@@ -22,8 +25,8 @@ struct StatsView: View {
                 } actions: {
                     Button("Thử lại") { Task { await load() } }
                 }
-            } else if let stats {
-                content(stats)
+            } else if stats != nil {
+                content
             } else {
                 ContentUnavailableView(
                     "Chưa có dữ liệu",
@@ -38,24 +41,37 @@ struct StatsView: View {
         .refreshable { await load() }
     }
 
-    @ViewBuilder private func content(_ stats: StudyStats) -> some View {
+    private var language: CardLanguage {
+        CardLanguage(rawValue: languageRaw) ?? .english
+    }
+
+    private var languageCards: [Card] {
+        cards.filter { $0.cardLanguage == language }
+    }
+
+    private var content: some View {
         List {
+            Section {
+                CardLanguagePicker(selection: $languageRaw)
+            }
+
             Section("Tổng quan") {
-                LabeledContent("Tổng số thẻ", value: "\(stats.totalCards)")
-                LabeledContent("Tổng lượt ôn", value: "\(stats.totalReviews)")
+                LabeledContent("Tổng số thẻ", value: "\(languageCards.count)")
                 LabeledContent("Cần ôn hiện tại") {
-                    Text("\(stats.dueNow)")
+                    Text("\((due?.cards ?? []).filter { $0.card.cardLanguage == language }.count)")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Brand.green)
                 }
             }
 
             Section("Phân bố theo cấp độ") {
-                let maxCount = max(CardLevel.allCases.map { stats.byLevel[$0.rawValue] ?? 0 }.max() ?? 0, 1)
+                let counts = Dictionary(grouping: languageCards) { CardLevel($0.level) ?? .new }
+                    .mapValues(\.count)
+                let maxCount = max(counts.values.max() ?? 0, 1)
                 ForEach(CardLevel.allCases) { level in
                     LevelBarRow(
                         label: level.label,
-                        count: stats.byLevel[level.rawValue] ?? 0,
+                        count: counts[level] ?? 0,
                         maxCount: maxCount,
                         color: Brand.levelColor(level.rawValue))
                 }
@@ -67,7 +83,13 @@ struct StatsView: View {
         isLoading = true
         errorMessage = nil
         do {
-            stats = try await service.stats()
+            async let statsCall = service.stats()
+            async let cardsCall = CardsService().list()
+            async let dueCall = service.due()
+            let loaded = try await (statsCall, cardsCall, dueCall)
+            stats = loaded.0
+            cards = loaded.1
+            due = loaded.2
         } catch {
             errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
         }

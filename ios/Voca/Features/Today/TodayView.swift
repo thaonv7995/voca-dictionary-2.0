@@ -8,15 +8,21 @@ import SwiftUI
 /// a mastery ring, per-level stat tiles and the most recently added cards.
 struct TodayView: View {
     @Environment(AuthStore.self) private var auth
+    @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
 
     @State private var model = TodayModel()
     @State private var showSession = false
+
+    private var language: CardLanguage {
+        CardLanguage(rawValue: languageRaw) ?? .english
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     greeting
+                    CardLanguagePicker(selection: $languageRaw)
 
                     if let errorMessage = model.errorMessage {
                         errorBanner(errorMessage)
@@ -37,7 +43,7 @@ struct TodayView: View {
             .fullScreenCover(isPresented: $showSession, onDismiss: {
                 Task { await model.load() }
             }) {
-                ReviewSessionView(items: model.dueItems)
+                ReviewSessionView(items: model.dueItems(for: language))
             }
         }
     }
@@ -87,7 +93,7 @@ struct TodayView: View {
                         ProgressView()
                             .frame(height: 44, alignment: .leading)
                     } else {
-                        Text("\(model.dueCount)")
+                        Text("\(model.dueCount(for: language))")
                             .font(.system(size: 44, weight: .bold, design: .rounded))
                             .foregroundStyle(Brand.green)
                             .contentTransition(.numericText())
@@ -99,7 +105,7 @@ struct TodayView: View {
                 Spacer(minLength: 0)
             }
 
-            if model.dueCount == 0 && !(model.isLoading && model.stats == nil) {
+            if model.dueCount(for: language) == 0 && !(model.isLoading && model.stats == nil) {
                 Text("Tuyệt vời! Bạn đã ôn hết thẻ hôm nay. 🎉")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -111,7 +117,7 @@ struct TodayView: View {
                 Label("Ôn tập ngay", systemImage: "play.fill")
             }
             .buttonStyle(BrandCTAButtonStyle())
-            .disabled(model.dueCount == 0)
+            .disabled(model.dueCount(for: language) == 0)
         }
         .brandCard()
     }
@@ -120,12 +126,12 @@ struct TodayView: View {
 
     @ViewBuilder private var masterySection: some View {
         HStack(spacing: 20) {
-            MasteryRing(fraction: model.masteryFraction)
+            MasteryRing(fraction: model.masteryFraction(for: language))
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Tiến độ thành thạo")
                     .font(.headline)
-                Text("\(model.masteredCount)/\(model.totalCards) thẻ đã thành thạo")
+                Text("\(model.count(for: .mastered, language: language))/\(model.totalCards(for: language)) thẻ đã thành thạo")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -143,7 +149,7 @@ struct TodayView: View {
 
             StatTile(
                 title: "Tổng thẻ",
-                value: model.totalCards,
+                value: model.totalCards(for: language),
                 color: Brand.green,
                 systemImage: "rectangle.stack.fill")
                 .frame(maxWidth: .infinity)
@@ -155,7 +161,7 @@ struct TodayView: View {
                 ForEach(CardLevel.allCases) { level in
                     StatTile(
                         title: level.label,
-                        value: model.count(for: level),
+                        value: model.count(for: level, language: language),
                         color: Brand.levelColor(level.rawValue),
                         systemImage: "circle.fill")
                 }
@@ -170,7 +176,7 @@ struct TodayView: View {
             Text("Thẻ gần đây")
                 .font(.headline)
 
-            let recent = model.recentCards
+            let recent = model.recentCards(for: language)
             if recent.isEmpty {
                 Text(model.isLoading ? "Đang tải thẻ…" : "Chưa có thẻ nào. Hãy thêm thẻ mới nhé!")
                     .font(.subheadline)
@@ -254,25 +260,30 @@ final class TodayModel {
     // MARK: Derived
 
     /// Prefer the live `due` count, fall back to the stats snapshot.
-    var dueCount: Int { due?.count ?? stats?.dueNow ?? 0 }
-    var dueItems: [DueItem] { due?.cards ?? [] }
+    func dueItems(for language: CardLanguage) -> [DueItem] {
+        (due?.cards ?? []).filter { $0.card.cardLanguage == language }
+    }
 
-    var totalCards: Int { stats?.totalCards ?? 0 }
-    var masteredCount: Int { count(for: .mastered) }
+    func dueCount(for language: CardLanguage) -> Int { dueItems(for: language).count }
 
-    func count(for level: CardLevel) -> Int {
-        stats?.byLevel[level.rawValue] ?? 0
+    func totalCards(for language: CardLanguage) -> Int {
+        cards.filter { $0.cardLanguage == language }.count
+    }
+
+    func count(for level: CardLevel, language: CardLanguage) -> Int {
+        cards.filter { $0.cardLanguage == language && CardLevel($0.level) == level }.count
     }
 
     /// Mastered / total, clamped and null-safe (0 when there are no cards).
-    var masteryFraction: Double {
-        guard totalCards > 0 else { return 0 }
-        return Double(masteredCount) / Double(totalCards)
+    func masteryFraction(for language: CardLanguage) -> Double {
+        let total = totalCards(for: language)
+        guard total > 0 else { return 0 }
+        return Double(count(for: .mastered, language: language)) / Double(total)
     }
 
     /// The 5 most recently created cards. Cards without a parseable date sink to the bottom.
-    var recentCards: [Card] {
-        let sorted = cards.sorted { lhs, rhs in
+    func recentCards(for language: CardLanguage) -> [Card] {
+        let sorted = cards.filter { $0.cardLanguage == language }.sorted { lhs, rhs in
             switch (Self.parseDate(lhs.createdAt), Self.parseDate(rhs.createdAt)) {
             case let (l?, r?): return l > r
             case (_?, nil): return true      // dated cards rank above undated

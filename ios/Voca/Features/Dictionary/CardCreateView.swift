@@ -3,8 +3,7 @@ import SwiftUI
 /// Sheet that creates a new card from a single word via the server-side LLM.
 struct CardCreateView: View {
     @Environment(\.dismiss) private var dismiss
-
-    let language: CardLanguage
+    @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
 
     /// Called after a card is created successfully (so the list can refresh).
     var onCreated: () -> Void = {}
@@ -16,6 +15,10 @@ struct CardCreateView: View {
 
     private let cards = CardsService()
 
+    private var language: CardLanguage {
+        CardLanguage(rawValue: languageRaw) ?? .english
+    }
+
     private var canSubmit: Bool {
         !isCreating && !word.trimmingCharacters(in: .whitespaces).isEmpty
     }
@@ -23,6 +26,10 @@ struct CardCreateView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Ngôn ngữ của thẻ") {
+                    CardLanguagePicker(selection: $languageRaw)
+                }
+
                 Section {
                     TextField(language == .chinese ? "Nhập Hán tự" : "Nhập từ vựng", text: $word)
                         .textInputAutocapitalization(.never)

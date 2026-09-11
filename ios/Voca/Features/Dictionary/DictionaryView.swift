@@ -158,7 +158,7 @@ struct DictionaryView: View {
                     CardDetailView(card: card, onDeleted: { Task { await store.load() } })
                 }
                 .sheet(isPresented: $showCreate) {
-                    CardCreateView(language: language) { Task { await store.load() } }
+                    CardCreateView { Task { await store.load() } }
                 }
                 .task { if store.cards.isEmpty { await store.load() } }
                 .onChange(of: languageRaw) { _, _ in
@@ -200,12 +200,7 @@ struct DictionaryView: View {
     }
 
     private var languagePicker: some View {
-        Picker("Ngôn ngữ", selection: $languageRaw) {
-            ForEach(CardLanguage.allCases) { language in
-                Text(language.label).tag(language.rawValue)
-            }
-        }
-        .pickerStyle(.segmented)
+        CardLanguagePicker(selection: $languageRaw)
         .padding(.horizontal)
         .padding(.vertical, 10)
         .background(.bar)

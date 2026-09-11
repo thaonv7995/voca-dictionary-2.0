@@ -19,6 +19,20 @@ enum Brand {
     }
 }
 
+struct CardLanguagePicker: View {
+    @Binding var selection: String
+
+    var body: some View {
+        Picker("Ngôn ngữ", selection: $selection) {
+            ForEach(CardLanguage.allCases) { language in
+                Text(language.label).tag(language.rawValue)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("Chọn ngôn ngữ học")
+    }
+}
+
 /// A small rounded pill label (kind / difficulty / level / topic tags), V1-style.
 struct Badge: View {
     let text: String

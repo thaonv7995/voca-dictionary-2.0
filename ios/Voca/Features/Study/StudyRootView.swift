@@ -4,12 +4,25 @@ import SwiftUI
 /// Landing screen for the Study (spaced-repetition) tab. Loads `stats()` + `due()` on appear,
 /// surfaces how many cards are due and launches a full-screen swipeable review session.
 struct StudyRootView: View {
+    @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
     @State private var model = StudyModel()
     @State private var showSession = false
+
+    private var language: CardLanguage {
+        CardLanguage(rawValue: languageRaw) ?? .english
+    }
+
+    private var dueItems: [DueItem] {
+        (model.due?.cards ?? []).filter { $0.card.cardLanguage == language }
+    }
 
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    CardLanguagePicker(selection: $languageRaw)
+                }
+
                 Section {
                     heroCard
                         .listRowInsets(EdgeInsets())
@@ -43,7 +56,7 @@ struct StudyRootView: View {
             .fullScreenCover(isPresented: $showSession, onDismiss: {
                 Task { await model.load() }
             }) {
-                ReviewSessionView(items: model.due?.cards ?? [])
+                ReviewSessionView(items: dueItems)
             }
         }
     }
@@ -104,7 +117,7 @@ struct StudyRootView: View {
     }
 
     private var dueCount: Int {
-        model.due?.count ?? model.stats?.dueNow ?? 0
+        dueItems.count
     }
 }
 
