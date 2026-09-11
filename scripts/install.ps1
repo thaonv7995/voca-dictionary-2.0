@@ -3,7 +3,7 @@
 #   $env:VOCA_REPO = "<owner>/<repo>"
 #   iwr "https://github.com/$env:VOCA_REPO/releases/latest/download/install.ps1" -UseBasicParsing | iex
 #
-# Downloads the latest voca.jar, ensures PostgreSQL (auto via Docker), then runs the app.
+# Downloads the latest voca.jar, ensures PostgreSQL (auto via Docker), then runs the app in the background.
 $ErrorActionPreference = "Stop"
 
 $Repo = $env:VOCA_REPO
@@ -67,14 +67,36 @@ if ($ListenerPid) { Stop-ExistingVoca $ListenerPid }
 
 Move-Item -Force $Download (Join-Path (Get-Location) "voca.jar")
 
-Write-Host "-> Starting Voca at http://localhost:$Port (Ctrl+C to stop) ..."
-$App = Start-Process -FilePath "java" -ArgumentList @("-jar", "voca.jar", "--server.port=$Port") -NoNewWindow -PassThru
+$LogFile = Join-Path (Get-Location) "voca.log"
+$ErrorLogFile = Join-Path (Get-Location) "voca-error.log"
+if (Test-Path $LogFile) { Move-Item -Force $LogFile "$LogFile.previous" }
+if (Test-Path $ErrorLogFile) { Move-Item -Force $ErrorLogFile "$ErrorLogFile.previous" }
+
+Write-Host "-> Starting Voca in the background at http://localhost:$Port ..."
+$App = Start-Process -FilePath "java" -ArgumentList @("-jar", "voca.jar", "--server.port=$Port") `
+  -RedirectStandardOutput $LogFile -RedirectStandardError $ErrorLogFile -PassThru
 Set-Content -Path $PidFile -Value $App.Id
-try {
-  $App.WaitForExit()
-  $ExitCode = $App.ExitCode
-} finally {
-  if (-not $App.HasExited) { Stop-Process -Id $App.Id -ErrorAction SilentlyContinue }
-  if (Test-Path $PidFile) { Remove-Item $PidFile -Force }
+
+Write-Host -NoNewline "-> Waiting for the app "
+$Ready = $false
+for ($Attempt = 0; $Attempt -lt 60; $Attempt++) {
+  if ($App.HasExited) {
+    Write-Host ""
+    Write-Error "Voca stopped during startup. See $LogFile and $ErrorLogFile."
+    exit 1
+  }
+  try {
+    $Health = Invoke-RestMethod "http://127.0.0.1:$Port/actuator/health" -TimeoutSec 2
+    if ($Health.status -eq "UP") { $Ready = $true; break }
+  } catch { }
+  Write-Host -NoNewline "."
+  Start-Sleep -Seconds 1
 }
-exit $ExitCode
+if (-not $Ready) {
+  Stop-Process -Id $App.Id -ErrorAction SilentlyContinue
+  Write-Error "Voca was not ready after 60 seconds. See $LogFile and $ErrorLogFile."
+  exit 1
+}
+Write-Host " ok"
+Write-Host "Voca is running (PID $($App.Id)): http://localhost:$Port"
+Write-Host "Log: $LogFile"

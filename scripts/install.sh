@@ -5,7 +5,7 @@
 #   curl -fsSL "https://github.com/$REPO/releases/latest/download/install.sh" | sh -s -- "$REPO"
 #
 # Downloads the latest voca.jar, ensures a PostgreSQL is available (auto via Docker),
-# then runs the app on http://localhost:22052.
+# then runs the app in the background on http://localhost:22052.
 set -eu
 
 REPO="${1:-${VOCA_REPO:-}}"
@@ -95,6 +95,32 @@ fi
 mv "$DOWNLOAD" voca.jar
 trap - EXIT HUP INT TERM
 
-echo "→ Khởi động Voca tại http://localhost:$PORT (Ctrl+C để dừng) ..."
-echo "$$" > "$PID_FILE"
-exec java -jar voca.jar --server.port="$PORT"
+if [ -f "voca.log" ]; then mv -f voca.log voca.log.previous; fi
+echo "→ Khởi động Voca dưới nền tại http://localhost:$PORT ..."
+nohup java -jar voca.jar --server.port="$PORT" > voca.log 2>&1 < /dev/null &
+app_pid=$!
+echo "$app_pid" > "$PID_FILE"
+
+printf '→ Chờ ứng dụng sẵn sàng '
+attempts=0
+until curl -fsS "http://127.0.0.1:$PORT/actuator/health" >/dev/null 2>&1; do
+  if ! kill -0 "$app_pid" 2>/dev/null; then
+    echo
+    echo "✗ Voca đã dừng khi khởi động. Log gần nhất:" >&2
+    tail -n 40 voca.log >&2 || true
+    exit 1
+  fi
+  attempts=$((attempts + 1))
+  if [ "$attempts" -ge 60 ]; then
+    echo
+    echo "✗ Voca chưa sẵn sàng sau 60 giây. Xem log tại $(pwd)/voca.log" >&2
+    kill "$app_pid" 2>/dev/null || true
+    exit 1
+  fi
+  printf '.'
+  sleep 1
+done
+echo ' ok'
+echo "✓ Voca đang chạy (PID $app_pid): http://localhost:$PORT"
+echo "  Log: $(pwd)/voca.log"
+echo "  Xem log: tail -f '$(pwd)/voca.log'"
