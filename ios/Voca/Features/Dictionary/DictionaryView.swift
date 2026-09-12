@@ -63,6 +63,7 @@ struct DictionaryView: View {
     @State private var dateFilter: DateFilter = .all
     @State private var showCreate = false
     @State private var focusedHanzi: FocusedHanzi?
+    @State private var navigationPath = NavigationPath()
 
     private var language: CardLanguage {
         CardLanguage(rawValue: languageRaw) ?? .english
@@ -142,7 +143,7 @@ struct DictionaryView: View {
     // MARK: - Body
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             content
                 .navigationTitle("Kho từ")
                 .searchable(text: $searchText, prompt: "Tìm từ, nghĩa, thẻ…")
@@ -225,17 +226,16 @@ struct DictionaryView: View {
                         spacing: 16
                     ) {
                         ForEach(filteredCards) { card in
-                            NavigationLink(value: card) {
-                                CardRow(card: card) { character in
-                                    focusedHanzi = FocusedHanzi(word: character)
-                                }
-                                .padding(16)
-                                .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
-                                .background(
-                                    Color(.secondarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            CardRow(card: card) { character in
+                                focusedHanzi = FocusedHanzi(word: character)
                             }
-                            .buttonStyle(.plain)
+                            .padding(16)
+                            .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
+                            .background(
+                                Color(.secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .onTapGesture { navigationPath.append(card) }
                         }
                     }
                     .padding(20)

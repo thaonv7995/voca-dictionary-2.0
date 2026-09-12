@@ -59,12 +59,14 @@ struct HanziWritingView: View {
                     HStack(spacing: compact ? 6 : 14) {
                         ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
                             if compact, let onCharacterFocus {
-                                Button { onCharacterFocus(character) } label: {
-                                    HanziCharacterPractice(character: character, compact: true,
-                                                           displayOnly: displayOnly)
-                                }
-                                .buttonStyle(.plain)
+                                HanziCharacterPractice(character: character, compact: true,
+                                                       displayOnly: displayOnly)
+                                .contentShape(Rectangle())
+                                .highPriorityGesture(
+                                    TapGesture().onEnded { onCharacterFocus(character) })
                                 .accessibilityLabel("Phóng lớn chữ \(character)")
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityAction { onCharacterFocus(character) }
                             } else {
                                 HanziCharacterPractice(character: character, compact: compact,
                                                        displayOnly: displayOnly)
