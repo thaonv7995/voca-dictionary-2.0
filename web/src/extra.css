@@ -55,11 +55,11 @@
 .hanzi-writer-card.compact .hanzi-writer-target canvas { width: 48px; height: 48px; }
 .hanzi-writer-card.compact .hanzi-load-fallback { font-size: 30px; }
 .hanzi-writer-card.compact .hanzi-practice-status { min-height: 14px; }
-.hanzi-writer-card.display-only { width: 234px; }
-.hanzi-writer-card.display-only .hanzi-writer-target { width: 220px; height: 220px; border-radius: 14px; }
+.hanzi-writer-card.display-only { width: 374px; }
+.hanzi-writer-card.display-only .hanzi-writer-target { width: 360px; height: 360px; border-radius: 18px; }
 .hanzi-writer-card.display-only .hanzi-writer-target svg,
-.hanzi-writer-card.display-only .hanzi-writer-target canvas { width: 220px; height: 220px; }
-.hanzi-writer-card.display-only .hanzi-load-fallback { font-size: 132px; }
+.hanzi-writer-card.display-only .hanzi-writer-target canvas { width: 360px; height: 360px; }
+.hanzi-writer-card.display-only .hanzi-load-fallback { font-size: 220px; }
 .hanzi-focus-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 20px; background: rgba(3, 7, 18, .72); backdrop-filter: blur(5px); animation: voca-fade .16s ease both; }
 .hanzi-focus-popover { width: fit-content; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; padding: 24px; border: 1px solid var(--line-strong); border-radius: 22px; background: var(--panel); box-shadow: 0 26px 70px rgba(0, 0, 0, .38); animation: voca-pop .22s cubic-bezier(.2, .8, .2, 1) both; }
 .hanzi-focus-popover .chinese-writing { margin: 0; padding: 0; border: 0; background: transparent; }
@@ -68,6 +68,10 @@
 @media (max-width: 560px) {
   .hanzi-focus-popover { padding: 18px 14px; }
   .hanzi-focus-popover .hanzi-writer-list { gap: 10px; }
+  .hanzi-writer-card.display-only { width: 294px; }
+  .hanzi-writer-card.display-only .hanzi-writer-target,
+  .hanzi-writer-card.display-only .hanzi-writer-target svg,
+  .hanzi-writer-card.display-only .hanzi-writer-target canvas { width: 280px; height: 280px; }
 }
 
 /* POS badge uppercase (match the original v1 screenshots) */

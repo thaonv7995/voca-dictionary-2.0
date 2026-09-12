@@ -3614,7 +3614,7 @@ function HanziCharacterWriter({
   useEffect(() => {
     const target = targetRef.current;
     if (!target) return;
-    const writerSize = compact ? 48 : displayOnly ? 220 : 132;
+    const writerSize = compact ? 48 : displayOnly ? 360 : 132;
     target.replaceChildren();
     setLoadError(false);
     writerRef.current = HanziWriter.create(target, character, {
