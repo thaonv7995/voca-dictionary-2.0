@@ -85,7 +85,7 @@ cd ../web && npm install && npm run dev
 ```bash
 cd web && npm run build                    # → web/dist
 cd ../backend && ./gradlew bootJar         # nhúng web/dist vào jar
-java -jar build/libs/voca-backend-2.1.2.jar
+java -jar build/libs/voca-backend-2.1.3.jar
 ```
 
 Release được **GitHub Actions** build tự động khi push tag `v*.*.*` (`.github/workflows/release.yml`).
