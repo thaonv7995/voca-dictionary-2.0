@@ -30,6 +30,7 @@ private actor HanziStrokeRepository {
 
 struct HanziWritingView: View {
     let word: String
+    var compact = false
 
     private var characters: [String] {
         word.map(String.init).filter { value in
@@ -45,12 +46,14 @@ struct HanziWritingView: View {
     var body: some View {
         if !characters.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Label("Tập viết", systemImage: "pencil.and.outline")
-                    .font(.headline)
+                if !compact {
+                    Label("Tập viết", systemImage: "pencil.and.outline")
+                        .font(.headline)
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
+                    HStack(spacing: compact ? 6 : 14) {
                         ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
-                            HanziCharacterPractice(character: character)
+                            HanziCharacterPractice(character: character, compact: compact)
                         }
                     }
                     .padding(.horizontal, 1)
@@ -62,17 +65,21 @@ struct HanziWritingView: View {
 
 private struct HanziCharacterPractice: View {
     let character: String
+    let compact: Bool
     @State private var strokeJSON: String?
     @State private var errorMessage: String?
     @State private var command: HanziCommand?
     @State private var status = ""
+
+    private var canvasSize: CGFloat { compact ? 48 : 176 }
 
     var body: some View {
         VStack(spacing: 8) {
             Group {
                 if let strokeJSON {
                     HanziWriterWebView(character: character, strokeJSON: strokeJSON,
-                                       command: command, onStatus: { status = $0 })
+                                       size: Int(canvasSize), command: command,
+                                       onStatus: { status = $0 })
                 } else if errorMessage != nil {
                     VStack(spacing: 8) {
                         Text(character).font(.system(size: 84, weight: .semibold))
@@ -82,24 +89,27 @@ private struct HanziCharacterPractice: View {
                     ProgressView()
                 }
             }
-            .frame(width: 176, height: 176)
+            .frame(width: canvasSize, height: canvasSize)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
             .clipShape(RoundedRectangle(cornerRadius: 10))
 
-            HStack(spacing: 12) {
-                iconButton("play.fill", label: "Xem thứ tự nét") {
-                    command = HanziCommand(kind: .animate)
+            if !compact {
+                HStack(spacing: 12) {
+                    iconButton("play.fill", label: "Xem thứ tự nét") {
+                        command = HanziCommand(kind: .animate)
+                    }
+                    iconButton("pencil.and.scribble", label: "Luyện viết") {
+                        command = HanziCommand(kind: .quiz)
+                    }
                 }
-                iconButton("pencil.and.scribble", label: "Luyện viết") {
-                    command = HanziCommand(kind: .quiz)
+                if !status.isEmpty {
+                    Text(status).font(.caption).foregroundStyle(Brand.green)
                 }
-            }
-            if !status.isEmpty {
-                Text(status).font(.caption).foregroundStyle(Brand.green)
             }
         }
-        .padding(10)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+        .padding(compact ? 4 : 10)
+        .background(Color(.secondarySystemBackground),
+                    in: RoundedRectangle(cornerRadius: compact ? 8 : 16))
         .task(id: character) { await loadData() }
     }
 
@@ -138,6 +148,7 @@ private struct HanziCommand: Equatable {
 private struct HanziWriterWebView: UIViewRepresentable {
     let character: String
     let strokeJSON: String
+    let size: Int
     let command: HanziCommand?
     let onStatus: (String) -> Void
 
@@ -171,19 +182,20 @@ private struct HanziWriterWebView: UIViewRepresentable {
 
     private var html: String {
         let encodedCharacter = (try? String(data: JSONEncoder().encode(character), encoding: .utf8)) ?? "\"\""
+        let targetSize = size - 6
         return """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
         <style>
         *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff}
-        #grid{position:relative;width:176px;height:176px;border:3px solid #e5e7eb}
+        #grid{position:relative;width:\(size)px;height:\(size)px;border:3px solid #e5e7eb}
         #grid:before,#grid:after{content:"";position:absolute;z-index:0;opacity:.65}
         #grid:before{left:50%;top:0;height:100%;border-left:1px dashed #a9bad3}
         #grid:after{top:50%;left:0;width:100%;border-top:1px dashed #a9bad3}
-        #target{position:relative;z-index:1;width:170px;height:170px}
+        #target{position:relative;z-index:1;width:\(targetSize)px;height:\(targetSize)px}
         </style></head><body><div id="grid"><div id="target"></div></div>
         <script src="hanzi-writer.min.js"></script><script>
         const character=\(encodedCharacter), characterData=\(strokeJSON);
-        const writer=HanziWriter.create('target',character,{width:170,height:170,padding:8,
+        const writer=HanziWriter.create('target',character,{width:\(targetSize),height:\(targetSize),padding:8,
           showOutline:true,strokeColor:'#111827',outlineColor:'#d1d5db',strokeAnimationSpeed:1,
           delayBetweenStrokes:180,charDataLoader:()=>Promise.resolve(characterData)});
         window.vocaAnimate=async()=>{writer.cancelQuiz();await writer.hideCharacter({duration:80});

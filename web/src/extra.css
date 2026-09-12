@@ -43,6 +43,16 @@
 .hanzi-writer-actions .hanzi-writer-icon-button svg { width: 17px; height: 17px; }
 .hanzi-practice-status { margin: 0 !important; color: var(--muted); font-size: 11px; text-align: center; }
 .hanzi-practice-status.complete { color: var(--accent); font-weight: 800; }
+.card-row-writing { position: absolute; top: 14px; right: 14px; width: 107px; overflow: hidden; cursor: default; }
+.card-row:has(.card-row-writing) .card-top-row > .level-badge { position: absolute; right: 14px; bottom: 14px; }
+.card-row-writing .face-section { margin: 0; padding: 0; border: 0; background: transparent; }
+.compact-writing .hanzi-writer-list { flex-wrap: nowrap; gap: 3px; margin-top: 0; overflow: hidden; }
+.hanzi-writer-card.compact { width: 52px; flex: 0 0 52px; gap: 0; }
+.hanzi-writer-card.compact .hanzi-writer-target { width: 48px; height: 48px; border-radius: 7px; }
+.hanzi-writer-card.compact .hanzi-writer-target svg,
+.hanzi-writer-card.compact .hanzi-writer-target canvas { width: 48px; height: 48px; }
+.hanzi-writer-card.compact .hanzi-load-fallback { font-size: 30px; }
+.hanzi-writer-card.compact .hanzi-practice-status { min-height: 14px; }
 
 /* POS badge uppercase (match the original v1 screenshots) */
 .pos-badge { text-transform: uppercase !important; letter-spacing: .04em; }

@@ -342,7 +342,7 @@ private struct CardRow: View {
     let card: Card
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: card.isChinese ? .top : .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(card.word)
@@ -370,9 +370,15 @@ private struct CardRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            PronounceButton(text: card.word, language: card.cardLanguage)
-            if let level = CardLevel(card.level) {
-                LevelBadge(level: level)
+            if card.isChinese {
+                HanziWritingView(word: card.word, compact: true)
+                VStack(spacing: 5) {
+                    PronounceButton(text: card.word, language: card.cardLanguage)
+                    if let level = CardLevel(card.level) { LevelBadge(level: level) }
+                }
+            } else {
+                PronounceButton(text: card.word, language: card.cardLanguage)
+                if let level = CardLevel(card.level) { LevelBadge(level: level) }
             }
         }
         .padding(.vertical, 2)

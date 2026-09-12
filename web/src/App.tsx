@@ -3436,6 +3436,15 @@ function CardList({
                           {card.language !== "zh-CN" && cardPronunciation(card) ? <span className="row-ipa">{cardPronunciation(card)}</span> : null}
                         </span>
                       </span>
+                      {card.language === "zh-CN" ? (
+                        <div
+                          className="card-row-writing"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          <ChineseWritingGuide word={card.word} compact />
+                        </div>
+                      ) : null}
                       <span className={`level-badge level-${card.level}`}>
                         <span className="level-dot"></span>
                         {cardLevelLabels[card.level]}
@@ -3447,7 +3456,6 @@ function CardList({
                         {card.meaningVi}
                       </div>
                     ) : null}
-
 
                     {showQuickPreviewButton ? (
                       <button
@@ -3523,22 +3531,22 @@ function ChineseExample({ value }: { value: string }) {
   );
 }
 
-function ChineseWritingGuide({ word }: { word: string }) {
+function ChineseWritingGuide({ word, compact = false }: { word: string; compact?: boolean }) {
   const characters = Array.from(word).filter((character) => /\p{Script=Han}/u.test(character));
   if (!characters.length) return null;
   return (
-    <div className="face-section chinese-writing">
-      <h4>Tập viết</h4>
+    <div className={`face-section chinese-writing ${compact ? "compact-writing" : ""}`}>
+      {!compact ? <h4>Tập viết</h4> : null}
       <div className="hanzi-writer-list">
         {characters.map((character, index) => (
-          <HanziCharacterWriter character={character} key={`${character}-${index}`} />
+          <HanziCharacterWriter character={character} compact={compact} key={`${character}-${index}`} />
         ))}
       </div>
     </div>
   );
 }
 
-function HanziCharacterWriter({ character }: { character: string }) {
+function HanziCharacterWriter({ character, compact = false }: { character: string; compact?: boolean }) {
   const targetRef = useRef<HTMLDivElement | null>(null);
   const writerRef = useRef<HanziWriter | null>(null);
   const [mode, setMode] = useState<"idle" | "animating" | "practicing" | "complete">("idle");
@@ -3550,8 +3558,8 @@ function HanziCharacterWriter({ character }: { character: string }) {
     target.replaceChildren();
     setLoadError(false);
     writerRef.current = HanziWriter.create(target, character, {
-      width: 132,
-      height: 132,
+      width: compact ? 48 : 132,
+      height: compact ? 48 : 132,
       padding: 8,
       showOutline: true,
       showCharacter: true,
@@ -3571,7 +3579,7 @@ function HanziCharacterWriter({ character }: { character: string }) {
       writerRef.current = null;
       target.replaceChildren();
     };
-  }, [character]);
+  }, [character, compact]);
 
   const animate = async () => {
     const writer = writerRef.current;
@@ -3596,11 +3604,11 @@ function HanziCharacterWriter({ character }: { character: string }) {
   };
 
   return (
-    <div className="hanzi-writer-card">
+    <div className={`hanzi-writer-card ${compact ? "compact" : ""}`}>
       <div className="hanzi-writer-target" ref={targetRef} aria-label={`Thứ tự nét chữ ${character}`}>
         {loadError ? <span className="hanzi-load-fallback" lang="zh-CN">{character}</span> : null}
       </div>
-      <div className="hanzi-writer-actions" role="group" aria-label={`Điều khiển tập viết chữ ${character}`}>
+      {!compact ? <div className="hanzi-writer-actions" role="group" aria-label={`Điều khiển tập viết chữ ${character}`}>
         <button
           type="button"
           className={`hanzi-writer-icon-button${mode === "animating" ? " active" : ""}`}
@@ -3620,9 +3628,9 @@ function HanziCharacterWriter({ character }: { character: string }) {
         >
           <PenLine aria-hidden="true" />
         </button>
-      </div>
-      {mode === "practicing" ? <p className="hanzi-practice-status">Viết theo đúng thứ tự nét trong ô.</p> : null}
-      {mode === "complete" ? <p className="hanzi-practice-status complete">Hoàn thành</p> : null}
+      </div> : null}
+      {!compact && mode === "practicing" ? <p className="hanzi-practice-status">Viết theo đúng thứ tự nét trong ô.</p> : null}
+      {!compact && mode === "complete" ? <p className="hanzi-practice-status complete">Hoàn thành</p> : null}
     </div>
   );
 }
