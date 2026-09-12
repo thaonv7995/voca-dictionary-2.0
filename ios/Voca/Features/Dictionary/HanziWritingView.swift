@@ -32,6 +32,7 @@ struct HanziWritingView: View {
     let word: String
     var compact = false
     var displayOnly = false
+    var onCharacterFocus: ((String) -> Void)?
 
     private var characters: [String] {
         word.map(String.init).filter { value in
@@ -54,8 +55,17 @@ struct HanziWritingView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: compact ? 6 : 14) {
                         ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
-                            HanziCharacterPractice(character: character, compact: compact,
-                                                   displayOnly: displayOnly)
+                            if compact, let onCharacterFocus {
+                                Button { onCharacterFocus(character) } label: {
+                                    HanziCharacterPractice(character: character, compact: true,
+                                                           displayOnly: displayOnly)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Phóng lớn chữ \(character)")
+                            } else {
+                                HanziCharacterPractice(character: character, compact: compact,
+                                                       displayOnly: displayOnly)
+                            }
                         }
                     }
                     .frame(minWidth: compact ? 118 : 0, alignment: .trailing)
@@ -76,7 +86,7 @@ private struct HanziCharacterPractice: View {
     @State private var command: HanziCommand?
     @State private var status = ""
 
-    private var canvasSize: CGFloat { compact ? 48 : 176 }
+    private var canvasSize: CGFloat { compact ? 48 : displayOnly ? 240 : 176 }
 
     var body: some View {
         VStack(spacing: 8) {

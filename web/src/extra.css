@@ -43,20 +43,25 @@
 .hanzi-writer-actions .hanzi-writer-icon-button svg { width: 17px; height: 17px; }
 .hanzi-practice-status { margin: 0 !important; color: var(--muted); font-size: 11px; text-align: center; }
 .hanzi-practice-status.complete { color: var(--accent); font-weight: 800; }
-.card-row-writing { position: absolute; top: 14px; right: 14px; width: 107px; overflow: hidden; border-radius: 8px; cursor: zoom-in; }
-.card-row-writing:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.card-row-writing { position: absolute; top: 14px; right: 14px; width: 107px; overflow: hidden; border-radius: 8px; }
 .card-row-writing:hover .hanzi-writer-target { border-color: var(--accent); box-shadow: 0 5px 16px color-mix(in srgb, var(--accent), transparent 72%); }
 .card-row:has(.card-row-writing) .card-top-row > .level-badge { position: absolute; right: 14px; bottom: 14px; }
 .card-row-writing .face-section { margin: 0; padding: 0; border: 0; background: transparent; }
 .compact-writing .hanzi-writer-list { justify-content: flex-end; flex-wrap: nowrap; gap: 3px; margin-top: 0; overflow: hidden; }
-.hanzi-writer-card.compact { width: 52px; flex: 0 0 52px; gap: 0; }
+.hanzi-writer-card.compact { width: 52px; flex: 0 0 52px; gap: 0; cursor: zoom-in; }
+.hanzi-writer-card.compact:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-radius: 8px; }
 .hanzi-writer-card.compact .hanzi-writer-target { width: 48px; height: 48px; border-radius: 7px; }
 .hanzi-writer-card.compact .hanzi-writer-target svg,
 .hanzi-writer-card.compact .hanzi-writer-target canvas { width: 48px; height: 48px; }
 .hanzi-writer-card.compact .hanzi-load-fallback { font-size: 30px; }
 .hanzi-writer-card.compact .hanzi-practice-status { min-height: 14px; }
+.hanzi-writer-card.display-only { width: 234px; }
+.hanzi-writer-card.display-only .hanzi-writer-target { width: 220px; height: 220px; border-radius: 14px; }
+.hanzi-writer-card.display-only .hanzi-writer-target svg,
+.hanzi-writer-card.display-only .hanzi-writer-target canvas { width: 220px; height: 220px; }
+.hanzi-writer-card.display-only .hanzi-load-fallback { font-size: 132px; }
 .hanzi-focus-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 20px; background: rgba(3, 7, 18, .72); backdrop-filter: blur(5px); animation: voca-fade .16s ease both; }
-.hanzi-focus-popover { width: fit-content; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; padding: 18px; border: 1px solid var(--line-strong); border-radius: 20px; background: var(--panel); box-shadow: 0 26px 70px rgba(0, 0, 0, .38); animation: voca-pop .22s cubic-bezier(.2, .8, .2, 1) both; }
+.hanzi-focus-popover { width: fit-content; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; padding: 24px; border: 1px solid var(--line-strong); border-radius: 22px; background: var(--panel); box-shadow: 0 26px 70px rgba(0, 0, 0, .38); animation: voca-pop .22s cubic-bezier(.2, .8, .2, 1) both; }
 .hanzi-focus-popover .chinese-writing { margin: 0; padding: 0; border: 0; background: transparent; }
 .hanzi-focus-popover .hanzi-writer-list { justify-content: center; margin-top: 0; }
 

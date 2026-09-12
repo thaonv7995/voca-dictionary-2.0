@@ -3441,23 +3441,10 @@ function CardList({
                       {card.language === "zh-CN" ? (
                         <div
                           className="card-row-writing"
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`Phóng lớn phần tập viết ${card.word}`}
-                          title="Phóng lớn phần tập viết"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setFocusedHanziWord(card.word);
-                          }}
-                          onKeyDown={(event) => {
-                            event.stopPropagation();
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              setFocusedHanziWord(card.word);
-                            }
-                          }}
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
                         >
-                          <ChineseWritingGuide word={card.word} compact />
+                          <ChineseWritingGuide word={card.word} compact onCharacterFocus={setFocusedHanziWord} />
                         </div>
                       ) : null}
                       <span className={`level-badge level-${card.level}`}>
@@ -3577,7 +3564,17 @@ function ChineseExample({ value }: { value: string }) {
   );
 }
 
-function ChineseWritingGuide({ word, compact = false, displayOnly = false }: { word: string; compact?: boolean; displayOnly?: boolean }) {
+function ChineseWritingGuide({
+  word,
+  compact = false,
+  displayOnly = false,
+  onCharacterFocus,
+}: {
+  word: string;
+  compact?: boolean;
+  displayOnly?: boolean;
+  onCharacterFocus?: (character: string) => void;
+}) {
   const characters = Array.from(word).filter((character) => /\p{Script=Han}/u.test(character));
   if (!characters.length) return null;
   return (
@@ -3585,14 +3582,30 @@ function ChineseWritingGuide({ word, compact = false, displayOnly = false }: { w
       {!compact && !displayOnly ? <h4>Tập viết</h4> : null}
       <div className="hanzi-writer-list">
         {characters.map((character, index) => (
-          <HanziCharacterWriter character={character} compact={compact} displayOnly={displayOnly} key={`${character}-${index}`} />
+          <HanziCharacterWriter
+            character={character}
+            compact={compact}
+            displayOnly={displayOnly}
+            onFocus={onCharacterFocus}
+            key={`${character}-${index}`}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function HanziCharacterWriter({ character, compact = false, displayOnly = false }: { character: string; compact?: boolean; displayOnly?: boolean }) {
+function HanziCharacterWriter({
+  character,
+  compact = false,
+  displayOnly = false,
+  onFocus,
+}: {
+  character: string;
+  compact?: boolean;
+  displayOnly?: boolean;
+  onFocus?: (character: string) => void;
+}) {
   const targetRef = useRef<HTMLDivElement | null>(null);
   const writerRef = useRef<HanziWriter | null>(null);
   const [mode, setMode] = useState<"idle" | "animating" | "practicing" | "complete">("idle");
@@ -3601,11 +3614,12 @@ function HanziCharacterWriter({ character, compact = false, displayOnly = false 
   useEffect(() => {
     const target = targetRef.current;
     if (!target) return;
+    const writerSize = compact ? 48 : displayOnly ? 220 : 132;
     target.replaceChildren();
     setLoadError(false);
     writerRef.current = HanziWriter.create(target, character, {
-      width: compact ? 48 : 132,
-      height: compact ? 48 : 132,
+      width: writerSize,
+      height: writerSize,
       padding: 8,
       showOutline: true,
       showCharacter: true,
@@ -3625,7 +3639,7 @@ function HanziCharacterWriter({ character, compact = false, displayOnly = false 
       writerRef.current = null;
       target.replaceChildren();
     };
-  }, [character, compact]);
+  }, [character, compact, displayOnly]);
 
   const animate = async () => {
     const writer = writerRef.current;
@@ -3650,7 +3664,20 @@ function HanziCharacterWriter({ character, compact = false, displayOnly = false 
   };
 
   return (
-    <div className={`hanzi-writer-card ${compact ? "compact" : ""}`}>
+    <div
+      className={`hanzi-writer-card ${compact ? "compact" : ""} ${displayOnly ? "display-only" : ""}`}
+      role={compact && onFocus ? "button" : undefined}
+      tabIndex={compact && onFocus ? 0 : undefined}
+      aria-label={compact && onFocus ? `Phóng lớn chữ ${character}` : undefined}
+      title={compact && onFocus ? `Phóng lớn chữ ${character}` : undefined}
+      onClick={compact && onFocus ? () => onFocus(character) : undefined}
+      onKeyDown={compact && onFocus ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onFocus(character);
+        }
+      } : undefined}
+    >
       <div className="hanzi-writer-target" ref={targetRef} aria-label={`Thứ tự nét chữ ${character}`}>
         {loadError ? <span className="hanzi-load-fallback" lang="zh-CN">{character}</span> : null}
       </div>

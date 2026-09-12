@@ -216,8 +216,8 @@ struct DictionaryView: View {
         List {
             ForEach(filteredCards) { card in
                 NavigationLink(value: card) {
-                    CardRow(card: card) {
-                        focusedHanzi = FocusedHanzi(word: card.word)
+                    CardRow(card: card) { character in
+                        focusedHanzi = FocusedHanzi(word: character)
                     }
                 }
             }
@@ -350,7 +350,7 @@ struct DictionaryView: View {
 /// A single row in the dictionary list.
 private struct CardRow: View {
     let card: Card
-    let onWritingFocus: () -> Void
+    let onWritingFocus: (String) -> Void
 
     var body: some View {
         HStack(alignment: card.isChinese ? .top : .center, spacing: 10) {
@@ -382,11 +382,8 @@ private struct CardRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if card.isChinese {
-                Button(action: onWritingFocus) {
-                    HanziWritingView(word: card.word, compact: true)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Phóng lớn phần tập viết \(card.word)")
+                HanziWritingView(word: card.word, compact: true,
+                                 onCharacterFocus: onWritingFocus)
                 VStack(spacing: 5) {
                     PronounceButton(text: card.word, language: card.cardLanguage)
                     if let level = CardLevel(card.level) { LevelBadge(level: level) }
