@@ -56,8 +56,10 @@ struct HanziWritingView: View {
                             HanziCharacterPractice(character: character, compact: compact)
                         }
                     }
+                    .frame(minWidth: compact ? 118 : 0, alignment: .trailing)
                     .padding(.horizontal, 1)
                 }
+                .frame(width: compact ? 118 : nil, alignment: .trailing)
             }
         }
     }

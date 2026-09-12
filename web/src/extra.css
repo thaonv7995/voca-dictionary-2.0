@@ -46,7 +46,7 @@
 .card-row-writing { position: absolute; top: 14px; right: 14px; width: 107px; overflow: hidden; cursor: default; }
 .card-row:has(.card-row-writing) .card-top-row > .level-badge { position: absolute; right: 14px; bottom: 14px; }
 .card-row-writing .face-section { margin: 0; padding: 0; border: 0; background: transparent; }
-.compact-writing .hanzi-writer-list { flex-wrap: nowrap; gap: 3px; margin-top: 0; overflow: hidden; }
+.compact-writing .hanzi-writer-list { justify-content: flex-end; flex-wrap: nowrap; gap: 3px; margin-top: 0; overflow: hidden; }
 .hanzi-writer-card.compact { width: 52px; flex: 0 0 52px; gap: 0; }
 .hanzi-writer-card.compact .hanzi-writer-target { width: 48px; height: 48px; border-radius: 7px; }
 .hanzi-writer-card.compact .hanzi-writer-target svg,
