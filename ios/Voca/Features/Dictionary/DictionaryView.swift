@@ -54,6 +54,7 @@ enum DateFilter: String, CaseIterable, Identifiable {
 
 /// Root of the Dictionary tab: a searchable, filterable list of vocabulary cards.
 struct DictionaryView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
     @State private var store = DictionaryStore()
     @State private var searchText = ""
@@ -212,18 +213,51 @@ struct DictionaryView: View {
         .background(.bar)
     }
 
-    private var cardList: some View {
-        List {
-            ForEach(filteredCards) { card in
-                NavigationLink(value: card) {
-                    CardRow(card: card) { character in
-                        focusedHanzi = FocusedHanzi(word: character)
+    @ViewBuilder private var cardList: some View {
+        Group {
+            if horizontalSizeClass == .regular {
+                ScrollView {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.adaptive(minimum: 360, maximum: 540), spacing: 16, alignment: .top)
+                        ],
+                        alignment: .leading,
+                        spacing: 16
+                    ) {
+                        ForEach(filteredCards) { card in
+                            NavigationLink(value: card) {
+                                CardRow(card: card) { character in
+                                    focusedHanzi = FocusedHanzi(word: character)
+                                }
+                                .padding(16)
+                                .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
+                                .background(
+                                    Color(.secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(20)
+                    .frame(maxWidth: 1100)
+                    .frame(maxWidth: .infinity)
+                }
+                .background(Color(.systemGroupedBackground))
+                .refreshable { await store.refresh() }
+            } else {
+                List {
+                    ForEach(filteredCards) { card in
+                        NavigationLink(value: card) {
+                            CardRow(card: card) { character in
+                                focusedHanzi = FocusedHanzi(word: character)
+                            }
+                        }
                     }
                 }
+                .listStyle(.plain)
+                .refreshable { await store.refresh() }
             }
         }
-        .listStyle(.plain)
-        .refreshable { await store.refresh() }
         .overlay {
             if filteredCards.isEmpty {
                 if !searchText.isEmpty {

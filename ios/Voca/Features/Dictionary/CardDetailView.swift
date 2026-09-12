@@ -4,6 +4,7 @@ import SwiftUI
 /// level control and delete. Keeps a local copy of the card so edits reflect immediately.
 struct CardDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// Called after the card is deleted (so the list can refresh).
     var onDeleted: () -> Void = {}
@@ -44,7 +45,10 @@ struct CardDetailView: View {
                 deleteButton
             }
             .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(
+                maxWidth: horizontalSizeClass == .regular ? (card.isChinese ? 1080 : 760) : .infinity,
+                alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         .navigationTitle(card.word)
         .navigationBarTitleDisplayMode(.inline)
@@ -153,9 +157,30 @@ struct CardDetailView: View {
     }
 
     @ViewBuilder private var chineseContent: some View {
-        HanziWritingView(word: card.word)
-        chineseInfoCard
-        chineseExampleCard
+        if horizontalSizeClass == .regular {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 24) {
+                    HanziWritingView(word: card.word)
+                        .frame(minWidth: 360, maxWidth: .infinity, alignment: .topLeading)
+
+                    VStack(spacing: 16) {
+                        chineseInfoCard
+                        chineseExampleCard
+                    }
+                    .frame(width: 380)
+                }
+
+                VStack(alignment: .leading, spacing: 20) {
+                    HanziWritingView(word: card.word)
+                    chineseInfoCard
+                    chineseExampleCard
+                }
+            }
+        } else {
+            HanziWritingView(word: card.word)
+            chineseInfoCard
+            chineseExampleCard
+        }
     }
 
     private var chineseInfoCard: some View {

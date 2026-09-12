@@ -8,6 +8,7 @@ import SwiftUI
 /// a mastery ring, per-level stat tiles and the most recently added cards.
 struct TodayView: View {
     @Environment(AuthStore.self) private var auth
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
 
     @State private var model = TodayModel()
@@ -20,20 +21,7 @@ struct TodayView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    greeting
-                    CardLanguagePicker(selection: $languageRaw)
-
-                    if let errorMessage = model.errorMessage {
-                        errorBanner(errorMessage)
-                    }
-
-                    dueHero
-                    masterySection
-                    statsSection
-                    recentSection
-                }
-                .padding()
+                dashboardContent
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Hôm nay")
@@ -45,6 +33,63 @@ struct TodayView: View {
             }) {
                 ReviewSessionView(items: model.dueItems(for: language))
             }
+        }
+    }
+
+    @ViewBuilder private var dashboardContent: some View {
+        if horizontalSizeClass == .regular {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .bottom, spacing: 28) {
+                    greeting
+                    CardLanguagePicker(selection: $languageRaw)
+                        .frame(width: 300)
+                }
+
+                if let errorMessage = model.errorMessage {
+                    errorBanner(errorMessage)
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 20) {
+                        VStack(spacing: 20) {
+                            dueHero
+                            masterySection
+                        }
+                        .frame(minWidth: 320, maxWidth: .infinity)
+
+                        VStack(alignment: .leading, spacing: 20) {
+                            statsSection
+                            recentSection
+                        }
+                        .frame(minWidth: 320, maxWidth: .infinity)
+                    }
+
+                    VStack(spacing: 20) {
+                        dueHero
+                        masterySection
+                        statsSection
+                        recentSection
+                    }
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 1100)
+            .frame(maxWidth: .infinity)
+        } else {
+            VStack(alignment: .leading, spacing: 16) {
+                greeting
+                CardLanguagePicker(selection: $languageRaw)
+
+                if let errorMessage = model.errorMessage {
+                    errorBanner(errorMessage)
+                }
+
+                dueHero
+                masterySection
+                statsSection
+                recentSection
+            }
+            .padding()
         }
     }
 

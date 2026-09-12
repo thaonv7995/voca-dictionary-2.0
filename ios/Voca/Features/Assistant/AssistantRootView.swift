@@ -30,6 +30,7 @@ enum AssistantMode: String, CaseIterable, Identifiable {
 /// row of pills switches between the modes (a 5-segment control would overflow);
 /// view-models live here so their state survives switching modes.
 struct AssistantRootView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var mode: AssistantMode = .chat
     @State private var chatVM = ChatViewModel()
     @State private var drillsVM = DrillsViewModel()
@@ -40,23 +41,61 @@ struct AssistantRootView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                modePicker
-
-                Divider()
-
-                switch mode {
-                case .chat: ChatView(vm: chatVM)
-                case .drills: DrillsView(vm: drillsVM)
-                case .reading: ReadingView(vm: readingVM)
-                case .article: ArticleView(vm: articleVM)
-                case .speaking: SpeakingView(vm: speakingVM)
-                case .conversation: ConversationView(vm: conversationVM)
+            Group {
+                if horizontalSizeClass == .regular {
+                    HStack(spacing: 0) {
+                        modeSidebar
+                        Divider()
+                        modeContent
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                } else {
+                    VStack(spacing: 0) {
+                        modePicker
+                        Divider()
+                        modeContent
+                    }
                 }
             }
             .navigationTitle("Trợ lý AI")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    @ViewBuilder private var modeContent: some View {
+        switch mode {
+        case .chat: ChatView(vm: chatVM)
+        case .drills: DrillsView(vm: drillsVM)
+        case .reading: ReadingView(vm: readingVM)
+        case .article: ArticleView(vm: articleVM)
+        case .speaking: SpeakingView(vm: speakingVM)
+        case .conversation: ConversationView(vm: conversationVM)
+        }
+    }
+
+    private var modeSidebar: some View {
+        VStack(spacing: 6) {
+            ForEach(AssistantMode.allCases) { item in
+                let selected = mode == item
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { mode = item }
+                } label: {
+                    Label(item.title, systemImage: item.icon)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                        .foregroundStyle(selected ? .white : .primary)
+                        .background(selected ? Brand.green : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .frame(width: 210)
+        .background(Color(.secondarySystemGroupedBackground))
     }
 
     /// Scrollable pill row: the selected mode fills with `Brand.green`.
