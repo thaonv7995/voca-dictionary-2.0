@@ -61,6 +61,7 @@ struct DictionaryView: View {
     @State private var topicFilter: String?
     @State private var dateFilter: DateFilter = .all
     @State private var showCreate = false
+    @State private var focusedHanzi: FocusedHanzi?
 
     private var language: CardLanguage {
         CardLanguage(rawValue: languageRaw) ?? .english
@@ -160,6 +161,11 @@ struct DictionaryView: View {
                 .sheet(isPresented: $showCreate) {
                     CardCreateView { Task { await store.load() } }
                 }
+                .sheet(item: $focusedHanzi) { focus in
+                    HanziFocusSheet(word: focus.word)
+                        .presentationDetents([.medium, .large])
+                        .presentationDragIndicator(.visible)
+                }
                 .task { if store.cards.isEmpty { await store.load() } }
                 .onChange(of: languageRaw) { _, _ in
                     searchText = ""
@@ -209,7 +215,11 @@ struct DictionaryView: View {
     private var cardList: some View {
         List {
             ForEach(filteredCards) { card in
-                NavigationLink(value: card) { CardRow(card: card) }
+                NavigationLink(value: card) {
+                    CardRow(card: card) {
+                        focusedHanzi = FocusedHanzi(word: card.word)
+                    }
+                }
             }
         }
         .listStyle(.plain)
@@ -340,6 +350,7 @@ struct DictionaryView: View {
 /// A single row in the dictionary list.
 private struct CardRow: View {
     let card: Card
+    let onWritingFocus: () -> Void
 
     var body: some View {
         HStack(alignment: card.isChinese ? .top : .center, spacing: 10) {
@@ -371,7 +382,11 @@ private struct CardRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if card.isChinese {
-                HanziWritingView(word: card.word, compact: true)
+                Button(action: onWritingFocus) {
+                    HanziWritingView(word: card.word, compact: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Phóng lớn phần tập viết \(card.word)")
                 VStack(spacing: 5) {
                     PronounceButton(text: card.word, language: card.cardLanguage)
                     if let level = CardLevel(card.level) { LevelBadge(level: level) }
@@ -382,6 +397,21 @@ private struct CardRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+private struct FocusedHanzi: Identifiable {
+    let id = UUID()
+    let word: String
+}
+
+private struct HanziFocusSheet: View {
+    let word: String
+
+    var body: some View {
+        HanziWritingView(word: word, displayOnly: true)
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

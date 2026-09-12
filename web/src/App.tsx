@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import HanziWriter from "hanzi-writer";
+import { createPortal } from "react-dom";
 import {
   Activity,
   Check,
@@ -3305,6 +3306,7 @@ function CardList({
   const [gridColumns, setGridColumns] = useState(1);
   const [compactColumns, setCompactColumns] = useState(2);
   const [quickPreviewCard, setQuickPreviewCard] = useState<Card | null>(null);
+  const [focusedHanziWord, setFocusedHanziWord] = useState<string | null>(null);
   const effectiveCompact = compact && (containerWidth ? containerWidth < 900 : true);
   const columns = effectiveCompact ? compactColumns : gridColumns;
   const itemCount = Math.ceil(cards.length / columns);
@@ -3439,8 +3441,21 @@ function CardList({
                       {card.language === "zh-CN" ? (
                         <div
                           className="card-row-writing"
-                          onClick={(event) => event.stopPropagation()}
-                          onKeyDown={(event) => event.stopPropagation()}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Phóng lớn phần tập viết ${card.word}`}
+                          title="Phóng lớn phần tập viết"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setFocusedHanziWord(card.word);
+                          }}
+                          onKeyDown={(event) => {
+                            event.stopPropagation();
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setFocusedHanziWord(card.word);
+                            }
+                          }}
                         >
                           <ChineseWritingGuide word={card.word} compact />
                         </div>
@@ -3479,7 +3494,38 @@ function CardList({
         })}
       </div>
       {quickPreviewCard ? <QuickCardPreview card={quickPreviewCard} settings={settings} onClose={() => setQuickPreviewCard(null)} /> : null}
+      {focusedHanziWord ? <HanziFocusPopover word={focusedHanziWord} onClose={() => setFocusedHanziWord(null)} /> : null}
     </div>
+  );
+}
+
+function HanziFocusPopover({ word, onClose }: { word: string; onClose: () => void }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div className="hanzi-focus-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="hanzi-focus-popover"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Phóng lớn chữ ${word}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <ChineseWritingGuide word={word} displayOnly />
+      </section>
+    </div>,
+    document.body,
   );
 }
 
@@ -3531,22 +3577,22 @@ function ChineseExample({ value }: { value: string }) {
   );
 }
 
-function ChineseWritingGuide({ word, compact = false }: { word: string; compact?: boolean }) {
+function ChineseWritingGuide({ word, compact = false, displayOnly = false }: { word: string; compact?: boolean; displayOnly?: boolean }) {
   const characters = Array.from(word).filter((character) => /\p{Script=Han}/u.test(character));
   if (!characters.length) return null;
   return (
     <div className={`face-section chinese-writing ${compact ? "compact-writing" : ""}`}>
-      {!compact ? <h4>Tập viết</h4> : null}
+      {!compact && !displayOnly ? <h4>Tập viết</h4> : null}
       <div className="hanzi-writer-list">
         {characters.map((character, index) => (
-          <HanziCharacterWriter character={character} compact={compact} key={`${character}-${index}`} />
+          <HanziCharacterWriter character={character} compact={compact} displayOnly={displayOnly} key={`${character}-${index}`} />
         ))}
       </div>
     </div>
   );
 }
 
-function HanziCharacterWriter({ character, compact = false }: { character: string; compact?: boolean }) {
+function HanziCharacterWriter({ character, compact = false, displayOnly = false }: { character: string; compact?: boolean; displayOnly?: boolean }) {
   const targetRef = useRef<HTMLDivElement | null>(null);
   const writerRef = useRef<HanziWriter | null>(null);
   const [mode, setMode] = useState<"idle" | "animating" | "practicing" | "complete">("idle");
@@ -3608,7 +3654,7 @@ function HanziCharacterWriter({ character, compact = false }: { character: strin
       <div className="hanzi-writer-target" ref={targetRef} aria-label={`Thứ tự nét chữ ${character}`}>
         {loadError ? <span className="hanzi-load-fallback" lang="zh-CN">{character}</span> : null}
       </div>
-      {!compact ? <div className="hanzi-writer-actions" role="group" aria-label={`Điều khiển tập viết chữ ${character}`}>
+      {!compact && !displayOnly ? <div className="hanzi-writer-actions" role="group" aria-label={`Điều khiển tập viết chữ ${character}`}>
         <button
           type="button"
           className={`hanzi-writer-icon-button${mode === "animating" ? " active" : ""}`}
@@ -3629,8 +3675,8 @@ function HanziCharacterWriter({ character, compact = false }: { character: strin
           <PenLine aria-hidden="true" />
         </button>
       </div> : null}
-      {!compact && mode === "practicing" ? <p className="hanzi-practice-status">Viết theo đúng thứ tự nét trong ô.</p> : null}
-      {!compact && mode === "complete" ? <p className="hanzi-practice-status complete">Hoàn thành</p> : null}
+      {!compact && !displayOnly && mode === "practicing" ? <p className="hanzi-practice-status">Viết theo đúng thứ tự nét trong ô.</p> : null}
+      {!compact && !displayOnly && mode === "complete" ? <p className="hanzi-practice-status complete">Hoàn thành</p> : null}
     </div>
   );
 }

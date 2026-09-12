@@ -31,6 +31,7 @@ private actor HanziStrokeRepository {
 struct HanziWritingView: View {
     let word: String
     var compact = false
+    var displayOnly = false
 
     private var characters: [String] {
         word.map(String.init).filter { value in
@@ -46,14 +47,15 @@ struct HanziWritingView: View {
     var body: some View {
         if !characters.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                if !compact {
+                if !compact && !displayOnly {
                     Label("Tập viết", systemImage: "pencil.and.outline")
                         .font(.headline)
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: compact ? 6 : 14) {
                         ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
-                            HanziCharacterPractice(character: character, compact: compact)
+                            HanziCharacterPractice(character: character, compact: compact,
+                                                   displayOnly: displayOnly)
                         }
                     }
                     .frame(minWidth: compact ? 118 : 0, alignment: .trailing)
@@ -68,6 +70,7 @@ struct HanziWritingView: View {
 private struct HanziCharacterPractice: View {
     let character: String
     let compact: Bool
+    let displayOnly: Bool
     @State private var strokeJSON: String?
     @State private var errorMessage: String?
     @State private var command: HanziCommand?
@@ -95,7 +98,7 @@ private struct HanziCharacterPractice: View {
             .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
             .clipShape(RoundedRectangle(cornerRadius: 10))
 
-            if !compact {
+            if !compact && !displayOnly {
                 HStack(spacing: 12) {
                     iconButton("play.fill", label: "Xem thứ tự nét") {
                         command = HanziCommand(kind: .animate)
