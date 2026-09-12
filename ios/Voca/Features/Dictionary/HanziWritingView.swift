@@ -46,7 +46,10 @@ struct HanziWritingView: View {
     }
 
     var body: some View {
-        if !characters.isEmpty {
+        if displayOnly, let character = characters.first {
+            HanziCharacterPractice(character: character, compact: false, displayOnly: true)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        } else if !characters.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 if !compact && !displayOnly {
                     Label("Tập viết", systemImage: "pencil.and.outline")
