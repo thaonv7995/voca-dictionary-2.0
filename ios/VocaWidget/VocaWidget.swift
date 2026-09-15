@@ -59,24 +59,6 @@ struct VocaProvider: TimelineProvider {
     }
 }
 
-struct NextWidgetCardIntent: AppIntent {
-    static let title: LocalizedStringResource = "Từ tiếp theo"
-    static let description = IntentDescription("Hiển thị từ tiếp theo trong widget Voca.")
-    static let openAppWhenRun = false
-
-    @Parameter(title: "Vị trí hiện tại") var currentIndex: Int
-
-    init() { currentIndex = 0 }
-    init(currentIndex: Int) { self.currentIndex = currentIndex }
-
-    func perform() async throws -> some IntentResult {
-        WidgetSharedStore.selectNext(cardCount: WidgetSharedStore.load().count,
-                                     currentIndex: currentIndex)
-        WidgetCenter.shared.reloadTimelines(ofKind: "VocaWidget")
-        return .result()
-    }
-}
-
 struct RandomWidgetCardIntent: AppIntent {
     static let title: LocalizedStringResource = "Từ ngẫu nhiên"
     static let description = IntentDescription("Chọn một từ khác ngẫu nhiên trong widget Voca.")
@@ -226,7 +208,7 @@ struct VocaWidgetEntryView: View {
                     HanziWidgetGuide(word: card.word, size: 72, strokes: entry.hanziStrokes)
                 }
             }
-            .padding(.bottom, 28)
+            .padding(.bottom, 48)
             .overlay(alignment: .bottom) { actionRow }
         } else {
             VStack(alignment: .leading, spacing: 5) {
@@ -280,7 +262,8 @@ struct VocaWidgetEntryView: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
+            Spacer(minLength: 0)
             if let card = entry.card, let url = pronunciationURL(card) {
                 Link(destination: url) {
                     actionIcon("speaker.wave.2.fill")
@@ -288,11 +271,8 @@ struct VocaWidgetEntryView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Phát âm")
             }
-            actionButton("arrow.right", label: "Từ tiếp theo",
-                         intent: NextWidgetCardIntent(currentIndex: entry.cardIndex))
             actionButton("shuffle", label: "Từ ngẫu nhiên",
                          intent: RandomWidgetCardIntent(currentIndex: entry.cardIndex))
-            Spacer(minLength: 0)
         }
         .foregroundStyle(brandGreen)
     }
@@ -307,10 +287,10 @@ struct VocaWidgetEntryView: View {
 
     private func actionIcon(_ icon: String) -> some View {
         Image(systemName: icon)
-            .font(.caption.weight(.bold))
-            .frame(width: 30, height: 24)
-            .background(brandGreen.opacity(0.12), in: Capsule())
-            .contentShape(Capsule())
+            .font(.system(size: 17, weight: .bold))
+            .frame(width: 44, height: 44)
+            .background(brandGreen.opacity(0.14), in: RoundedRectangle(cornerRadius: 13))
+            .contentShape(RoundedRectangle(cornerRadius: 13))
     }
 
     private func cardURL(_ card: WidgetCard) -> URL? {
@@ -324,7 +304,6 @@ struct VocaWidgetEntryView: View {
         var components = URLComponents()
         components.scheme = "voca"
         components.host = "speak"
-        components.path = "/\(card.slug ?? "")"
         components.queryItems = [
             URLQueryItem(name: "text", value: card.word),
             URLQueryItem(name: "language", value: card.language ?? "en")
