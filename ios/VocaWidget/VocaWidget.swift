@@ -26,7 +26,7 @@ struct VocaProvider: TimelineProvider {
         let selected = selectedCard(from: cards, at: Date())
         let card = selected?.card ?? sample
         Task {
-            let strokes = await WidgetHanziStrokeRepository.shared.strokes(for: card)
+            let strokes = await WidgetHanziStrokeRepository.shared.cachedStrokes(for: card)
             completion(VocaEntry(date: Date(), card: card,
                                  cardIndex: selected?.index ?? 0, hanziStrokes: strokes))
         }
@@ -37,12 +37,15 @@ struct VocaProvider: TimelineProvider {
         let now = Date()
         let selected = selectedCard(from: cards, at: now)
         Task {
-            let strokes = await WidgetHanziStrokeRepository.shared.strokes(for: selected?.card)
+            let strokes = await WidgetHanziStrokeRepository.shared.cachedStrokes(for: selected?.card)
             let entry = VocaEntry(date: now, card: selected?.card,
                                   cardIndex: selected?.index ?? 0, hanziStrokes: strokes)
             let refreshDate = Calendar.current.date(byAdding: .hour, value: 1, to: now)
                 ?? now.addingTimeInterval(3600)
             completion(Timeline(entries: [entry], policy: .after(refreshDate)))
+            if await WidgetHanziStrokeRepository.shared.refreshMissingStrokes(for: selected?.card) {
+                WidgetCenter.shared.reloadTimelines(ofKind: "VocaWidget")
+            }
         }
     }
 
@@ -62,7 +65,7 @@ struct VocaProvider: TimelineProvider {
 struct RandomWidgetCardIntent: AppIntent {
     static let title: LocalizedStringResource = "Từ ngẫu nhiên"
     static let description = IntentDescription("Chọn một từ khác ngẫu nhiên trong widget Voca.")
-    static let openAppWhenRun = true
+    static let openAppWhenRun = false
 
     @Parameter(title: "Vị trí hiện tại") var currentIndex: Int
 
@@ -95,21 +98,35 @@ private struct WidgetHanziData: Decodable {
 private actor WidgetHanziStrokeRepository {
     static let shared = WidgetHanziStrokeRepository()
 
-    func strokes(for card: WidgetCard?) async -> [String: [String]] {
+    func cachedStrokes(for card: WidgetCard?) -> [String: [String]] {
         guard let card, card.language == "zh-CN" else { return [:] }
         var result: [String: [String]] = [:]
         for character in hanziCharacters(in: card.word).prefix(2) {
-            if let data = await load(character) { result[character] = data.strokes }
+            if let data = cached(character) { result[character] = data.strokes }
         }
         return result
     }
 
-    private func load(_ character: String) async -> WidgetHanziData? {
+    func refreshMissingStrokes(for card: WidgetCard?) async -> Bool {
+        guard let card, card.language == "zh-CN" else { return false }
+        var downloaded = false
+        for character in hanziCharacters(in: card.word).prefix(2) where cached(character) == nil {
+            if await download(character) != nil { downloaded = true }
+        }
+        return downloaded
+    }
+
+    private func cached(_ character: String) -> WidgetHanziData? {
         let cacheURL = cachedFile(for: character)
         if let cacheURL, let data = try? Data(contentsOf: cacheURL),
            let decoded = try? JSONDecoder().decode(WidgetHanziData.self, from: data) {
             return decoded
         }
+        return nil
+    }
+
+    private func download(_ character: String) async -> WidgetHanziData? {
+        let cacheURL = cachedFile(for: character)
         guard let escaped = character.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let url = URL(string: "https://cdn.jsdelivr.net/npm/hanzi-writer-data@2.0.1/\(escaped).json"),
               let (data, response) = try? await URLSession.shared.data(from: url),
