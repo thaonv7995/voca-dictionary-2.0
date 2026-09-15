@@ -55,6 +55,7 @@ enum DateFilter: String, CaseIterable, Identifiable {
 /// Root of the Dictionary tab: a searchable, filterable list of vocabulary cards.
 struct DictionaryView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(AppRouter.self) private var router
     @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
     @State private var store = DictionaryStore()
     @State private var searchText = ""
@@ -168,12 +169,28 @@ struct DictionaryView: View {
                         .presentationDetents([.medium, .large])
                         .presentationDragIndicator(.visible)
                 }
-                .task { if store.cards.isEmpty { await store.load() } }
+                .task {
+                    if store.cards.isEmpty { await store.load() }
+                    openPendingCardIfAvailable()
+                }
+                .onChange(of: router.pendingCardSlug) { _, _ in
+                    openPendingCardIfAvailable()
+                }
                 .onChange(of: languageRaw) { _, _ in
                     searchText = ""
                     resetFilters()
                 }
         }
+    }
+
+    private func openPendingCardIfAvailable() {
+        guard let slug = router.pendingCardSlug,
+              let card = store.cards.first(where: { $0.slug == slug })
+        else { return }
+        languageRaw = card.cardLanguage.rawValue
+        navigationPath = NavigationPath()
+        navigationPath.append(card)
+        router.pendingCardSlug = nil
     }
 
     @ViewBuilder private var content: some View {

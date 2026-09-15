@@ -6,7 +6,7 @@ import WidgetKit
 enum WidgetSync {
     static func publish(_ cards: [Card]) {
         let widgetCards = cards.prefix(200).map {
-            WidgetCard(word: $0.word, ipa: $0.ipa, pronunciation: $0.pronunciation,
+            WidgetCard(slug: $0.slug, word: $0.word, ipa: $0.ipa, pronunciation: $0.pronunciation,
                        language: $0.language?.rawValue, meaningVi: $0.meaningVi,
                        partOfSpeech: $0.partOfSpeech)
         }

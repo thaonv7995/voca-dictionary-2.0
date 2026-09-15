@@ -296,6 +296,7 @@ final class TodayModel {
             stats = loadedStats
             due = loadedDue
             cards = loadedCards
+            WidgetSync.publish(loadedCards)
         } catch {
             errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
         }

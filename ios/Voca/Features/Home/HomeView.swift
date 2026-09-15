@@ -3,41 +3,55 @@ import SwiftUI
 /// The signed-in shell: five tabs. Settings now lives inside the Profile tab (see ProfileView).
 struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(AppRouter.self) private var router
     @State private var selectedSection: HomeSection? = .today
 
     var body: some View {
-        if horizontalSizeClass == .regular {
-            NavigationSplitView {
-                List(HomeSection.allCases, selection: $selectedSection) { section in
-                    Label(section.title, systemImage: section.icon)
-                        .tag(section)
+        Group {
+            if horizontalSizeClass == .regular {
+                NavigationSplitView {
+                    List(HomeSection.allCases, selection: $selectedSection) { section in
+                        Label(section.title, systemImage: section.icon)
+                            .tag(section)
+                    }
+                    .navigationTitle("Voca")
+                } detail: {
+                    sectionView(selectedSection ?? .today)
                 }
-                .navigationTitle("Voca")
-            } detail: {
-                sectionView(selectedSection ?? .today)
+                .navigationSplitViewStyle(.balanced)
+            } else {
+                phoneTabs
             }
-            .navigationSplitViewStyle(.balanced)
-        } else {
-            phoneTabs
+        }
+        .onChange(of: router.pendingCardSlug) { _, slug in
+            if slug != nil { selectedSection = .dictionary }
+        }
+        .onAppear {
+            if router.pendingCardSlug != nil { selectedSection = .dictionary }
         }
     }
 
     private var phoneTabs: some View {
-        TabView {
+        TabView(selection: $selectedSection) {
             sectionView(.today)
                 .tabItem { Label("Hôm nay", systemImage: "sun.max") }
+                .tag(HomeSection.today as HomeSection?)
 
             sectionView(.dictionary)
                 .tabItem { Label("Kho từ", systemImage: "rectangle.grid.2x2") }
+                .tag(HomeSection.dictionary as HomeSection?)
 
             sectionView(.study)
                 .tabItem { Label("Học", systemImage: "brain.head.profile") }
+                .tag(HomeSection.study as HomeSection?)
 
             sectionView(.assistant)
                 .tabItem { Label("Trợ lý", systemImage: "sparkles") }
+                .tag(HomeSection.assistant as HomeSection?)
 
             sectionView(.profile)
                 .tabItem { Label("Hồ sơ", systemImage: "person.crop.circle") }
+                .tag(HomeSection.profile as HomeSection?)
         }
     }
 

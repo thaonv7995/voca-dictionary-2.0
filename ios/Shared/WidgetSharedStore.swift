@@ -2,12 +2,24 @@ import Foundation
 
 /// A vocabulary card slimmed down for the widget. Compiled into BOTH the app and the widget target.
 struct WidgetCard: Codable, Hashable {
+    let slug: String?
     let word: String
     let ipa: String?
     let pronunciation: String?
     let language: String?
     let meaningVi: String?
     let partOfSpeech: String?
+
+    init(slug: String? = nil, word: String, ipa: String?, pronunciation: String?,
+         language: String?, meaningVi: String?, partOfSpeech: String?) {
+        self.slug = slug
+        self.word = word
+        self.ipa = ipa
+        self.pronunciation = pronunciation
+        self.language = language
+        self.meaningVi = meaningVi
+        self.partOfSpeech = partOfSpeech
+    }
 
     var phonetic: String? {
         if language == "zh-CN", let pronunciation, !pronunciation.isEmpty { return pronunciation }
@@ -22,6 +34,7 @@ enum WidgetSharedStore {
     static let appGroup = "group.site.thaonv.voca"
     private static let fileName = "widget-cards.json"
     private static let languageKey = "voca.widget.language"
+    private static let selectedIndexKey = "voca.widget.selectedIndex"
 
     private static var fileURL: URL? {
         FileManager.default
@@ -44,6 +57,48 @@ enum WidgetSharedStore {
     }
 
     static func setSelectedLanguage(_ language: String) {
-        UserDefaults(suiteName: appGroup)?.set(language, forKey: languageKey)
+        let defaults = UserDefaults(suiteName: appGroup)
+        if defaults?.string(forKey: languageKey) != language {
+            defaults?.set(0, forKey: selectedIndexKey)
+        }
+        defaults?.set(language, forKey: languageKey)
+    }
+
+    static func selectedIndex(cardCount: Int) -> Int? {
+        guard cardCount > 0,
+              let defaults = UserDefaults(suiteName: appGroup),
+              defaults.object(forKey: selectedIndexKey) != nil
+        else { return nil }
+        return normalized(defaults.integer(forKey: selectedIndexKey), count: cardCount)
+    }
+
+    @discardableResult
+    static func selectNext(cardCount: Int, currentIndex: Int? = nil) -> Int {
+        guard cardCount > 0 else { return 0 }
+        let current = currentIndex.map { normalized($0, count: cardCount) }
+            ?? selectedIndex(cardCount: cardCount) ?? 0
+        let next = (current + 1) % cardCount
+        UserDefaults(suiteName: appGroup)?.set(next, forKey: selectedIndexKey)
+        return next
+    }
+
+    @discardableResult
+    static func selectRandom(cardCount: Int, currentIndex: Int? = nil) -> Int {
+        guard cardCount > 0 else { return 0 }
+        let current = currentIndex.map { normalized($0, count: cardCount) }
+            ?? selectedIndex(cardCount: cardCount) ?? 0
+        let next: Int
+        if cardCount == 1 {
+            next = 0
+        } else {
+            let offset = Int.random(in: 1..<cardCount)
+            next = (current + offset) % cardCount
+        }
+        UserDefaults(suiteName: appGroup)?.set(next, forKey: selectedIndexKey)
+        return next
+    }
+
+    private static func normalized(_ index: Int, count: Int) -> Int {
+        ((index % count) + count) % count
     }
 }
