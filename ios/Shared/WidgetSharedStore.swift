@@ -35,6 +35,7 @@ enum WidgetSharedStore {
     private static let fileName = "widget-cards.json"
     private static let languageKey = "voca.widget.language"
     private static let selectedIndexKey = "voca.widget.selectedIndex"
+    private static let pendingCardSlugKey = "voca.widget.pendingCardSlug"
 
     private static var fileURL: URL? {
         FileManager.default
@@ -62,6 +63,19 @@ enum WidgetSharedStore {
             defaults?.set(0, forKey: selectedIndexKey)
         }
         defaults?.set(language, forKey: languageKey)
+    }
+
+    static func setPendingCardSlug(_ slug: String?) {
+        guard let slug, !slug.isEmpty else { return }
+        UserDefaults(suiteName: appGroup)?.set(slug, forKey: pendingCardSlugKey)
+    }
+
+    static func takePendingCardSlug() -> String? {
+        guard let defaults = UserDefaults(suiteName: appGroup),
+              let slug = defaults.string(forKey: pendingCardSlugKey), !slug.isEmpty
+        else { return nil }
+        defaults.removeObject(forKey: pendingCardSlugKey)
+        return slug
     }
 
     static func selectedIndex(cardCount: Int) -> Int? {

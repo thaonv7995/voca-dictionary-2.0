@@ -62,7 +62,7 @@ struct VocaProvider: TimelineProvider {
 struct RandomWidgetCardIntent: AppIntent {
     static let title: LocalizedStringResource = "Từ ngẫu nhiên"
     static let description = IntentDescription("Chọn một từ khác ngẫu nhiên trong widget Voca.")
-    static let openAppWhenRun = false
+    static let openAppWhenRun = true
 
     @Parameter(title: "Vị trí hiện tại") var currentIndex: Int
 
@@ -70,11 +70,22 @@ struct RandomWidgetCardIntent: AppIntent {
     init(currentIndex: Int) { self.currentIndex = currentIndex }
 
     func perform() async throws -> some IntentResult {
-        WidgetSharedStore.selectRandom(cardCount: WidgetSharedStore.load().count,
-                                       currentIndex: currentIndex)
+        let cards = WidgetSharedStore.load()
+        let selectedIndex = WidgetSharedStore.selectRandom(cardCount: cards.count,
+                                                           currentIndex: currentIndex)
+        if cards.indices.contains(selectedIndex) {
+            WidgetSharedStore.setPendingCardSlug(cards[selectedIndex].slug)
+        }
         WidgetCenter.shared.reloadTimelines(ofKind: "VocaWidget")
         return .result()
     }
+}
+
+private func widgetCardURL(_ card: WidgetCard) -> URL? {
+    guard let slug = card.slug, !slug.isEmpty,
+          let encoded = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+    else { return URL(string: "voca://today") }
+    return URL(string: "voca://card/\(encoded)")
 }
 
 private struct WidgetHanziData: Decodable {
@@ -209,6 +220,8 @@ struct VocaWidgetEntryView: View {
                 }
             }
             .padding(.bottom, 48)
+            .padding(.top, 4)
+            .padding(.horizontal, 2)
             .overlay(alignment: .bottom) { actionRow }
         } else {
             VStack(alignment: .leading, spacing: 5) {
@@ -222,6 +235,8 @@ struct VocaWidgetEntryView: View {
                 Spacer(minLength: 0)
                 actionRow
             }
+            .padding(.top, 4)
+            .padding(.horizontal, 2)
         }
     }
 
@@ -262,15 +277,8 @@ struct VocaWidgetEntryView: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 12) {
+        HStack {
             Spacer(minLength: 0)
-            if let card = entry.card, let url = pronunciationURL(card) {
-                Link(destination: url) {
-                    actionIcon("speaker.wave.2.fill")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Phát âm")
-            }
             actionButton("shuffle", label: "Từ ngẫu nhiên",
                          intent: RandomWidgetCardIntent(currentIndex: entry.cardIndex))
         }
@@ -286,30 +294,21 @@ struct VocaWidgetEntryView: View {
     }
 
     private func actionIcon(_ icon: String) -> some View {
-        Image(systemName: icon)
-            .font(.system(size: 17, weight: .bold))
-            .frame(width: 44, height: 44)
-            .background(brandGreen.opacity(0.14), in: RoundedRectangle(cornerRadius: 13))
-            .contentShape(RoundedRectangle(cornerRadius: 13))
+        ZStack {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(brandGreen.opacity(0.14))
+                .frame(width: 38, height: 38)
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .bold))
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
     }
 
     private func cardURL(_ card: WidgetCard) -> URL? {
-        guard let slug = card.slug, !slug.isEmpty,
-              let encoded = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
-        else { return URL(string: "voca://today") }
-        return URL(string: "voca://card/\(encoded)")
+        widgetCardURL(card)
     }
 
-    private func pronunciationURL(_ card: WidgetCard) -> URL? {
-        var components = URLComponents()
-        components.scheme = "voca"
-        components.host = "speak"
-        components.queryItems = [
-            URLQueryItem(name: "text", value: card.word),
-            URLQueryItem(name: "language", value: card.language ?? "en")
-        ]
-        return components.url
-    }
 }
 
 private struct HanziWidgetGuide: View {

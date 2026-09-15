@@ -26,4 +26,9 @@ final class AppRouter {
             try? await TTSService().speak(text, voiceModel: voice)
         }
     }
+
+    func openPendingWidgetCard() {
+        guard let slug = WidgetSharedStore.takePendingCardSlug() else { return }
+        pendingCardSlug = slug
+    }
 }
