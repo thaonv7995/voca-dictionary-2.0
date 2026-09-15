@@ -1,5 +1,6 @@
 import AppIntents
 import SwiftUI
+import UIKit
 import WidgetKit
 
 private let brandGreen = Color(red: 0.086, green: 0.639, blue: 0.463)
@@ -117,7 +118,7 @@ struct VocaWidgetEntryView: View {
                 if card.language == "zh-CN" { HanziWidgetGuide(word: card.word, size: 72) }
             }
             .padding(.bottom, 28)
-            .overlay(alignment: .bottom) { actionRow(compact: false) }
+            .overlay(alignment: .bottom) { actionRow }
         } else {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .top, spacing: 6) {
@@ -126,7 +127,7 @@ struct VocaWidgetEntryView: View {
                     if card.language == "zh-CN" { HanziWidgetGuide(word: card.word, size: 38) }
                 }
                 Spacer(minLength: 0)
-                actionRow(compact: true)
+                actionRow
             }
         }
     }
@@ -167,31 +168,27 @@ struct VocaWidgetEntryView: View {
             .foregroundStyle(brandGreen)
     }
 
-    private func actionRow(compact: Bool) -> some View {
-        HStack(spacing: compact ? 12 : 16) {
-            if compact {
-                Button(intent: NextWidgetCardIntent(currentIndex: entry.cardIndex)) {
-                    Image(systemName: "arrow.right")
-                }
-                .accessibilityLabel("Từ tiếp theo")
-                Button(intent: RandomWidgetCardIntent(currentIndex: entry.cardIndex)) {
-                    Image(systemName: "shuffle")
-                }
-                .accessibilityLabel("Từ ngẫu nhiên")
-            } else {
-                Button(intent: NextWidgetCardIntent(currentIndex: entry.cardIndex)) {
-                    Label("Tiếp", systemImage: "arrow.right")
-                }
-                Button(intent: RandomWidgetCardIntent(currentIndex: entry.cardIndex)) {
-                    Label("Ngẫu nhiên", systemImage: "shuffle")
-                }
-            }
+    private var actionRow: some View {
+        HStack(spacing: 10) {
+            actionButton("arrow.right", label: "Từ tiếp theo",
+                         intent: NextWidgetCardIntent(currentIndex: entry.cardIndex))
+            actionButton("shuffle", label: "Từ ngẫu nhiên",
+                         intent: RandomWidgetCardIntent(currentIndex: entry.cardIndex))
             Spacer(minLength: 0)
-            Image(systemName: "sparkles")
-            Text("Voca").font(.caption2.weight(.semibold))
         }
-        .font(.caption.weight(.semibold))
         .foregroundStyle(brandGreen)
+    }
+
+    private func actionButton<I: AppIntent>(_ icon: String, label: String, intent: I) -> some View {
+        Button(intent: intent) {
+            Image(systemName: icon)
+                .font(.caption.weight(.bold))
+                .frame(width: 30, height: 24)
+                .background(brandGreen.opacity(0.12), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private func cardURL(_ card: WidgetCard) -> URL? {
@@ -217,6 +214,16 @@ private struct HanziWidgetGuide: View {
         }
     }
 
+    private var characterFont: Font {
+        let pointSize = size * 0.8
+        if let uiFont = UIFont(name: "STKaitiSC-Black", size: pointSize)
+            ?? UIFont(name: "STKaitiSC-Bold", size: pointSize)
+            ?? UIFont(name: "Kaiti SC", size: pointSize) {
+            return Font(uiFont)
+        }
+        return .system(size: pointSize, weight: .black, design: .serif)
+    }
+
     var body: some View {
         HStack(spacing: 4) {
             ForEach(Array(characters.prefix(2).enumerated()), id: \.offset) { _, character in
@@ -229,18 +236,24 @@ private struct HanziWidgetGuide: View {
                         var vertical = Path()
                         vertical.move(to: CGPoint(x: canvasSize.width / 2, y: 0))
                         vertical.addLine(to: CGPoint(x: canvasSize.width / 2, y: canvasSize.height))
-                        let style = StrokeStyle(lineWidth: 0.8, dash: [3, 3])
-                        context.stroke(horizontal, with: .color(.gray.opacity(0.35)), style: style)
-                        context.stroke(vertical, with: .color(.gray.opacity(0.35)), style: style)
+                        let style = StrokeStyle(lineWidth: 0.85, dash: [3, 3])
+                        let guideColor = Color(red: 0.55, green: 0.66, blue: 0.79).opacity(0.5)
+                        context.stroke(horizontal, with: .color(guideColor), style: style)
+                        context.stroke(vertical, with: .color(guideColor), style: style)
                     }
                     Text(character)
-                        .font(.system(size: size * 0.68, weight: .semibold))
+                        .font(characterFont)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .padding(size * 0.05)
                         .foregroundStyle(Color(red: 0.06, green: 0.09, blue: 0.15))
+                        .drawingGroup()
                 }
                 .frame(width: size, height: size)
                 .clipShape(RoundedRectangle(cornerRadius: size * 0.12))
                 .overlay(RoundedRectangle(cornerRadius: size * 0.12)
-                    .stroke(Color.gray.opacity(0.22), lineWidth: 1))
+                    .stroke(Color(red: 0.82, green: 0.85, blue: 0.89), lineWidth: 1.5))
+                .shadow(color: .black.opacity(0.07), radius: 2, y: 1)
             }
         }
     }
