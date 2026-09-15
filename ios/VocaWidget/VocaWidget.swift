@@ -9,6 +9,7 @@ struct VocaEntry: TimelineEntry {
     let date: Date
     let card: WidgetCard?
     let cardIndex: Int
+    let hanziStrokes: [String: [String]]
 }
 
 struct VocaProvider: TimelineProvider {
@@ -17,26 +18,32 @@ struct VocaProvider: TimelineProvider {
                                     partOfSpeech: "phrase")
 
     func placeholder(in context: Context) -> VocaEntry {
-        VocaEntry(date: Date(), card: sample, cardIndex: 0)
+        VocaEntry(date: Date(), card: sample, cardIndex: 0, hanziStrokes: [:])
     }
 
     func getSnapshot(in context: Context, completion: @escaping (VocaEntry) -> Void) {
         let cards = WidgetSharedStore.load()
         let selected = selectedCard(from: cards, at: Date())
-        completion(VocaEntry(date: Date(), card: selected?.card ?? sample,
-                            cardIndex: selected?.index ?? 0))
+        let card = selected?.card ?? sample
+        Task {
+            let strokes = await WidgetHanziStrokeRepository.shared.strokes(for: card)
+            completion(VocaEntry(date: Date(), card: card,
+                                 cardIndex: selected?.index ?? 0, hanziStrokes: strokes))
+        }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<VocaEntry>) -> Void) {
         let cards = WidgetSharedStore.load()
         let now = Date()
-        let calendar = Calendar.current
-        let entries = (0..<12).map { hour in
-            let date = calendar.date(byAdding: .hour, value: hour, to: now) ?? now
-            let selected = selectedCard(from: cards, at: date)
-            return VocaEntry(date: date, card: selected?.card, cardIndex: selected?.index ?? 0)
+        let selected = selectedCard(from: cards, at: now)
+        Task {
+            let strokes = await WidgetHanziStrokeRepository.shared.strokes(for: selected?.card)
+            let entry = VocaEntry(date: now, card: selected?.card,
+                                  cardIndex: selected?.index ?? 0, hanziStrokes: strokes)
+            let refreshDate = Calendar.current.date(byAdding: .hour, value: 1, to: now)
+                ?? now.addingTimeInterval(3600)
+            completion(Timeline(entries: [entry], policy: .after(refreshDate)))
         }
-        completion(Timeline(entries: entries, policy: .atEnd))
     }
 
     private func selectedCard(from cards: [WidgetCard], at date: Date) -> (card: WidgetCard, index: Int)? {
@@ -88,6 +95,106 @@ struct RandomWidgetCardIntent: AppIntent {
     }
 }
 
+private struct WidgetHanziData: Decodable {
+    let strokes: [String]
+}
+
+private actor WidgetHanziStrokeRepository {
+    static let shared = WidgetHanziStrokeRepository()
+
+    func strokes(for card: WidgetCard?) async -> [String: [String]] {
+        guard let card, card.language == "zh-CN" else { return [:] }
+        var result: [String: [String]] = [:]
+        for character in hanziCharacters(in: card.word).prefix(2) {
+            if let data = await load(character) { result[character] = data.strokes }
+        }
+        return result
+    }
+
+    private func load(_ character: String) async -> WidgetHanziData? {
+        let cacheURL = cachedFile(for: character)
+        if let cacheURL, let data = try? Data(contentsOf: cacheURL),
+           let decoded = try? JSONDecoder().decode(WidgetHanziData.self, from: data) {
+            return decoded
+        }
+        guard let escaped = character.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "https://cdn.jsdelivr.net/npm/hanzi-writer-data@2.0.1/\(escaped).json"),
+              let (data, response) = try? await URLSession.shared.data(from: url),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let decoded = try? JSONDecoder().decode(WidgetHanziData.self, from: data)
+        else { return nil }
+        if let cacheURL { try? data.write(to: cacheURL, options: .atomic) }
+        return decoded
+    }
+
+    private func cachedFile(for character: String) -> URL? {
+        guard let root = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: WidgetSharedStore.appGroup)?
+            .appendingPathComponent("HanziWriterData", isDirectory: true)
+        else { return nil }
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let name = character.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: "-")
+        return root.appendingPathComponent(name).appendingPathExtension("json")
+    }
+}
+
+private func hanziCharacters(in word: String) -> [String] {
+    word.map(String.init).filter { value in
+        value.unicodeScalars.contains { scalar in
+            (0x3400...0x4DBF).contains(scalar.value)
+                || (0x4E00...0x9FFF).contains(scalar.value)
+                || (0xF900...0xFAFF).contains(scalar.value)
+                || (0x20000...0x323AF).contains(scalar.value)
+        }
+    }
+}
+
+private enum HanziSVGPathParser {
+    static func path(from source: String, size: CGFloat) -> Path? {
+        let tokens = source.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let margin = size * 0.06
+        let scale = (size - margin * 2) / 1024
+        var index = 0
+        var path = Path()
+
+        func point(_ x: Double, _ y: Double) -> CGPoint {
+            CGPoint(x: margin + CGFloat(x) * scale,
+                    y: margin + CGFloat(900 - y) * scale)
+        }
+
+        func number(_ offset: Int) -> Double? {
+            guard index + offset < tokens.count else { return nil }
+            return Double(tokens[index + offset])
+        }
+
+        while index < tokens.count {
+            switch tokens[index] {
+            case "M":
+                guard let x = number(1), let y = number(2) else { return nil }
+                path.move(to: point(x, y)); index += 3
+            case "L":
+                guard let x = number(1), let y = number(2) else { return nil }
+                path.addLine(to: point(x, y)); index += 3
+            case "Q":
+                guard let cx = number(1), let cy = number(2),
+                      let x = number(3), let y = number(4) else { return nil }
+                path.addQuadCurve(to: point(x, y), control: point(cx, cy)); index += 5
+            case "C":
+                guard let c1x = number(1), let c1y = number(2),
+                      let c2x = number(3), let c2y = number(4),
+                      let x = number(5), let y = number(6) else { return nil }
+                path.addCurve(to: point(x, y), control1: point(c1x, c1y),
+                              control2: point(c2x, c2y)); index += 7
+            case "Z":
+                path.closeSubpath(); index += 1
+            default:
+                return nil
+            }
+        }
+        return path
+    }
+}
+
 struct VocaWidgetEntryView: View {
     var entry: VocaEntry
     @Environment(\.widgetFamily) private var family
@@ -115,7 +222,9 @@ struct VocaWidgetEntryView: View {
             HStack(alignment: .top, spacing: 14) {
                 wordInfo(card)
                 Spacer(minLength: 4)
-                if card.language == "zh-CN" { HanziWidgetGuide(word: card.word, size: 72) }
+                if card.language == "zh-CN" {
+                    HanziWidgetGuide(word: card.word, size: 72, strokes: entry.hanziStrokes)
+                }
             }
             .padding(.bottom, 28)
             .overlay(alignment: .bottom) { actionRow }
@@ -124,7 +233,9 @@ struct VocaWidgetEntryView: View {
                 HStack(alignment: .top, spacing: 6) {
                     wordInfo(card)
                     Spacer(minLength: 2)
-                    if card.language == "zh-CN" { HanziWidgetGuide(word: card.word, size: 38) }
+                    if card.language == "zh-CN" {
+                        HanziWidgetGuide(word: card.word, size: 38, strokes: entry.hanziStrokes)
+                    }
                 }
                 Spacer(minLength: 0)
                 actionRow
@@ -202,16 +313,10 @@ struct VocaWidgetEntryView: View {
 private struct HanziWidgetGuide: View {
     let word: String
     let size: CGFloat
+    let strokes: [String: [String]]
 
     private var characters: [String] {
-        word.map(String.init).filter { value in
-            value.unicodeScalars.contains { scalar in
-                (0x3400...0x4DBF).contains(scalar.value)
-                    || (0x4E00...0x9FFF).contains(scalar.value)
-                    || (0xF900...0xFAFF).contains(scalar.value)
-                    || (0x20000...0x323AF).contains(scalar.value)
-            }
-        }
+        hanziCharacters(in: word)
     }
 
     private var characterFont: Font {
@@ -241,13 +346,25 @@ private struct HanziWidgetGuide: View {
                         context.stroke(horizontal, with: .color(guideColor), style: style)
                         context.stroke(vertical, with: .color(guideColor), style: style)
                     }
-                    Text(character)
-                        .font(characterFont)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                        .padding(size * 0.05)
-                        .foregroundStyle(Color(red: 0.06, green: 0.09, blue: 0.15))
-                        .drawingGroup()
+                    if let paths = strokes[character], !paths.isEmpty {
+                        Canvas { context, canvasSize in
+                            for svgPath in paths {
+                                if let path = HanziSVGPathParser.path(
+                                    from: svgPath, size: min(canvasSize.width, canvasSize.height)) {
+                                    context.fill(path, with: .color(
+                                        Color(red: 0.06, green: 0.09, blue: 0.15)))
+                                }
+                            }
+                        }
+                    } else {
+                        Text(character)
+                            .font(characterFont)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                            .padding(size * 0.05)
+                            .foregroundStyle(Color(red: 0.06, green: 0.09, blue: 0.15))
+                            .drawingGroup()
+                    }
                 }
                 .frame(width: size, height: size)
                 .clipShape(RoundedRectangle(cornerRadius: size * 0.12))
@@ -264,7 +381,7 @@ struct VocaWidget: Widget {
         StaticConfiguration(kind: "VocaWidget", provider: VocaProvider()) { entry in
             VocaWidgetEntryView(entry: entry)
         }
-        .configurationDisplayName("Từ vựng Voca")
+        .configurationDisplayName("Từ vựng")
         .description("Ôn từ, đổi từ và mở nhanh màn chi tiết.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }

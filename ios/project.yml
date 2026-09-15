@@ -79,7 +79,7 @@ targets:
     info:
       path: VocaWidget/Info.plist
       properties:
-        CFBundleDisplayName: Voca
+        CFBundleDisplayName: Từ vựng
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 
