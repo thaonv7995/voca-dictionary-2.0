@@ -1,6 +1,5 @@
 import AppIntents
 import SwiftUI
-import UIKit
 import WidgetKit
 
 private let brandGreen = Color(red: 0.086, green: 0.639, blue: 0.463)
@@ -347,22 +346,16 @@ private struct HanziWidgetGuide: View {
     let strokes: [String: [String]]
 
     private var characters: [String] {
-        hanziCharacters(in: word)
+        Array(hanziCharacters(in: word).prefix(2))
     }
 
-    private var characterFont: Font {
-        let pointSize = size * 0.8
-        if let uiFont = UIFont(name: "STKaitiSC-Black", size: pointSize)
-            ?? UIFont(name: "STKaitiSC-Bold", size: pointSize)
-            ?? UIFont(name: "Kaiti SC", size: pointSize) {
-            return Font(uiFont)
-        }
-        return .system(size: pointSize, weight: .black, design: .serif)
+    private var hasCompleteStrokeData: Bool {
+        !characters.isEmpty && characters.allSatisfy { !(strokes[$0] ?? []).isEmpty }
     }
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(Array(characters.prefix(2).enumerated()), id: \.offset) { _, character in
+            ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
                 ZStack {
                     RoundedRectangle(cornerRadius: size * 0.12).fill(.white)
                     Canvas { context, canvasSize in
@@ -377,7 +370,7 @@ private struct HanziWidgetGuide: View {
                         context.stroke(horizontal, with: .color(guideColor), style: style)
                         context.stroke(vertical, with: .color(guideColor), style: style)
                     }
-                    if let paths = strokes[character], !paths.isEmpty {
+                    if hasCompleteStrokeData, let paths = strokes[character] {
                         Canvas { context, canvasSize in
                             for svgPath in paths {
                                 if let path = HanziSVGPathParser.path(
@@ -388,13 +381,9 @@ private struct HanziWidgetGuide: View {
                             }
                         }
                     } else {
-                        Text(character)
-                            .font(characterFont)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
-                            .padding(size * 0.05)
-                            .foregroundStyle(Color(red: 0.06, green: 0.09, blue: 0.15))
-                            .drawingGroup()
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: max(11, size * 0.18), weight: .semibold))
+                            .foregroundStyle(Color.gray.opacity(0.45))
                     }
                 }
                 .frame(width: size, height: size)

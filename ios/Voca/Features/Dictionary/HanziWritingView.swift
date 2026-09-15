@@ -20,7 +20,9 @@ private actor HanziStrokeRepository {
     }
 
     private func cacheURL(for character: String) throws -> URL {
-        let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let root = (FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: WidgetSharedStore.appGroup)
+            ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0])
             .appendingPathComponent("HanziWriterData", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let name = character.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: "-")
