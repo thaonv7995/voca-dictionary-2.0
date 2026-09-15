@@ -212,60 +212,76 @@ struct VocaWidgetEntryView: View {
 
     @ViewBuilder private func content(_ card: WidgetCard) -> some View {
         if family == .systemMedium {
-            HStack(alignment: .top, spacing: 14) {
-                wordInfo(card)
-                Spacer(minLength: 4)
-                if card.language == "zh-CN" {
-                    HanziWidgetGuide(word: card.word, size: 72, strokes: entry.hanziStrokes)
-                }
-            }
-            .padding(.bottom, 48)
-            .padding(.top, 4)
-            .padding(.horizontal, 2)
-            .overlay(alignment: .bottom) { actionRow }
+            mediumContent(card)
         } else {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .top, spacing: 6) {
-                    wordInfo(card)
-                    Spacer(minLength: 2)
-                    if card.language == "zh-CN" {
-                        HanziWidgetGuide(word: card.word, size: 38, strokes: entry.hanziStrokes)
-                    }
-                }
-                Spacer(minLength: 0)
-                actionRow
-            }
-            .padding(.top, 4)
-            .padding(.horizontal, 2)
+            smallContent(card)
         }
     }
 
-    private func wordInfo(_ card: WidgetCard) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(card.word)
-                    .font(card.language == "zh-CN"
-                          ? .system(size: family == .systemSmall ? 27 : 34, weight: .bold)
-                          : (family == .systemSmall ? .title3.bold() : .title2.bold()))
-                    .minimumScaleFactor(0.55)
-                    .lineLimit(1)
-                if card.language != "zh-CN", let pos = card.partOfSpeech, !pos.isEmpty {
-                    posBadge(pos)
+    private func mediumContent(_ card: WidgetCard) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                wordHeader(card, compact: false)
+                if let pos = card.partOfSpeech, !pos.isEmpty { posBadge(pos) }
+                Spacer(minLength: 6)
+                meaning(card, compact: false)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                if card.language == "zh-CN" {
+                    HanziWidgetGuide(word: card.word, size: 76, strokes: entry.hanziStrokes)
+                        .frame(width: 156, alignment: .trailing)
                 }
+                Spacer(minLength: 0)
+                randomButton
             }
-            if let phonetic = card.phonetic {
-                Text(phonetic).font(.caption.weight(.medium)).foregroundStyle(.secondary).lineLimit(1)
-            }
-            if let vi = card.meaningVi, !vi.isEmpty {
-                Text(vi)
-                    .font(family == .systemSmall ? .caption : .subheadline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(family == .systemSmall ? 2 : 3)
-            }
-            if card.language == "zh-CN", family == .systemMedium,
-               let pos = card.partOfSpeech, !pos.isEmpty { posBadge(pos) }
+            .frame(maxHeight: .infinity, alignment: .topTrailing)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
+    }
+
+    private func smallContent(_ card: WidgetCard) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            wordHeader(card, compact: true)
+            if card.language == "zh-CN" {
+                HanziWidgetGuide(word: card.word, size: 40, strokes: entry.hanziStrokes)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            Spacer(minLength: 0)
+            HStack(alignment: .bottom, spacing: 6) {
+                meaning(card, compact: true)
+                randomButton
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func wordHeader(_ card: WidgetCard, compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(card.word)
+                .font(card.language == "zh-CN"
+                      ? .system(size: compact ? 27 : 34, weight: .bold)
+                      : .system(size: compact ? 22 : 30, weight: .bold))
+                .minimumScaleFactor(0.55)
+                .lineLimit(1)
+            if let phonetic = card.phonetic {
+                Text(phonetic)
+                    .font(compact ? .caption2.weight(.semibold) : .caption.weight(.semibold))
+                    .foregroundStyle(card.language == "zh-CN" ? brandGreen : .secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    @ViewBuilder private func meaning(_ card: WidgetCard, compact: Bool) -> some View {
+        if let vi = card.meaningVi, !vi.isEmpty {
+            Text(vi)
+                .font(compact ? .caption : .subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(compact ? 2 : 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private func posBadge(_ value: String) -> some View {
@@ -276,13 +292,10 @@ struct VocaWidgetEntryView: View {
             .foregroundStyle(brandGreen)
     }
 
-    private var actionRow: some View {
-        HStack {
-            Spacer(minLength: 0)
-            actionButton("shuffle", label: "Từ ngẫu nhiên",
-                         intent: RandomWidgetCardIntent(currentIndex: entry.cardIndex))
-        }
-        .foregroundStyle(brandGreen)
+    private var randomButton: some View {
+        actionButton("shuffle", label: "Từ ngẫu nhiên",
+                     intent: RandomWidgetCardIntent(currentIndex: entry.cardIndex))
+            .foregroundStyle(brandGreen)
     }
 
     private func actionButton<I: AppIntent>(_ icon: String, label: String, intent: I) -> some View {
