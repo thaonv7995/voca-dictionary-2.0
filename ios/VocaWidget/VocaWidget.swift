@@ -281,6 +281,13 @@ struct VocaWidgetEntryView: View {
 
     private var actionRow: some View {
         HStack(spacing: 10) {
+            if let card = entry.card, let url = pronunciationURL(card) {
+                Link(destination: url) {
+                    actionIcon("speaker.wave.2.fill")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Phát âm")
+            }
             actionButton("arrow.right", label: "Từ tiếp theo",
                          intent: NextWidgetCardIntent(currentIndex: entry.cardIndex))
             actionButton("shuffle", label: "Từ ngẫu nhiên",
@@ -292,14 +299,18 @@ struct VocaWidgetEntryView: View {
 
     private func actionButton<I: AppIntent>(_ icon: String, label: String, intent: I) -> some View {
         Button(intent: intent) {
-            Image(systemName: icon)
-                .font(.caption.weight(.bold))
-                .frame(width: 30, height: 24)
-                .background(brandGreen.opacity(0.12), in: Capsule())
-                .contentShape(Capsule())
+            actionIcon(icon)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+
+    private func actionIcon(_ icon: String) -> some View {
+        Image(systemName: icon)
+            .font(.caption.weight(.bold))
+            .frame(width: 30, height: 24)
+            .background(brandGreen.opacity(0.12), in: Capsule())
+            .contentShape(Capsule())
     }
 
     private func cardURL(_ card: WidgetCard) -> URL? {
@@ -307,6 +318,18 @@ struct VocaWidgetEntryView: View {
               let encoded = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
         else { return URL(string: "voca://today") }
         return URL(string: "voca://card/\(encoded)")
+    }
+
+    private func pronunciationURL(_ card: WidgetCard) -> URL? {
+        var components = URLComponents()
+        components.scheme = "voca"
+        components.host = "speak"
+        components.path = "/\(card.slug ?? "")"
+        components.queryItems = [
+            URLQueryItem(name: "text", value: card.word),
+            URLQueryItem(name: "language", value: card.language ?? "en")
+        ]
+        return components.url
     }
 }
 
