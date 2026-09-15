@@ -131,6 +131,11 @@ final class StudyModel {
 
     private let service = StudyService()
 
+    init() {
+        stats = service.cachedStats()
+        due = service.cachedDue()
+    }
+
     @MainActor
     func load() async {
         isLoading = true

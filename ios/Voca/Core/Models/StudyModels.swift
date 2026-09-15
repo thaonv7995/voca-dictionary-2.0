@@ -1,18 +1,18 @@
 import Foundation
 
 /// `GET /api/study/due` → `{ count, cards: [{ card, review }] }`.
-struct DueResponse: Decodable {
+struct DueResponse: Codable {
     let count: Int
     let cards: [DueItem]
 }
 
-struct DueItem: Decodable, Identifiable {
+struct DueItem: Codable, Identifiable {
     let card: Card
     let review: ReviewInfo
     var id: String { card.slug }
 }
 
-struct ReviewInfo: Decodable {
+struct ReviewInfo: Codable {
     let level: String?
     let due: String?
     let reps: Int?
@@ -35,7 +35,7 @@ struct ReviewResult: Decodable {
 }
 
 /// `GET /api/study/stats`.
-struct StudyStats: Decodable {
+struct StudyStats: Codable {
     let totalCards: Int
     let totalReviews: Int
     let dueNow: Int

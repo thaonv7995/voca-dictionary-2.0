@@ -26,14 +26,21 @@ final class AuthStore {
     /// Called once at launch: if a session is stored, fetch the current user; otherwise show login.
     func bootstrap() async {
         guard await api.hasStoredSession() else {
+            AppCache.clearAll()
             phase = .signedOut
             return
         }
+        let cachedUser = AppCache.loadUser()
+        if let cachedUser {
+            user = cachedUser
+            phase = .signedIn
+        }
         do {
             user = try await api.get("/api/auth/me")
+            if let user { AppCache.saveUser(user) }
             phase = .signedIn
         } catch {
-            applySignedOut()
+            if cachedUser == nil { applySignedOut() }
         }
     }
 
@@ -44,6 +51,7 @@ final class AuthStore {
             authorized: false)
         await api.storeTokens(access: result.accessToken, refresh: result.refreshToken)
         user = result.user
+        AppCache.saveUser(result.user)
         phase = .signedIn
     }
 
@@ -56,6 +64,7 @@ final class AuthStore {
             "/api/auth/register", body: body, authorized: false)
         await api.storeTokens(access: result.accessToken, refresh: result.refreshToken)
         user = result.user
+        AppCache.saveUser(result.user)
         phase = .signedIn
     }
 
@@ -75,9 +84,11 @@ final class AuthStore {
             "/api/auth/me",
             body: ["displayName": displayName.trimmingCharacters(in: .whitespacesAndNewlines)])
         user = updated
+        AppCache.saveUser(updated)
     }
 
     private func applySignedOut() {
+        AppCache.clearAll()
         user = nil
         phase = .signedOut
     }

@@ -11,6 +11,10 @@ final class DictionaryStore {
 
     private let service = CardsService()
 
+    init() {
+        cards = service.cachedList()
+    }
+
     /// Full load with the loading spinner (used on first appear and retry).
     func load() async {
         isLoading = true

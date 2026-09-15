@@ -284,6 +284,12 @@ final class TodayModel {
     private let studyService = StudyService()
     private let cardsService = CardsService()
 
+    init() {
+        stats = studyService.cachedStats()
+        due = studyService.cachedDue()
+        cards = cardsService.cachedList()
+    }
+
     @MainActor
     func load() async {
         isLoading = true

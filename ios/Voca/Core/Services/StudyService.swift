@@ -7,12 +7,19 @@ struct StudyService {
     private struct ReviewBody: Encodable { let slug: String; let grade: Int }
 
     func due() async throws -> DueResponse {
-        try await api.get("/api/study/due")
+        let value: DueResponse = try await api.get("/api/study/due")
+        AppCache.saveDue(value)
+        return value
     }
 
     func stats() async throws -> StudyStats {
-        try await api.get("/api/study/stats")
+        let value: StudyStats = try await api.get("/api/study/stats")
+        AppCache.saveStudyStats(value)
+        return value
     }
+
+    func cachedDue() -> DueResponse? { AppCache.loadDue() }
+    func cachedStats() -> StudyStats? { AppCache.loadStudyStats() }
 
     @discardableResult
     func review(slug: String, grade: ReviewGrade) async throws -> ReviewResult {
