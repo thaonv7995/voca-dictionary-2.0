@@ -34,15 +34,31 @@ struct VocaProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<VocaEntry>) -> Void) {
         let cards = WidgetSharedStore.load()
         let now = Date()
-        let selected = selectedCard(from: cards, at: now)
         Task {
-            let strokes = await WidgetHanziStrokeRepository.shared.cachedStrokes(for: selected?.card)
-            let entry = VocaEntry(date: now, card: selected?.card,
-                                  cardIndex: selected?.index ?? 0, hanziStrokes: strokes)
-            let refreshDate = Calendar.current.date(byAdding: .hour, value: 1, to: now)
-                ?? now.addingTimeInterval(3600)
-            completion(Timeline(entries: [entry], policy: .after(refreshDate)))
-            if await WidgetHanziStrokeRepository.shared.refreshMissingStrokes(for: selected?.card) {
+            var entries: [VocaEntry] = []
+            var scheduledCards: [WidgetCard] = []
+            for hour in 0..<12 {
+                let date = Calendar.current.date(byAdding: .hour, value: hour, to: now)
+                    ?? now.addingTimeInterval(Double(hour) * 3600)
+                let selected = selectedCard(from: cards, at: date)
+                let strokes = await WidgetHanziStrokeRepository.shared
+                    .cachedStrokes(for: selected?.card)
+                entries.append(VocaEntry(date: date, card: selected?.card,
+                                         cardIndex: selected?.index ?? 0,
+                                         hanziStrokes: strokes))
+                if let card = selected?.card, !scheduledCards.contains(card) {
+                    scheduledCards.append(card)
+                }
+            }
+            completion(Timeline(entries: entries, policy: .atEnd))
+
+            var downloadedStrokeData = false
+            for card in scheduledCards {
+                if await WidgetHanziStrokeRepository.shared.refreshMissingStrokes(for: card) {
+                    downloadedStrokeData = true
+                }
+            }
+            if downloadedStrokeData {
                 WidgetCenter.shared.reloadTimelines(ofKind: "VocaWidget")
             }
         }
@@ -50,13 +66,8 @@ struct VocaProvider: TimelineProvider {
 
     private func selectedCard(from cards: [WidgetCard], at date: Date) -> (card: WidgetCard, index: Int)? {
         guard !cards.isEmpty else { return nil }
-        if let selected = WidgetSharedStore.selectedIndex(cardCount: cards.count) {
-            return (cards[selected], selected)
-        }
-        let calendar = Calendar.current
-        let hour = calendar.ordinality(of: .hour, in: .era, for: date)
-            ?? calendar.component(.hour, from: date)
-        let index = ((hour % cards.count) + cards.count) % cards.count
+        guard let index = WidgetSharedStore.scheduledIndex(cardCount: cards.count, at: date)
+        else { return nil }
         return (cards[index], index)
     }
 }

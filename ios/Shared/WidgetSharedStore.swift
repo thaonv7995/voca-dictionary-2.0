@@ -35,6 +35,7 @@ enum WidgetSharedStore {
     private static let fileName = "widget-cards.json"
     private static let languageKey = "voca.widget.language"
     private static let selectedIndexKey = "voca.widget.selectedIndex"
+    private static let selectedAtKey = "voca.widget.selectedAt"
     private static let pendingCardSlugKey = "voca.widget.pendingCardSlug"
 
     private static var fileURL: URL? {
@@ -61,6 +62,7 @@ enum WidgetSharedStore {
         let defaults = UserDefaults(suiteName: appGroup)
         if defaults?.string(forKey: languageKey) != language {
             defaults?.set(0, forKey: selectedIndexKey)
+            defaults?.set(Date().timeIntervalSince1970, forKey: selectedAtKey)
         }
         defaults?.set(language, forKey: languageKey)
     }
@@ -86,13 +88,36 @@ enum WidgetSharedStore {
         return normalized(defaults.integer(forKey: selectedIndexKey), count: cardCount)
     }
 
+    static func scheduledIndex(cardCount: Int, at date: Date) -> Int? {
+        guard cardCount > 0 else { return nil }
+        guard let defaults = UserDefaults(suiteName: appGroup),
+              defaults.object(forKey: selectedIndexKey) != nil
+        else {
+            let calendar = Calendar.current
+            let hour = calendar.ordinality(of: .hour, in: .era, for: date)
+                ?? calendar.component(.hour, from: date)
+            return normalized(hour, count: cardCount)
+        }
+
+        let base = normalized(defaults.integer(forKey: selectedIndexKey), count: cardCount)
+        guard defaults.object(forKey: selectedAtKey) != nil else {
+            defaults.set(date.timeIntervalSince1970, forKey: selectedAtKey)
+            return base
+        }
+        let selectedAt = Date(timeIntervalSince1970: defaults.double(forKey: selectedAtKey))
+        let elapsedHours = max(0, Int(date.timeIntervalSince(selectedAt) / 3600))
+        return normalized(base + elapsedHours, count: cardCount)
+    }
+
     @discardableResult
     static func selectNext(cardCount: Int, currentIndex: Int? = nil) -> Int {
         guard cardCount > 0 else { return 0 }
         let current = currentIndex.map { normalized($0, count: cardCount) }
             ?? selectedIndex(cardCount: cardCount) ?? 0
         let next = (current + 1) % cardCount
-        UserDefaults(suiteName: appGroup)?.set(next, forKey: selectedIndexKey)
+        let defaults = UserDefaults(suiteName: appGroup)
+        defaults?.set(next, forKey: selectedIndexKey)
+        defaults?.set(Date().timeIntervalSince1970, forKey: selectedAtKey)
         return next
     }
 
@@ -108,7 +133,9 @@ enum WidgetSharedStore {
             let offset = Int.random(in: 1..<cardCount)
             next = (current + offset) % cardCount
         }
-        UserDefaults(suiteName: appGroup)?.set(next, forKey: selectedIndexKey)
+        let defaults = UserDefaults(suiteName: appGroup)
+        defaults?.set(next, forKey: selectedIndexKey)
+        defaults?.set(Date().timeIntervalSince1970, forKey: selectedAtKey)
         return next
     }
 
