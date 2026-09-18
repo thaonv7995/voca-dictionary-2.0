@@ -32,6 +32,7 @@ struct WidgetCard: Codable, Hashable {
 /// Reads/writes the shared card snapshot in the App Group container (app writes, widget reads).
 enum WidgetSharedStore {
     static let appGroup = "group.site.thaonv.voca"
+    static let rotationInterval: TimeInterval = 5 * 60
     private static let fileName = "widget-cards.json"
     private static let languageKey = "voca.widget.language"
     private static let selectedIndexKey = "voca.widget.selectedIndex"
@@ -93,10 +94,11 @@ enum WidgetSharedStore {
         guard let defaults = UserDefaults(suiteName: appGroup),
               defaults.object(forKey: selectedIndexKey) != nil
         else {
-            let calendar = Calendar.current
-            let hour = calendar.ordinality(of: .hour, in: .era, for: date)
-                ?? calendar.component(.hour, from: date)
-            return normalized(hour, count: cardCount)
+            let slot = Int(date.timeIntervalSince1970 / rotationInterval)
+            let slotsPerDay = Int(24 * 60 * 60 / rotationInterval)
+            let daySeed = slot / slotsPerDay
+            let step = randomCoprimeStep(count: cardCount, seed: daySeed)
+            return normalized(daySeed + (slot % slotsPerDay) * step, count: cardCount)
         }
 
         let base = normalized(defaults.integer(forKey: selectedIndexKey), count: cardCount)
@@ -105,8 +107,9 @@ enum WidgetSharedStore {
             return base
         }
         let selectedAt = Date(timeIntervalSince1970: defaults.double(forKey: selectedAtKey))
-        let elapsedHours = max(0, Int(date.timeIntervalSince(selectedAt) / 3600))
-        return normalized(base + elapsedHours, count: cardCount)
+        let elapsedSlots = max(0, Int(date.timeIntervalSince(selectedAt) / rotationInterval))
+        let step = randomCoprimeStep(count: cardCount, seed: Int(selectedAt.timeIntervalSince1970))
+        return normalized(base + (elapsedSlots % cardCount) * step, count: cardCount)
     }
 
     @discardableResult
@@ -141,5 +144,23 @@ enum WidgetSharedStore {
 
     private static func normalized(_ index: Int, count: Int) -> Int {
         ((index % count) + count) % count
+    }
+
+    private static func randomCoprimeStep(count: Int, seed: Int) -> Int {
+        guard count > 2 else { return 1 }
+        var step = 1 + abs(seed % (count - 1))
+        while greatestCommonDivisor(step, count) != 1 {
+            step = step % (count - 1) + 1
+        }
+        return step
+    }
+
+    private static func greatestCommonDivisor(_ lhs: Int, _ rhs: Int) -> Int {
+        var a = lhs
+        var b = rhs
+        while b != 0 {
+            (a, b) = (b, a % b)
+        }
+        return a
     }
 }

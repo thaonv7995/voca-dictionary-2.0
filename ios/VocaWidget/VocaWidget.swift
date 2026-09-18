@@ -37,16 +37,16 @@ struct VocaProvider: TimelineProvider {
         Task {
             var entries: [VocaEntry] = []
             var scheduledCards: [WidgetCard] = []
-            for hour in 0..<12 {
-                let date = Calendar.current.date(byAdding: .hour, value: hour, to: now)
-                    ?? now.addingTimeInterval(Double(hour) * 3600)
+            for slot in 0..<24 {
+                let seconds = Double(slot) * WidgetSharedStore.rotationInterval
+                let date = now.addingTimeInterval(seconds)
                 let selected = selectedCard(from: cards, at: date)
                 let strokes = await WidgetHanziStrokeRepository.shared
                     .cachedStrokes(for: selected?.card)
                 entries.append(VocaEntry(date: date, card: selected?.card,
                                          cardIndex: selected?.index ?? 0,
                                          hanziStrokes: strokes))
-                if let card = selected?.card, !scheduledCards.contains(card) {
+                if slot < 12, let card = selected?.card, !scheduledCards.contains(card) {
                     scheduledCards.append(card)
                 }
             }
