@@ -238,11 +238,44 @@ struct VocaWidgetEntryView: View {
     }
 
     @ViewBuilder private func content(_ card: WidgetCard) -> some View {
-        if family == .systemMedium {
+        if family == .systemLarge {
+            largeContent(card)
+        } else if family == .systemMedium {
             mediumContent(card)
         } else {
             smallContent(card)
         }
+    }
+
+    private func largeContent(_ card: WidgetCard) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                wordHeader(card, compact: false)
+                Spacer(minLength: 8)
+                if let pos = card.partOfSpeech, !pos.isEmpty {
+                    posBadge(pos)
+                }
+            }
+
+            if card.language == "zh-CN" {
+                HanziWidgetGuide(word: card.word, size: 116, strokes: entry.hanziStrokes)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                largeMeaning(card)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(alignment: .bottom, spacing: 12) {
+                if card.language == "zh-CN" {
+                    largeMeaning(card)
+                }
+                Spacer(minLength: 8)
+                randomButton
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private func mediumContent(_ card: WidgetCard) -> some View {
@@ -307,6 +340,17 @@ struct VocaWidgetEntryView: View {
                 .font(compact ? .caption : .subheadline.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(compact ? 2 : 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private func largeMeaning(_ card: WidgetCard) -> some View {
+        if let vi = card.meaningVi, !vi.isEmpty {
+            Text(vi)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(4)
+                .minimumScaleFactor(0.75)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -414,7 +458,7 @@ struct VocaWidget: Widget {
         }
         .configurationDisplayName("Từ vựng")
         .description("Ôn từ, đổi từ và mở nhanh màn chi tiết.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
 
