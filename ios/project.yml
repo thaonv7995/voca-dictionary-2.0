@@ -9,7 +9,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "2.2.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "2"
 
 targets:
   Voca:
@@ -36,6 +36,8 @@ targets:
       path: Voca/Info.plist
       properties:
         CFBundleDisplayName: Voca
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
         NSCameraUsageDescription: "Voca dùng camera để quét văn bản và tạo thẻ từ vựng."
         NSPhotoLibraryUsageDescription: "Voca đọc ảnh bạn chọn để nhận diện từ và tạo thẻ."
@@ -74,12 +76,15 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: site.thaonv.voca.widget
         PRODUCT_NAME: VocaWidget
+        TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: VocaWidget/VocaWidget.entitlements
     info:
       path: VocaWidget/Info.plist
       properties:
         CFBundleDisplayName: Từ vựng
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 

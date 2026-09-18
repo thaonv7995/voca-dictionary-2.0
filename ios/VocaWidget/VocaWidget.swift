@@ -222,7 +222,10 @@ struct VocaWidgetEntryView: View {
     var body: some View {
         Group {
             if let card = entry.card {
-                content(card).widgetURL(cardURL(card))
+                content(card)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .widgetURL(cardURL(card))
             } else {
                 VStack(spacing: 6) {
                     Image(systemName: "square.and.arrow.down")
