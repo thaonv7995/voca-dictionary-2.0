@@ -15,6 +15,7 @@ struct CardDetailView: View {
     @State private var isDeleting = false
     @State private var showDeleteConfirm = false
     @State private var showAgent = false
+    @State private var showA4Sheet = false
     @State private var errorMessage: String?
 
     private let cards = CardsService()
@@ -55,6 +56,9 @@ struct CardDetailView: View {
         .sheet(isPresented: $showAgent) {
             CardAgentView(card: card)
         }
+        .sheet(isPresented: $showA4Sheet) {
+            A4SheetView(card: card)
+        }
     }
 
     // MARK: - Header
@@ -94,7 +98,23 @@ struct CardDetailView: View {
         HStack(spacing: 12) {
             PronounceButton(text: card.word, language: card.cardLanguage, size: 40, font: .title3)
             askAIButton
+            if card.isChinese {
+                a4SheetButton
+            }
         }
+    }
+
+    private var a4SheetButton: some View {
+        Button {
+            showA4Sheet = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.text")
+                Text("Phiếu A4")
+            }
+        }
+        .buttonStyle(.bordered)
+        .tint(Brand.green)
     }
 
     private var askAIButton: some View {

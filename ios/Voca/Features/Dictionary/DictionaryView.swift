@@ -68,6 +68,7 @@ struct DictionaryView: View {
     @State private var dateFilter: DateFilter = .all
     @State private var showCreate = false
     @State private var focusedHanzi: FocusedHanzi?
+    @State private var a4Card: Card?
     @State private var navigationPath = NavigationPath()
 
     private var language: CardLanguage {
@@ -173,6 +174,9 @@ struct DictionaryView: View {
                         .presentationDetents([.medium, .large])
                         .presentationDragIndicator(.visible)
                 }
+                .sheet(item: $a4Card) { card in
+                    A4SheetView(card: card)
+                }
                 .task {
                     if store.cards.isEmpty { await store.load() }
                     openPendingCardIfAvailable()
@@ -247,9 +251,11 @@ struct DictionaryView: View {
                         spacing: 16
                     ) {
                         ForEach(filteredCards) { card in
-                            CardRow(card: card) { character in
+                            CardRow(card: card, onWritingFocus: { character in
                                 focusedHanzi = FocusedHanzi(word: character)
-                            }
+                            }, onA4Tap: { card in
+                                a4Card = card
+                            })
                             .padding(16)
                             .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
                             .background(
@@ -269,9 +275,11 @@ struct DictionaryView: View {
                 List {
                     ForEach(filteredCards) { card in
                         NavigationLink(value: card) {
-                            CardRow(card: card) { character in
+                            CardRow(card: card, onWritingFocus: { character in
                                 focusedHanzi = FocusedHanzi(word: character)
-                            }
+                            }, onA4Tap: { card in
+                                a4Card = card
+                            })
                         }
                     }
                 }
@@ -406,6 +414,7 @@ struct DictionaryView: View {
 private struct CardRow: View {
     let card: Card
     let onWritingFocus: (String) -> Void
+    var onA4Tap: ((Card) -> Void)? = nil
 
     var body: some View {
         HStack(alignment: card.isChinese ? .top : .center, spacing: 10) {
@@ -440,7 +449,22 @@ private struct CardRow: View {
                 HanziWritingView(word: card.word, compact: true,
                                  onCharacterFocus: onWritingFocus)
                 VStack(spacing: 5) {
-                    PronounceButton(text: card.word, language: card.cardLanguage)
+                    HStack(spacing: 4) {
+                        PronounceButton(text: card.word, language: card.cardLanguage)
+                        if let onA4Tap {
+                            Button {
+                                onA4Tap(card)
+                            } label: {
+                                Image(systemName: "doc.text")
+                                    .font(.body)
+                                    .foregroundStyle(Brand.green)
+                                    .frame(width: 30, height: 30)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Phiếu học A4")
+                        }
+                    }
                     if let level = CardLevel(card.level) { LevelBadge(level: level) }
                 }
             } else {

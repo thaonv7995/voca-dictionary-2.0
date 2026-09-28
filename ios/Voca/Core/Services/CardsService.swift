@@ -41,6 +41,21 @@ struct CardsService {
         AppCache.removeCard(slug: slug)
     }
 
+    /// Fetches the A4 study sheet HTML for the card.
+    func getHtml(slug: String) async throws -> String {
+        let data = try await api.rawData(method: "GET", path: "/api/cards/\(encode(slug))/html")
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw ApiError.badResponse
+        }
+        return html
+    }
+
+    /// Requests regeneration of the A4 study sheet HTML, then returns the fresh HTML.
+    func generateHtml(slug: String) async throws -> String {
+        _ = try await api.rawData(method: "POST", path: "/api/cards/\(encode(slug))/html")
+        return try await getHtml(slug: slug)
+    }
+
     private func encode(_ slug: String) -> String {
         slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? slug
     }

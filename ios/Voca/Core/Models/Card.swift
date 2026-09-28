@@ -34,12 +34,15 @@ struct Card: Codable, Identifiable, Hashable {
     let level: String?
     let audioUrl: String?
     let createdAt: String?
+    let hasHtml: Bool?
+    let htmlUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case numericId = "id"
         case slug, word, language, ipa, pronunciation, frequency, meaningEn, meaningVi
         case useCases, examples, memoryTip, toeicTrap, partOfSpeech, topic, tags
         case keyword, practicePrompt, answer, level, audioUrl, createdAt
+        case hasHtml, htmlUrl
     }
 
     var cardLanguage: CardLanguage { language ?? .english }
