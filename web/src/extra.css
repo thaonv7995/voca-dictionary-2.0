@@ -229,3 +229,156 @@ body, .dictionary-panel, .drawer, .list-heading, .utility-bar, .app-settings-pan
 .auth-card .sub { margin: 4px 0 16px; color: var(--muted); font-size: 14px; }
 .err { color: var(--danger-ink); font-size: 13px; margin-top: 8px; }
 button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+
+/* ─────────────── A4 Sheet Modal ─────────────── */
+.a4-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 16px;
+  background: rgba(3, 7, 18, 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: voca-fade 0.16s ease both;
+  overflow-y: auto;
+  cursor: pointer;
+}
+
+.a4-modal-layout {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  max-height: 96vh;
+  cursor: default;
+  animation: voca-pop 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.a4-paper-wrapper {
+  width: 210mm;
+  max-width: calc(100vw - 92px);
+  height: min(94vh, 297mm);
+  background: #ffffff;
+  border-radius: 6px;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.a4-paper-iframe {
+  width: 210mm;
+  height: 297mm;
+  min-height: 297mm;
+  border: none;
+  background: #ffffff;
+  display: block;
+}
+
+.a4-side-dock {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(24, 24, 27, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+.a4-dock-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.1));
+  background: var(--panel-soft, rgba(39, 39, 42, 0.8));
+  color: var(--ink, #f3f4f6);
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.a4-dock-btn:hover:not(:disabled) {
+  background: var(--panel, #27272a);
+  border-color: var(--accent, #dc2626);
+  transform: translateY(-1px) scale(1.04);
+  color: #fff;
+}
+
+.a4-dock-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.a4-dock-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.a4-dock-btn.primary {
+  background: var(--accent, #dc2626);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.45);
+}
+
+.a4-dock-btn.primary:hover:not(:disabled) {
+  background: #b91c1c;
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.6);
+}
+
+.a4-modal-loading,
+.a4-modal-error {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  gap: 12px;
+  padding: 24px;
+  color: #94a3b8;
+}
+
+/* Inline Card A4 Sheet Button */
+.a4-card-button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 18px;
+  min-width: 0;
+  height: 18px;
+  min-height: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  line-height: 0;
+  transition: all 140ms ease;
+}
+
+.a4-card-button svg {
+  width: 13.5px;
+  height: 13.5px;
+}
+
+.a4-card-button:hover,
+.a4-card-button:focus-visible {
+  outline: 0;
+  color: var(--accent, #dc2626);
+  background: color-mix(in srgb, var(--accent, #dc2626) 14%, transparent);
+  transform: scale(1.12);
+}
+

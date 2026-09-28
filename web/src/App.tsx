@@ -19,6 +19,7 @@ import {
   Download,
   Eye,
   ExternalLink,
+  FileText,
   GalleryHorizontal,
   GripVertical,
   Keyboard,
@@ -28,6 +29,7 @@ import {
   PenLine,
   Play,
   Plus,
+  Printer,
   RefreshCw,
   Search,
   Send,
@@ -3307,6 +3309,7 @@ function CardList({
   const [compactColumns, setCompactColumns] = useState(2);
   const [quickPreviewCard, setQuickPreviewCard] = useState<Card | null>(null);
   const [focusedHanziWord, setFocusedHanziWord] = useState<string | null>(null);
+  const [a4Card, setA4Card] = useState<Card | null>(null);
   const effectiveCompact = compact && (containerWidth ? containerWidth < 900 : true);
   const columns = effectiveCompact ? compactColumns : gridColumns;
   const itemCount = Math.ceil(cards.length / columns);
@@ -3429,6 +3432,21 @@ function CardList({
                             {card.word}
                           </strong>
                           <SpeakButton text={card.word} settings={settings} language={card.language} />
+                          {card.language === "zh-CN" ? (
+                            <button
+                              className="a4-card-button"
+                              type="button"
+                              aria-label={`Mở phiếu học A4 cho ${card.word}`}
+                              title="Phiếu học A4 (In & Luyện viết)"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setA4Card(card);
+                              }}
+                            >
+                              <FileText />
+                            </button>
+                          ) : null}
                         </span>
                         {card.language === "zh-CN" && cardPronunciation(card) ? (
                           <span className="hanzi-card-pinyin" lang="zh-Latn-pinyin">{cardPronunciation(card)}</span>
@@ -3482,6 +3500,7 @@ function CardList({
       </div>
       {quickPreviewCard ? <QuickCardPreview card={quickPreviewCard} settings={settings} onClose={() => setQuickPreviewCard(null)} /> : null}
       {focusedHanziWord ? <HanziFocusPopover word={focusedHanziWord} onClose={() => setFocusedHanziWord(null)} /> : null}
+      {a4Card ? <A4SheetModal card={a4Card} onClose={() => setA4Card(null)} /> : null}
     </div>
   );
 }
@@ -3511,6 +3530,165 @@ function HanziFocusPopover({ word, onClose }: { word: string; onClose: () => voi
       >
         <ChineseWritingGuide word={word} displayOnly />
       </section>
+    </div>,
+    document.body,
+  );
+}
+
+function A4SheetModal({
+  card,
+  onClose,
+}: {
+  card: Card;
+  onClose: () => void;
+}) {
+  const [htmlContent, setHtmlContent] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  const fetchSheet = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await apiFetch(`/api/cards/${card.id || card.slug}/html?embed=true`);
+      if (!res.ok) {
+        throw new Error(`Không thể tải file HTML (${res.status})`);
+      }
+      const text = await res.text();
+      setHtmlContent(text);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const postRes = await apiFetch(`/api/cards/${card.id || card.slug}/html`, {
+        method: "POST",
+      });
+      if (!postRes.ok) {
+        throw new Error(`Không thể tạo lại file (${postRes.status})`);
+      }
+      await fetchSheet();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setLoading(false);
+    }
+  };
+
+  const handlePrint = () => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.focus();
+      iframeRef.current.contentWindow.print();
+    }
+  };
+
+  const handleDownload = () => {
+    if (!htmlContent) return;
+    const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${card.slug || card.word}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  useEffect(() => {
+    void fetchSheet();
+  }, [card.id, card.slug]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      } else if ((event.metaKey || event.ctrlKey) && (event.key === "p" || event.key === "P")) {
+        event.preventDefault();
+        handlePrint();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div className="a4-modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="a4-modal-layout"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Phiếu học A4 - ${card.word}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="a4-paper-wrapper">
+          {loading ? (
+            <div className="a4-modal-loading">
+              <Loader2 className="spin" style={{ width: "36px", height: "36px", color: "var(--accent, #dc2626)" }} />
+              <span style={{ fontSize: "14px", color: "#94a3b8" }}>Đang chuẩn bị phiếu học A4...</span>
+            </div>
+          ) : error ? (
+            <div className="a4-modal-error">
+              <p style={{ fontWeight: 600 }}>{error}</p>
+              <button className="a4-dock-btn primary" type="button" onClick={handleRegenerate} style={{ width: "auto", padding: "8px 16px" }}>
+                Thử tạo lại
+              </button>
+            </div>
+          ) : (
+            <iframe
+              ref={iframeRef}
+              srcDoc={htmlContent}
+              title={`Phiếu học A4 - ${card.word}`}
+              className="a4-paper-iframe"
+            />
+          )}
+        </div>
+
+        {/* Vertical action dock at the side edge */}
+        <aside className="a4-side-dock" aria-label="A4 Actions">
+          <button
+            type="button"
+            className="a4-dock-btn primary"
+            onClick={handlePrint}
+            disabled={loading || Boolean(error)}
+            title="In phiếu A4 (Cmd + P)"
+            aria-label="In phiếu"
+          >
+            <Printer style={{ width: "19px", height: "19px" }} />
+          </button>
+          <button
+            type="button"
+            className="a4-dock-btn"
+            onClick={handleDownload}
+            disabled={loading || Boolean(error)}
+            title="Tải file HTML về máy"
+            aria-label="Tải file HTML"
+          >
+            <Download style={{ width: "18px", height: "18px" }} />
+          </button>
+          <button
+            type="button"
+            className="a4-dock-btn"
+            onClick={handleRegenerate}
+            disabled={loading}
+            title="Tạo lại nội dung phiếu"
+            aria-label="Tạo lại phiếu"
+          >
+            <RefreshCw className={loading ? "spin" : ""} style={{ width: "17px", height: "17px" }} />
+          </button>
+        </aside>
+      </div>
     </div>,
     document.body,
   );
@@ -3843,6 +4021,12 @@ function CardPreview({
   onOpenChat: () => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [showA4Modal, setShowA4Modal] = useState(false);
+
+  useEffect(() => {
+    setShowA4Modal(false);
+  }, [card.slug]);
+
   const src = imagePath(card.file);
   return (
     <section className="drawer preview-drawer open" aria-label="Vocabulary preview">
@@ -3908,6 +4092,18 @@ function CardPreview({
             </div>
           ) : (
             <>
+              {card.language === "zh-CN" && (
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => setShowA4Modal(true)}
+                  aria-label="Phiếu học A4"
+                  title="Phiếu học A4 (Xem & In)"
+                  style={{ color: "var(--accent, #dc2626)", borderColor: "color-mix(in srgb, var(--accent, #dc2626) 35%, transparent)" }}
+                >
+                  <FileText />
+                </button>
+              )}
               {onDeleteCard && (
                 <button
                   className="icon-button delete-button"
@@ -3954,6 +4150,7 @@ function CardPreview({
           )}
         </div>
       </div>
+      {showA4Modal && <A4SheetModal card={card} onClose={() => setShowA4Modal(false)} />}
     </section>
   );
 }

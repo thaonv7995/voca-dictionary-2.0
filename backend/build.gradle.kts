@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "site.thaonv.voca"
-version = "2.1.3"
+version = "2.1.4"
 
 java {
     toolchain {

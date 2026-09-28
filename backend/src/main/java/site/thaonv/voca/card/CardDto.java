@@ -25,5 +25,7 @@ public record CardDto(
         String answer,
         String level,
         String audioUrl,
+        boolean hasHtml,
+        String htmlUrl,
         Instant createdAt) {
 }

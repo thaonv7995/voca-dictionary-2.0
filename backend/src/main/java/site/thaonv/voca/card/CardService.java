@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import site.thaonv.voca.ai.HtmlSheetService;
 import site.thaonv.voca.common.ApiException;
 
 import java.time.Instant;
@@ -24,9 +25,11 @@ public class CardService {
     private static final Set<String> LEVELS = Set.of("new", "learning", "known", "mastered");
 
     private final CardRepository cards;
+    private final HtmlSheetService htmlSheetService;
 
-    public CardService(CardRepository cards) {
+    public CardService(CardRepository cards, HtmlSheetService htmlSheetService) {
         this.cards = cards;
+        this.htmlSheetService = htmlSheetService;
     }
 
     public static String slugify(String value) {
@@ -164,6 +167,9 @@ public class CardService {
         if (input.level() != null && LEVELS.contains(input.level())) card.setLevel(input.level());
         card.setDeckId(input.deckId());
         cards.save(card);
+        if ("zh-CN".equalsIgnoreCase(language)) {
+            htmlSheetService.generateSheetAsync(card.getId());
+        }
         return toDto(card);
     }
 
@@ -204,13 +210,28 @@ public class CardService {
     }
 
     public CardDto toDto(Card c) {
+        boolean isChinese = "zh-CN".equalsIgnoreCase(c.getLanguage());
+        boolean hasHtml = c.isHasHtml() || (isChinese && htmlSheetService.hasSheet(c.getSlug()));
+        String htmlUrl = isChinese ? "/api/cards/" + c.getId() + "/html" : null;
         return new CardDto(
                 c.getId(), c.getSlug(), c.getWord(), c.getLanguage(), c.getIpa(), c.getPronunciation(), c.getFrequency(),
                 c.getMeaningEn(), c.getMeaningVi(), c.getUseCases(), c.getExamples(), c.getMemoryTip(),
                 c.getToeicTrap(), c.getPartOfSpeech(), c.getTopic(), c.getTags(), c.getKeyword(),
                 c.getPracticePrompt(), c.getAnswer(), c.getLevel(),
                 "/v1/audio/" + c.getSlug(),
+                hasHtml,
+                htmlUrl,
                 c.getCreatedAt());
+    }
+
+    public Card requireCard(String idOrSlug, Long ownerId) {
+        if (idOrSlug.matches("\\d+")) {
+            Long id = Long.parseLong(idOrSlug);
+            return cards.findById(id)
+                    .filter(c -> c.getOwnerId().equals(ownerId))
+                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Card not found: " + idOrSlug));
+        }
+        return requireBySlug(idOrSlug, ownerId);
     }
 
     private Card requireBySlug(String slug, Long ownerId) {

@@ -91,6 +91,9 @@ public class Card {
     @Column(name = "audio_key")
     private String audioKey;
 
+    @Column(name = "has_html", nullable = false)
+    private boolean hasHtml = false;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 }

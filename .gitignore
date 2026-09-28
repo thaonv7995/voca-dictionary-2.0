@@ -22,3 +22,7 @@ dev-dist/
 
 # ── Logs ──
 *.log
+
+# ── Runtime Data ──
+data/
+backend/data/

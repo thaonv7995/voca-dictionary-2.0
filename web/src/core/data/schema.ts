@@ -25,6 +25,9 @@ export const cardSchema = z.object({
   createdAt: z.string().optional(),
   level: z.enum(["new", "learning", "known", "mastered"]).catch("new"),
   keyword: z.string().optional(),
+  id: z.number().optional(),
+  hasHtml: z.boolean().optional().catch(false),
+  htmlUrl: z.string().optional(),
 });
 
 export type Card = z.infer<typeof cardSchema> & {
