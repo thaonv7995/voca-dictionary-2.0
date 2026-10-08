@@ -77,10 +77,38 @@ final class ApiClient {
     /// Public health probe (`GET /v1/health`, no auth). Returns true when the server is reachable.
     func health() async -> Bool {
         guard let url = url(for: "/v1/health") else { return false }
-        guard let (_, response) = try? await session.data(from: url),
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        guard let (_, response) = try? await session.data(for: request),
               let http = response as? HTTPURLResponse else { return false }
         return (200..<300).contains(http.statusCode)
     }
+
+    /// Tests connection against any candidate server URL string.
+    func checkHealth(for urlString: String) async -> (ok: Bool, message: String) {
+        do {
+            let validURL = try AppConfig.normalizeAndValidate(url: urlString)
+            guard let url = URL(string: validURL.absoluteString + "/v1/health") else {
+                return (false, "Địa chỉ URL không hợp lệ.")
+            }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 5
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return (false, "Phản hồi máy chủ không hợp lệ.")
+            }
+            if (200..<300).contains(http.statusCode) {
+                return (true, "Máy chủ hoạt động tốt (\(http.statusCode) OK)")
+            } else {
+                return (false, "Máy chủ phản hồi mã lỗi HTTP \(http.statusCode)")
+            }
+        } catch let err as LocalizedError {
+            return (false, err.errorDescription ?? err.localizedDescription)
+        } catch {
+            return (false, "Không thể kết nối đến máy chủ: \(error.localizedDescription)")
+        }
+    }
+
 
     // MARK: - Raw bytes (e.g. audio/mpeg from /api/tts, /api/audio/{id})
 

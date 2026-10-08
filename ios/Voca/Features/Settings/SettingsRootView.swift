@@ -52,6 +52,11 @@ struct SettingsRootView: View {
                 Section("API keys") {
                     NavigationLink("Quản lý API keys") { ApiKeysView() }
                 }
+
+                Section("Máy chủ Voca (Backend)") {
+                    LabeledContent("Địa chỉ hiện tại", value: AppConfig.baseURL.absoluteString)
+                    LabeledContent("Loại", value: AppConfig.isCustomBaseURL ? "Tùy chỉnh" : "Mặc định")
+                }
             }
             .navigationTitle("Cài đặt")
             .task { await load() }
