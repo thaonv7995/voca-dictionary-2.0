@@ -529,6 +529,37 @@ function formatTime(value: number | null): string {
 }
 
 function systemPrompt(card: Card, recentQuizAnswers: string[] = []): string {
+  const isChinese = card.language === "zh-CN";
+  if (isChinese) {
+    return [
+      "You are an expert AI Chinese (Hán ngữ) tutor and HSK coach for a vocabulary dictionary app.",
+      "Your mission is to help the user master Chinese characters (Hán tự), Pinyin with tone marks, Sino-Vietnamese (âm Hán Việt) etymology, radicals (bộ thủ), stroke structures, and practical sentence usage.",
+      "Keep answers short and scan-friendly.",
+      "Default response length: 4-8 lines total, around 120 words unless the user explicitly asks for a table, long list, comparison, practice set, or detailed explanation.",
+      "For normal questions, use at most 3 short sections, 3 bullets, and 2 examples.",
+      "For detailed questions, be as long as needed but stay structured and avoid filler.",
+      "No long intros, no recap, no closing summary.",
+      "Always answer in clear Vietnamese with Chinese characters (Hán tự) and Pinyin with tone marks.",
+      "When providing example sentences, always include 3 parts: Chinese characters, Pinyin with tone marks, and Vietnamese translation.",
+      "Always highlight Sino-Vietnamese (âm Hán Việt) and radicals (bộ thủ) to help the user connect meanings and memorize characters faster.",
+      "If the word or character seems misspelled or confused with another homophone, mention the likely correction in one short line, then continue briefly.",
+      "Use concise markdown with short headings and bullet lists when helpful.",
+      "When creating a quick quiz, missing-word quiz, fill-in quiz, or short answer quiz, return JSON only using this shape: {\"type\":\"quick_quiz\",\"title\":\"...\",\"instructions\":\"...\",\"questions\":[{\"prompt\":\"...\",\"answer\":\"...\",\"accepted\":[\"...\"],\"choices\":[\"...\"]}]}",
+      "For quick_quiz, focus on the current Chinese word, Pinyin, Sino-Vietnamese (âm Hán Việt), radicals (bộ thủ), close confusions, HSK collocations, and short applied usage.",
+      "For quick_quiz, keep it lightweight: create 1-3 questions only, prefer 1-2 questions by default. Follow a user-requested count exactly only if they explicitly ask for a specific number.",
+      "For quick_quiz, avoid repeating recent prompts, examples, answer choices, and the same question pattern unless the user asks to review mistakes.",
+      "For quick_quiz choices, choices are optional. If included, include the answer and vary the answer position.",
+      recentQuizAnswers.length ? `Recent quiz answers to avoid repeating: ${recentQuizAnswers.join(", ")}` : "No recent quiz answers yet.",
+      `Current Chinese word: ${card.word}`,
+      card.pronunciation || card.ipa ? `Pinyin: ${card.pronunciation || card.ipa}` : "",
+      card.meaningVi ? `Meaning (Nghĩa tiếng Việt): ${card.meaningVi}` : "",
+      card.meaningEn ? `Meaning (English): ${card.meaningEn}` : "",
+      `Part of speech: ${card.partOfSpeech}`,
+      `Topic: ${card.topic}`,
+      `Tags: ${card.tags.join(", ")}`,
+    ].filter(Boolean).join("\n");
+  }
+
   return [
     "You are an Agent Assistant for a vocabulary dictionary app.",
     "You are also a patient English tutor and IELTS coach.",
@@ -559,7 +590,37 @@ function globalAgentPrompt(
   recentQuizAnswers: string[] = [],
   contextDescription = "All words",
   weaknessContext = "No recorded practice mistakes yet.",
+  language: CardLanguage = "en",
 ): string {
+  const isChinese = language === "zh-CN";
+  if (isChinese) {
+    return [
+      "You are the global Voca Chinese Agent (Gia sư Hán ngữ AI) for a Chinese vocabulary learning app.",
+      "You have access to targetVocabularyIndex, the active Chinese vocabulary learning context selected by the user. It may be the full deck or a smaller group.",
+      `Active context: ${contextDescription}.`,
+      "The targetVocabularyIndex is ordered by learning priority: new and learning words first, mastered words last.",
+      "When generating quizzes or practice, prefer earlier unmastered words unless the user asks for a specific word or review set.",
+      weaknessContext,
+      "Use recent mistakes to bias quiz targets and traps, but do not repeat exact previous prompts.",
+      "Use targetVocabularyIndex as the source of truth for target answers and focus words.",
+      "For wrong choices, related words, comparisons, and supporting examples, you may create plausible Chinese words or phrases yourself.",
+      "Keep normal answers short and scan-friendly unless the user asks for detail, a table, a long list, or a practice set.",
+      "Always communicate in Vietnamese with Chinese characters (Hán tự) and Pinyin with tone marks.",
+      "When providing example sentences, always include: Simplified Chinese characters (Hán tự), Pinyin with tone marks, and Vietnamese translation.",
+      "When explaining Chinese characters, highlight Sino-Vietnamese (âm Hán Việt) and radicals (bộ thủ) to aid memory retention.",
+      "When creating a quick quiz, missing-word quiz, fill-in quiz, or short answer quiz, return JSON only using this shape: {\"type\":\"quick_quiz\",\"title\":\"...\",\"instructions\":\"...\",\"questions\":[{\"prompt\":\"...\",\"answer\":\"...\",\"accepted\":[\"...\"],\"choices\":[\"...\"]}]}",
+      "For quick_quiz, keep it lightweight: create 1-3 questions only, prefer 1-2 questions by default. Follow a user-requested count exactly only if they explicitly ask for a specific number.",
+      "For generic quick quiz requests, avoid repeating the same question pattern mechanically from recent quiz messages, but stay within 1-3 questions.",
+      "For quick_quiz, choose correct answers primarily from targetVocabularyIndex. Focus on testing character recognition, Pinyin, Sino-Vietnamese meanings, or sentence fill-in.",
+      "For quick_quiz, first choose target answers from words that are not in the recent quiz answers list. Use recent quiz answers only if the user explicitly asks to review them.",
+      "For quick_quiz, choices are optional. If included, include the answer and create plausible distractors (e.g. similar Hanzi, homophones, or confusing Pinyin tones) when useful.",
+      "For quick_quiz choices, vary the answer position. Do not put every correct answer first.",
+      selectedWord ? `Currently selected word: ${selectedWord}` : "No selected word.",
+      recentQuizAnswers.length ? `Recent quiz answers to avoid repeating: ${recentQuizAnswers.join(", ")}` : "No recent quiz answers yet.",
+      `Target vocabulary index JSON: ${JSON.stringify(targetVocabularyIndex)}`,
+    ].join("\n");
+  }
+
   return [
     "You are the global Voca Agent for a vocabulary learning app.",
     "You have access to targetVocabularyIndex, the active learning context selected by the user. It may be the full deck or a smaller group.",
@@ -813,6 +874,13 @@ function cardDisplayTags(card: Card): string[] {
 }
 
 function defaultSuggestions(card: Card): string[] {
+  if (card.language === "zh-CN") {
+    return [
+      `Giải nghĩa chữ Hán & âm Hán Việt của "${card.word}".`,
+      `Cho 2 ví dụ câu có Pinyin và dịch nghĩa.`,
+      `Phân biệt cách dùng & từ ghép thường gặp.`,
+    ];
+  }
   return [
     `Explain "${card.word}" briefly.`,
     `Give 2 IELTS examples.`,
@@ -825,12 +893,71 @@ function globalSuggestions({
   contextDescription,
   selectedWord,
   wordCount,
+  language = "en",
 }: {
   contextScope: GlobalContextScope;
   contextDescription: string;
   selectedWord?: string;
   wordCount: number;
+  language?: CardLanguage;
 }): string[] {
+  const isChinese = language === "zh-CN";
+
+  if (isChinese) {
+    const levelVi: Record<CardLevel, string> = {
+      new: "từ mới",
+      learning: "đang học",
+      known: "đã biết",
+      mastered: "đã thuộc",
+    };
+
+    if (contextScope.mode === "custom") {
+      if (selectedWord) {
+        return [
+          `Phân tích âm Hán Việt và bộ thủ của "${selectedWord}".`,
+          "Kiểm tra nhanh các từ đã chọn trong danh sách.",
+          "Lập kế hoạch ôn tập danh sách từ đã chọn.",
+        ];
+      }
+      return [
+        "Kiểm tra nhanh các từ đã chọn trong danh sách.",
+        "Tìm các từ dễ nhầm lẫn trong danh sách.",
+        "Lập kế hoạch ôn tập danh sách từ đã chọn.",
+      ];
+    }
+
+    if (contextScope.mode === "created") {
+      return [
+        `Kiểm tra từ vựng ${contextDescription}.`,
+        `Tìm từ dễ nhầm lẫn trong ${contextDescription}.`,
+        `Lập kế hoạch ôn tập ${contextDescription}.`,
+      ];
+    }
+
+    if (contextScope.mode === "topic" && contextScope.topic !== "all") {
+      return [
+        `Kiểm tra từ vựng chủ đề ${contextScope.topic}.`,
+        `Tìm các từ dễ nhầm trong chủ đề ${contextScope.topic}.`,
+        `Lập kế hoạch ôn tập chủ đề ${contextScope.topic}.`,
+      ];
+    }
+
+    if (contextScope.mode === "level" && contextScope.level !== "all") {
+      const label = levelVi[contextScope.level] || contextScope.level;
+      return [
+        `Kiểm tra từ vựng nhóm ${label}.`,
+        `Tìm từ vựng chưa vững trong nhóm ${label}.`,
+        `Lập kế hoạch ôn tập cho nhóm ${label}.`,
+      ];
+    }
+
+    return [
+      `Kiểm tra nhanh trong số ${wordCount.toLocaleString()} từ.`,
+      "Tìm các cặp từ Hán ngữ dễ nhầm lẫn.",
+      "Lập kế hoạch ôn tập Hán ngữ toàn diện.",
+    ];
+  }
+
   if (contextScope.mode === "custom") {
     if (selectedWord) {
       return [
@@ -1122,7 +1249,10 @@ function buildConversationPlaybackUnits(conversation: DailyConversation): Conver
 }
 
 function isQuizRequest(value: string): boolean {
-  return /\b(quiz|quick quiz|test me|practice|missing word|fill[- ]?in|check me)\b/i.test(value);
+  return (
+    /\b(quiz|quick quiz|test me|practice|missing word|fill[- ]?in|check me)\b/i.test(value) ||
+    /(kiểm tra|bài tập|đố|ôn tập|test|câu hỏi|测验|练习|测试)/i.test(value)
+  );
 }
 
 function extractRecentQuizAnswers(messages: ChatMessage[], limit = 16): string[] {
@@ -1998,6 +2128,8 @@ export function App() {
       ) : null}
       {globalAgentOpen ? (
         <GlobalAgentPanel
+          key={activeLanguage}
+          language={activeLanguage}
           cards={cards}
           contextScope={activeContextScope}
           contextTopics={topics}
@@ -4642,6 +4774,7 @@ function isAppleLikeKeyboard(): boolean {
 }
 
 function GlobalAgentPanel({
+  language = "en",
   cards,
   contextScope,
   contextTopics,
@@ -4652,6 +4785,7 @@ function GlobalAgentPanel({
   settings,
   onClose,
 }: {
+  language?: CardLanguage;
   cards: Card[];
   contextScope: GlobalContextScope;
   contextTopics: string[];
@@ -4664,7 +4798,8 @@ function GlobalAgentPanel({
 }) {
   const [mode, setMode] = useStoredState<AgentMode>("voca.globalAgent.mode", "assistant");
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useStoredState<ChatMessage[]>("voca.globalAgent.messages", []);
+  const messagesStorageKey = language === "zh-CN" ? "voca.globalAgent.messages.zh" : "voca.globalAgent.messages";
+  const [messages, setMessages] = useStoredState<ChatMessage[]>(messagesStorageKey, []);
   const [sending, setSending] = useState(false);
   const [drill, setDrill] = useStoredState<ChallengeDrill | null>("voca.globalAgent.activeDrill", null);
   const [drillQueue, setDrillQueue] = useStoredState<ChallengeDrill[]>("voca.globalAgent.drillQueue", []);
@@ -4715,8 +4850,9 @@ function GlobalAgentPanel({
         contextDescription,
         selectedWord: contextualSelectedWord,
         wordCount: activeVocabularyIndex.length,
+        language,
       }),
-    [activeVocabularyIndex.length, contextDescription, contextScope, contextualSelectedWord],
+    [activeVocabularyIndex.length, contextDescription, contextScope, contextualSelectedWord, language],
   );
   const suggestions = generatedSuggestions?.length ? generatedSuggestions : fallbackSuggestions;
   const contextSignature = `${contextScope.mode}|${contextScope.createdDate}|${contextScope.topic}|${contextScope.level}|${contextScope.customKeys.join(",")}`;
@@ -4839,15 +4975,26 @@ function GlobalAgentPanel({
         messages: [
           {
             role: "system",
-            content: [
-              "Create 3 short follow-up prompt suggestions for the Global Voca Agent.",
-              "Return only JSON in this exact shape: {\"suggestions\":[\"...\",\"...\",\"...\"]}.",
-              "Suggestions must be useful next actions after the latest assistant response.",
-              "Suggestions should vary the task: quiz, compare confusing words, review plan, IELTS usage, collocations, weak spots.",
-              `Active context: ${contextDescription}`,
-              `Active word count: ${activeVocabularyIndex.length}`,
-              contextualSelectedWord ? `Contextual selected word: ${contextualSelectedWord}` : "No contextual selected word.",
-            ].join("\n"),
+            content: (language === "zh-CN"
+              ? [
+                  "Create 3 short follow-up prompt suggestions for the Global Voca Chinese Agent (Gia sư Hán ngữ AI).",
+                  "Return only JSON in this exact shape: {\"suggestions\":[\"...\",\"...\",\"...\"]}.",
+                  "Suggestions must be useful next actions in Vietnamese after the latest assistant response.",
+                  "Suggestions should vary the task: kiểm tra nhanh, phân tích âm Hán Việt/bộ thủ, so sánh từ gần nghĩa, ví dụ câu có Pinyin, kế hoạch ôn tập.",
+                  `Active context: ${contextDescription}`,
+                  `Active word count: ${activeVocabularyIndex.length}`,
+                  contextualSelectedWord ? `Contextual selected word: ${contextualSelectedWord}` : "No contextual selected word.",
+                ]
+              : [
+                  "Create 3 short follow-up prompt suggestions for the Global Voca Agent.",
+                  "Return only JSON in this exact shape: {\"suggestions\":[\"...\",\"...\",\"...\"]}.",
+                  "Suggestions must be useful next actions after the latest assistant response.",
+                  "Suggestions should vary the task: quiz, compare confusing words, review plan, IELTS usage, collocations, weak spots.",
+                  `Active context: ${contextDescription}`,
+                  `Active word count: ${activeVocabularyIndex.length}`,
+                  contextualSelectedWord ? `Contextual selected word: ${contextualSelectedWord}` : "No contextual selected word.",
+                ]
+            ).join("\n"),
           },
           ...recentMessages,
         ],
@@ -4884,7 +5031,7 @@ function GlobalAgentPanel({
         temperature: 0.25,
         stream: true,
         messages: [
-          { role: "system", content: globalAgentPrompt(requestVocabularyIndex, contextualSelectedWord, recentQuizAnswers, contextDescription, practiceWeaknessPrompt()) },
+          { role: "system", content: globalAgentPrompt(requestVocabularyIndex, contextualSelectedWord, recentQuizAnswers, contextDescription, practiceWeaknessPrompt(), language) },
           ...nextMessages.slice(-12),
         ],
       });
@@ -5656,10 +5803,11 @@ function GlobalAgentPanel({
         />
         <header className="global-agent-header">
           <div>
-            <p className="eyebrow">Voca</p>
-            <h2>Global Agent</h2>
+            <p className="eyebrow">{language === "zh-CN" ? "Trợ lý Hán ngữ" : "Voca"}</p>
+            <h2>{language === "zh-CN" ? "Global Hán Ngữ Agent" : "Global Agent"}</h2>
             <p>
-              {activeVocabularyIndex.length.toLocaleString()} / {cards.length.toLocaleString()} words in context
+              {activeVocabularyIndex.length.toLocaleString()} / {cards.length.toLocaleString()}{" "}
+              {language === "zh-CN" ? "từ vựng trong ngữ cảnh" : "words in context"}
               {contextualSelectedWord ? ` · selected: ${contextualSelectedWord}` : ""}
             </p>
           </div>
@@ -5774,7 +5922,7 @@ function GlobalAgentPanel({
             <div className="chat-messages global-chat-messages">
               {!messages.length ? (
                 <div className="chat-notice global-prompt-starters">
-                  <span>Prompt suggestions</span>
+                  <span>{language === "zh-CN" ? "Gợi ý câu hỏi" : "Prompt suggestions"}</span>
                   <div className="suggestion-chips global-suggestion-chips prompt-starter-chips" aria-label="Prompt suggestions">
                     {suggestions.map((suggestion) => (
                       <button
@@ -5849,7 +5997,7 @@ function GlobalAgentPanel({
                   className="global-chat-input"
                   value={input}
                   rows={2}
-                  placeholder="Ask the global agent…"
+                  placeholder={language === "zh-CN" ? "Hỏi trợ lý Hán ngữ (vd: kiểm tra từ, giải nghĩa Hán Việt, đặt câu)…" : "Ask the global agent…"}
                   aria-describedby="global-chat-keyboard-hint"
                   onChange={(event) => setInput(event.target.value)}
                   onKeyDown={(event) => {
@@ -6447,12 +6595,21 @@ function ChatPanel({
         messages: [
           {
             role: "system",
-            content: [
-              "Create 3 short follow-up prompt suggestions for an English learner using this vocabulary dictionary chat.",
-              "Return only JSON in this exact shape: {\"suggestions\":[\"...\",\"...\",\"...\"]}.",
-              "Suggestions should help learn meaning, examples, IELTS traps, collocations, confusing words, or quick practice.",
-              `Current word or phrase: ${card.word}`,
-            ].join("\n"),
+            content: (card.language === "zh-CN"
+              ? [
+                  "Create 3 short follow-up prompt suggestions for a Chinese / Hán ngữ learner using this vocabulary dictionary chat.",
+                  "Return only JSON in this exact shape: {\"suggestions\":[\"...\",\"...\",\"...\"]}.",
+                  "Suggestions should help learn Chinese meaning, Pinyin, Sino-Vietnamese (âm Hán Việt), radicals, example sentences, or HSK usage.",
+                  "Write suggestions in Vietnamese so they are natural for the learner to click.",
+                  `Current Chinese word: ${card.word}`,
+                ]
+              : [
+                  "Create 3 short follow-up prompt suggestions for an English learner using this vocabulary dictionary chat.",
+                  "Return only JSON in this exact shape: {\"suggestions\":[\"...\",\"...\",\"...\"]}.",
+                  "Suggestions should help learn meaning, examples, IELTS traps, collocations, confusing words, or quick practice.",
+                  `Current word or phrase: ${card.word}`,
+                ]
+            ).join("\n"),
           },
           ...recentMessages,
         ],
@@ -6552,7 +6709,7 @@ function ChatPanel({
     <section className="drawer agent-drawer open" aria-label="Agent Assistant">
       <header className="viewer-header">
         <div>
-          <p className="eyebrow">Agent Assistant</p>
+          <p className="eyebrow">{card.language === "zh-CN" ? "Trợ lý Hán ngữ" : "Agent Assistant"}</p>
           <h2>{card.word}</h2>
           <p>Settings are stored locally in this browser.</p>
         </div>
@@ -6565,7 +6722,11 @@ function ChatPanel({
 
       <div className="chat-messages global-chat-messages">
         {!messages.length ? (
-          <div className="chat-notice">Ask about meaning, grammar, collocations, examples, or IELTS traps.</div>
+          <div className="chat-notice">
+            {card.language === "zh-CN"
+              ? "Hỏi về ý nghĩa, Pinyin, âm Hán Việt, bộ thủ, câu ví dụ hoặc cách dùng HSK."
+              : "Ask about meaning, grammar, collocations, examples, or IELTS traps."}
+          </div>
         ) : null}
         {messages.map((message, index) => (
           <article key={`${message.role}-${index}`} className={`chat-message ${message.role} ${message.pending ? "streaming" : ""}`}>
@@ -6626,7 +6787,7 @@ function ChatPanel({
             className="global-chat-input"
             value={input}
             rows={2}
-            placeholder="Ask about this word…"
+            placeholder={card.language === "zh-CN" ? "Hỏi về chữ Hán, Pinyin, nghĩa…" : "Ask about this word…"}
             aria-describedby="word-chat-keyboard-hint"
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
