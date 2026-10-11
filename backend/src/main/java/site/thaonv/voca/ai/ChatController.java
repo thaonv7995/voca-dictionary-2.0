@@ -50,18 +50,34 @@ public class ChatController {
     public Object chat(@RequestBody ChatRequest req, @AuthenticationPrincipal UserPrincipal principal) {
         LlmConfig cfg = resolveConfig(principal.id(), req);
         if (Boolean.FALSE.equals(req.stream())) {
-            String content = llm.complete(cfg, req.messages());
-            return org.springframework.http.ResponseEntity.ok(Map.of(
-                    "id", "chatcmpl-" + System.currentTimeMillis(),
-                    "object", "chat.completion",
-                    "created", System.currentTimeMillis() / 1000,
-                    "model", cfg.model(),
-                    "choices", List.of(Map.of(
-                            "index", 0,
-                            "message", Map.of("role", "assistant", "content", content),
-                            "finish_reason", "stop"
-                    ))
-            ));
+            try {
+                String content = llm.complete(cfg, req.messages());
+                return org.springframework.http.ResponseEntity.ok(Map.of(
+                        "id", "chatcmpl-" + System.currentTimeMillis(),
+                        "object", "chat.completion",
+                        "created", System.currentTimeMillis() / 1000,
+                        "model", cfg.model(),
+                        "choices", List.of(Map.of(
+                                "index", 0,
+                                "message", Map.of("role", "assistant", "content", content),
+                                "finish_reason", "stop"
+                        ))
+                ));
+            } catch (Exception e) {
+                log.warn("non-streaming chat proxy error: {}", e.toString());
+                String errMsg = llmErrorMessage(e);
+                return org.springframework.http.ResponseEntity.ok(Map.of(
+                        "id", "chatcmpl-" + System.currentTimeMillis(),
+                        "object", "chat.completion",
+                        "created", System.currentTimeMillis() / 1000,
+                        "model", cfg.model(),
+                        "choices", List.of(Map.of(
+                                "index", 0,
+                                "message", Map.of("role", "assistant", "content", errMsg),
+                                "finish_reason", "stop"
+                        ))
+                ));
+            }
         }
         SseEmitter emitter = new SseEmitter(180_000L);
         // The upstream WebClient stream runs on a reactive (reactor-http-nio) thread while the SSE
