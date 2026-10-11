@@ -4807,7 +4807,15 @@ function GlobalAgentPanel({
   onClose: () => void;
 }) {
   const isChinese = language === "zh-CN";
-  const [mode, setMode] = useStoredState<AgentMode>("voca.globalAgent.mode", "assistant");
+  const modeStorageKey = isChinese ? "voca.globalAgent.mode.zh" : "voca.globalAgent.mode";
+  const [mode, setMode] = useStoredState<AgentMode>(modeStorageKey, "assistant");
+
+  useEffect(() => {
+    if (isChinese && (mode === "reading" || mode === "article")) {
+      setMode("drills");
+    }
+  }, [isChinese, mode, setMode]);
+
   const [input, setInput] = useState("");
   const messagesStorageKey = isChinese ? "voca.globalAgent.messages.zh" : "voca.globalAgent.messages";
   const [messages, setMessages] = useStoredState<ChatMessage[]>(messagesStorageKey, []);
@@ -4906,10 +4914,10 @@ function GlobalAgentPanel({
   const lastContextSignatureRef = useRef(contextSignature);
   const currentConversationFormat = conversationFormat === "auto" ? conversation?.format || "conversation" : conversationFormat;
   const conversationPanelTitlesZh: Record<Exclude<ConversationFormat, "auto">, string> = {
-    conversation: "Hội thoại Hán ngữ",
-    radio: "Radio tiếng Trung",
-    announcement: "Thông báo tiếng Trung",
-    story: "Câu chuyện tiếng Trung",
+    conversation: "Hội thoại giao tiếp hàng ngày",
+    radio: "Góc nghe Radio / Podcast ngắn",
+    announcement: "Thông báo đời thường",
+    story: "Mẩu chuyện ngắn đời sống",
   };
   const conversationPanelTitle = isChinese
     ? conversationPanelTitlesZh[currentConversationFormat]
@@ -5906,21 +5914,37 @@ function GlobalAgentPanel({
         </header>
 
         <div className="agent-mode-tabs" role="tablist" aria-label="Agent mode">
-          <button className={mode === "assistant" ? "active" : ""} type="button" onClick={() => setMode("assistant")}>
-            {isChinese ? "Trợ lý" : "Assistant"}
-          </button>
-          <button className={mode === "drills" ? "active" : ""} type="button" onClick={() => setMode("drills")}>
-            {isChinese ? "Luyện tập" : "Drills"}
-          </button>
-          <button className={mode === "reading" ? "active" : ""} type="button" onClick={() => setMode("reading")}>
-            {isChinese ? "Đọc hiểu" : "Reading"}
-          </button>
-          <button className={mode === "article" ? "active" : ""} type="button" onClick={() => setMode("article")}>
-            {isChinese ? "Bài đọc" : "Articles"}
-          </button>
-          <button className={mode === "conversation" ? "active" : ""} type="button" onClick={() => setMode("conversation")}>
-            {isChinese ? "Hội thoại" : "Conversation"}
-          </button>
+          {isChinese ? (
+            <>
+              <button className={mode === "assistant" ? "active" : ""} type="button" onClick={() => setMode("assistant")}>
+                Trợ lý
+              </button>
+              <button className={mode === "drills" ? "active" : ""} type="button" onClick={() => setMode("drills")}>
+                Luyện nhớ
+              </button>
+              <button className={mode === "conversation" ? "active" : ""} type="button" onClick={() => setMode("conversation")}>
+                Hội thoại
+              </button>
+            </>
+          ) : (
+            <>
+              <button className={mode === "assistant" ? "active" : ""} type="button" onClick={() => setMode("assistant")}>
+                Assistant
+              </button>
+              <button className={mode === "drills" ? "active" : ""} type="button" onClick={() => setMode("drills")}>
+                Drills
+              </button>
+              <button className={mode === "reading" ? "active" : ""} type="button" onClick={() => setMode("reading")}>
+                Reading
+              </button>
+              <button className={mode === "article" ? "active" : ""} type="button" onClick={() => setMode("article")}>
+                Articles
+              </button>
+              <button className={mode === "conversation" ? "active" : ""} type="button" onClick={() => setMode("conversation")}>
+                Conversation
+              </button>
+            </>
+          )}
         </div>
 
         {mode !== "conversation" ? (
@@ -6113,10 +6137,10 @@ function GlobalAgentPanel({
           <section className="drill-panel">
             <div className="drill-toolbar">
               <div>
-                <h3>{isChinese ? "Hán Ngữ Drill" : "IELTS Drill"}</h3>
+                <h3>{isChinese ? "Luyện nhớ chữ Hán & Từ vựng" : "IELTS Drill"}</h3>
                 <p>
                   {isChinese
-                    ? "Agent kết hợp tình huống, chữa câu, và luyện từ ghép / cụm từ từ ngữ cảnh đang chọn."
+                    ? "Đố vui nhanh để nhớ mặt chữ, Pinyin, âm Hán Việt và ngữ cảnh đời sống."
                     : "Agent mixes scenarios, sentence rescue, and collocation practice from the active context."}
                 </p>
               </div>
@@ -6131,7 +6155,7 @@ function GlobalAgentPanel({
                   ? (isChinese ? "Đang tạo..." : "Generating...")
                   : drill
                     ? (isChinese ? "Câu tiếp" : "Next drill")
-                    : (isChinese ? "Tạo bài luyện tập" : "Generate drill")}
+                    : (isChinese ? "Tạo câu hỏi" : "Generate drill")}
               </button>
             </div>
 
@@ -6142,18 +6166,18 @@ function GlobalAgentPanel({
                 <div className="drill-type-row">
                   <span>
                     {drill.kind === "rescue"
-                      ? (isChinese ? "Sửa câu ngữ cảnh" : "Context Rescue")
+                      ? (isChinese ? "Sửa câu tự nhiên" : "Context Rescue")
                       : drill.kind === "collocation"
-                        ? (isChinese ? "Từ ghép / Cụm từ" : "Collocation Builder")
+                        ? (isChinese ? "Ghép từ thông dụng" : "Collocation Builder")
                         : drill.kind === "error_spotting"
-                          ? (isChinese ? "Tìm lỗi sai" : "Error Spotting")
+                          ? (isChinese ? "Tìm từ chưa đúng" : "Error Spotting")
                           : drill.kind === "trap"
-                            ? (isChinese ? "Bẫy từ vựng" : "IELTS Trap")
+                            ? (isChinese ? "Phân biệt chữ & Pinyin" : "IELTS Trap")
                             : drill.kind === "reverse"
                               ? (isChinese ? "Nghĩa sang chữ Hán" : "Reverse Dictionary")
                               : drill.kind === "part2_response"
-                                ? (isChinese ? "Hỏi đáp phản xạ" : "Part 2 Response")
-                          : (isChinese ? "Tình huống nhỏ" : "Micro-Scenario")}
+                                ? (isChinese ? "Hỏi đáp đời sống" : "Part 2 Response")
+                          : (isChinese ? "Tình huống giao tiếp" : "Micro-Scenario")}
                   </span>
                   {drill.title ? <strong>{drill.title}</strong> : null}
                 </div>
@@ -6214,7 +6238,7 @@ function GlobalAgentPanel({
             ) : (
               <div className="chat-notice">
                 {isChinese
-                  ? "Tạo bài luyện tập chọn từ vựng Hán ngữ phù hợp trong ngữ cảnh."
+                  ? "Tạo câu hỏi nhanh để ôn tập từ vựng, chữ Hán và ngữ cảnh giao tiếp cơ bản."
                   : "Generate a drill to practice choosing the best word for a short IELTS scenario."}
               </div>
             )}
@@ -6431,10 +6455,10 @@ function GlobalAgentPanel({
                   className={`agent-toolbar-cta compact-action ${conversation ? "is-secondary" : "is-primary"}`}
                   onClick={generateConversation}
                   disabled={sending || !activeVocabularyIndex.length}
-                  title={conversation ? (isChinese ? "Hội thoại mới" : "New conversation") : (isChinese ? "Tạo hội thoại" : "Generate conversation")}
+                  title={conversation ? (isChinese ? "Đoạn mới" : "New conversation") : (isChinese ? "Tạo hội thoại" : "Generate conversation")}
                 >
                   {sending ? <RefreshCw className="spin" /> : null}
-                  {sending ? (isChinese ? "Đang tạo..." : "Gen...") : (isChinese ? "Tạo mới" : "New")}
+                  {sending ? (isChinese ? "Đang tạo..." : "Gen...") : (isChinese ? "Đoạn mới" : "New")}
                 </button>
               </div>
             </div>
@@ -6451,7 +6475,7 @@ function GlobalAgentPanel({
             ) : (
               <div className="chat-notice">
                 {isChinese
-                  ? "Tạo đoạn hội thoại tiếng Trung giao tiếp hàng ngày để luyện nghe và phản xạ."
+                  ? "Tạo đoạn hội thoại tiếng Trung thực tế (chào hỏi, mua sắm, ăn uống, du lịch) để nghe và luyện phát âm."
                   : "Generate an everyday listening passage to hear the full context or replay a section."}
               </div>
             )}
