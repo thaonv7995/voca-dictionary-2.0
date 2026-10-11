@@ -227,8 +227,20 @@ body, .dictionary-panel, .drawer, .list-heading, .utility-bar, .app-settings-pan
 .auth-card { width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 28px; box-shadow: var(--shadow, 0 16px 40px rgba(0, 0, 0, .4)); }
 .auth-card h1 { font-family: var(--font-reading); font-size: 30px; font-weight: 700; }
 .auth-card .sub { margin: 4px 0 16px; color: var(--muted); font-size: 14px; }
-.err { color: var(--danger-ink); font-size: 13px; margin-top: 8px; }
-button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent);
+  transition: all 140ms ease;
+}
+button.primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+button.primary:active:not(:disabled) {
+  transform: translateY(0);
+}
 
 /* ─────────────── A4 Sheet Modal ─────────────── */
 .a4-modal-backdrop {

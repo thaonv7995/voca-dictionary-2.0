@@ -36,13 +36,31 @@
 }
 
 html[data-theme="dark"] {
-  --headword-color: color-mix(in srgb, var(--accent) 30%, #f59e0b 70%);
-  --reading-paper: #e9deca;
-  --reading-paper-soft: #ded0b8;
-  --reading-paper-ink: #241f19;
-  --reading-paper-muted: #736857;
-  --reading-paper-line: #c5b397;
-  --reading-paper-shadow: 0 24px 44px rgba(0, 0, 0, 0.34);
+  --headword-color: #fbbf24;
+  --accent-choice: #6366f1;
+  --accent-choice-soft: rgba(99, 102, 241, 0.16);
+  --reading-paper: #111524;
+  --reading-paper-soft: #171d32;
+  --reading-paper-ink: #f8fafc;
+  --reading-paper-muted: #94a3b8;
+  --reading-paper-line: rgba(255, 255, 255, 0.09);
+  --reading-paper-shadow: 0 24px 48px rgba(0, 0, 0, 0.55), 0 0 1px rgba(99, 102, 241, 0.25);
+}
+
+/* Sleek custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
 }
 
 * {
@@ -2384,6 +2402,7 @@ html[data-theme="dark"] .global-chat-messages .chat-message.user .message-avatar
     border-color 140ms ease,
     background 140ms ease,
     color 140ms ease,
+    transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
     box-shadow 140ms ease;
 }
 
@@ -2410,6 +2429,12 @@ html[data-theme="dark"] .global-chat-messages .chat-message.user .message-avatar
 .drill-choices button:hover:not(:disabled):not(.selected):not(.correct):not(.wrong) {
   border-color: color-mix(in srgb, var(--accent-choice), var(--line-strong) 45%);
   background: color-mix(in srgb, var(--panel-soft), var(--accent-choice-soft) 38%);
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25), 0 0 12px var(--accent-choice-soft);
+}
+
+.drill-choices button:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .drill-choices button.selected:not(.correct):not(.wrong) {
@@ -2674,6 +2699,7 @@ html[data-theme="dark"] .global-chat-messages .chat-message.user .message-avatar
     border-color 140ms ease,
     background 140ms ease,
     color 140ms ease,
+    transform 140ms cubic-bezier(0.16, 1, 0.3, 1),
     box-shadow 140ms ease;
 }
 
@@ -2687,6 +2713,12 @@ html[data-theme="dark"] .global-chat-messages .chat-message.user .message-avatar
 .reading-choices button:hover:not(:disabled):not(.selected):not(.correct):not(.wrong) {
   border-color: color-mix(in srgb, var(--accent-choice), var(--line-strong) 45%);
   background: color-mix(in srgb, var(--panel-soft), var(--accent-choice-soft) 38%);
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25), 0 0 12px var(--accent-choice-soft);
+}
+
+.reading-choices button:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .reading-choices button.selected:not(.correct):not(.wrong) {
