@@ -175,6 +175,7 @@ function formatReadingDocumentKind(value: ReadingDocumentType): string {
     article: "Article",
     message: "Message",
     academic_passage: "Academic Passage",
+    chinese_passage: "Chinese Passage",
   };
   return labels[value] || "Passage";
 }
@@ -4335,6 +4336,7 @@ function CardPreview({
               {card.meaningVi ? <div className="face-section"><h4>Nghĩa</h4><p>{card.meaningVi}</p></div> : null}
               {card.examples?.[0] ? <div className="face-section"><h4>Ví dụ</h4><ChineseExample value={card.examples[0]} /></div> : null}
               <ChineseWritingGuide word={card.word} />
+              {card.toeicTrap ? <div className="face-section"><h4>Bẫy từ vựng</h4><p>{card.toeicTrap}</p></div> : null}
             </>
           ) : (
             <>
@@ -4493,6 +4495,7 @@ function ReadingContextCard({
   answers,
   checked,
   settings,
+  language = "en",
   onSelectAnswer,
   onCheck,
   onReset,
@@ -4501,6 +4504,7 @@ function ReadingContextCard({
   answers: Record<number, string>;
   checked: boolean;
   settings: AiSettings;
+  language?: CardLanguage;
   onSelectAnswer: (blank: number, choice: string) => void;
   onCheck: () => void;
   onReset: () => void;
@@ -4532,7 +4536,11 @@ function ReadingContextCard({
     <article className="reading-card">
       <header className="reading-card-header">
         <div>
-          <p className="eyebrow">IELTS Reading {context.format === "part6" ? "Gap-fill" : "Full Passage"} · {context.documentType}</p>
+          <p className="eyebrow">
+            {language === "zh-CN" ? "Đọc hiểu Hán ngữ" : "IELTS Reading"}{" "}
+            {context.format === "part6" ? (language === "zh-CN" ? "Điền từ" : "Gap-fill") : (language === "zh-CN" ? "Đoạn văn" : "Full Passage")} ·{" "}
+            {formatReadingDocumentKind(activeDocumentType)}
+          </p>
           <h3>{context.title}</h3>
         </div>
         {checked ? (
@@ -4612,14 +4620,14 @@ function ReadingContextCard({
                     >
                       <span className="choice-label">{drillChoiceLabels[index]}</span>
                       <span>{choice}</span>
-                      <SpeakButton text={choice} label={`Play ${choice}`} settings={settings} />
+                      <SpeakButton text={choice} label={`Play ${choice}`} settings={settings} language={language} />
                     </button>
                   );
                 })}
               </div>
               {checked ? (
                 <p className="reading-feedback">
-                  {correct ? "Correct" : `Answer: ${question.answer}`}
+                  {correct ? (language === "zh-CN" ? "Đúng rồi" : "Correct") : `${language === "zh-CN" ? "Đáp án" : "Answer"}: ${question.answer}`}
                   {question.explanation ? ` · ${question.explanation}` : ""}
                 </p>
               ) : null}
@@ -4630,10 +4638,10 @@ function ReadingContextCard({
 
       <div className="reading-actions">
         <button type="button" onClick={onCheck}>
-          Check answers
+          {language === "zh-CN" ? "Kiểm tra đáp án" : "Check answers"}
         </button>
         <button type="button" onClick={onReset}>
-          Reset
+          {language === "zh-CN" ? "Làm lại" : "Reset"}
         </button>
       </div>
     </article>
@@ -4645,6 +4653,7 @@ function ArticlePracticeCard({
   answers,
   checked,
   settings,
+  language = "en",
   onSelectAnswer,
   onCheck,
   onReset,
@@ -4653,6 +4662,7 @@ function ArticlePracticeCard({
   answers: Record<number, string>;
   checked: boolean;
   settings: AiSettings;
+  language?: CardLanguage;
   onSelectAnswer: (index: number, choice: string) => void;
   onCheck: () => void;
   onReset: () => void;
@@ -4663,7 +4673,7 @@ function ArticlePracticeCard({
     <article className="reading-card article-practice-card">
       <header className="reading-card-header">
         <div>
-          <p className="eyebrow">Article Practice · {article.documentType}</p>
+          <p className="eyebrow">{language === "zh-CN" ? "Bài đọc Hán ngữ" : "Article Practice"} · {article.documentType}</p>
           <h3>{article.title}</h3>
         </div>
         {checked ? (
@@ -4681,11 +4691,11 @@ function ArticlePracticeCard({
 
       <div className="reading-questions">
         <section className="reading-question">
-          <h4>Vocabulary Notes</h4>
+          <h4>{language === "zh-CN" ? "Ghi chú từ vựng" : "Vocabulary Notes"}</h4>
           <div className="quick-quiz-questions">
             {article.vocabularyNotes.map((note) => (
               <p key={note.word} className="quiz-feedback">
-                <strong>{note.word}</strong> <SpeakButton text={note.word} label={`Play ${note.word}`} settings={settings} />: {note.contextMeaning} · {note.meaningVi}
+                <strong>{note.word}</strong> <SpeakButton text={note.word} label={`Play ${note.word}`} settings={settings} language={language} />: {note.contextMeaning} · {note.meaningVi}
               </p>
             ))}
           </div>
@@ -4715,14 +4725,14 @@ function ArticlePracticeCard({
                     >
                       <span className="choice-label">{drillChoiceLabels[index]}</span>
                       <span>{choice}</span>
-                      <SpeakButton text={choice} label={`Play ${choice}`} settings={settings} />
+                      <SpeakButton text={choice} label={`Play ${choice}`} settings={settings} language={language} />
                     </button>
                   );
                 })}
               </div>
               {checked ? (
                 <p className="reading-feedback">
-                  {correct ? "Correct" : `Answer: ${question.answer}`}
+                  {correct ? (language === "zh-CN" ? "Đúng rồi" : "Correct") : `${language === "zh-CN" ? "Đáp án" : "Answer"}: ${question.answer}`}
                   {question.explanation ? ` · ${question.explanation}` : ""}
                 </p>
               ) : null}
@@ -4733,10 +4743,10 @@ function ArticlePracticeCard({
 
       <div className="reading-actions">
         <button type="button" onClick={onCheck}>
-          Check answers
+          {language === "zh-CN" ? "Kiểm tra đáp án" : "Check answers"}
         </button>
         <button type="button" onClick={onReset}>
-          Reset
+          {language === "zh-CN" ? "Làm lại" : "Reset"}
         </button>
       </div>
     </article>
@@ -4796,33 +4806,70 @@ function GlobalAgentPanel({
   settings: AiSettings;
   onClose: () => void;
 }) {
+  const isChinese = language === "zh-CN";
   const [mode, setMode] = useStoredState<AgentMode>("voca.globalAgent.mode", "assistant");
   const [input, setInput] = useState("");
-  const messagesStorageKey = language === "zh-CN" ? "voca.globalAgent.messages.zh" : "voca.globalAgent.messages";
+  const messagesStorageKey = isChinese ? "voca.globalAgent.messages.zh" : "voca.globalAgent.messages";
   const [messages, setMessages] = useStoredState<ChatMessage[]>(messagesStorageKey, []);
   const [sending, setSending] = useState(false);
-  const [drill, setDrill] = useStoredState<ChallengeDrill | null>("voca.globalAgent.activeDrill", null);
-  const [drillQueue, setDrillQueue] = useStoredState<ChallengeDrill[]>("voca.globalAgent.drillQueue", []);
+  const [drill, setDrill] = useStoredState<ChallengeDrill | null>(
+    isChinese ? "voca.globalAgent.activeDrill.zh" : "voca.globalAgent.activeDrill",
+    null,
+  );
+  const [drillQueue, setDrillQueue] = useStoredState<ChallengeDrill[]>(
+    isChinese ? "voca.globalAgent.drillQueue.zh" : "voca.globalAgent.drillQueue",
+    [],
+  );
   const [drillError, setDrillError] = useState<string | null>(null);
   const [prefetchingDrills, setPrefetchingDrills] = useState(false);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
-  const [readingContext, setReadingContext] = useStoredState<ReadingContext | null>("voca.globalAgent.readingContext", null);
-  const [readingAnswers, setReadingAnswers] = useStoredState<Record<number, string>>("voca.globalAgent.readingAnswers", {});
-  const [readingChecked, setReadingChecked] = useStoredState<boolean>("voca.globalAgent.readingChecked", false);
-  const [readingQueue, setReadingQueue] = useStoredState<ReadingQueue>("voca.globalAgent.readingQueue", { part6: [], part7: [] });
+  const [readingContext, setReadingContext] = useStoredState<ReadingContext | null>(
+    isChinese ? "voca.globalAgent.readingContext.zh" : "voca.globalAgent.readingContext",
+    null,
+  );
+  const [readingAnswers, setReadingAnswers] = useStoredState<Record<number, string>>(
+    isChinese ? "voca.globalAgent.readingAnswers.zh" : "voca.globalAgent.readingAnswers",
+    {},
+  );
+  const [readingChecked, setReadingChecked] = useStoredState<boolean>(
+    isChinese ? "voca.globalAgent.readingChecked.zh" : "voca.globalAgent.readingChecked",
+    false,
+  );
+  const [readingQueue, setReadingQueue] = useStoredState<ReadingQueue>(
+    isChinese ? "voca.globalAgent.readingQueue.zh" : "voca.globalAgent.readingQueue",
+    { part6: [], part7: [] },
+  );
   const [readingError, setReadingError] = useState<string | null>(null);
-  const [articlePractice, setArticlePractice] = useStoredState<ArticlePractice | null>("voca.globalAgent.articlePractice", null);
-  const [articleAnswers, setArticleAnswers] = useStoredState<Record<number, string>>("voca.globalAgent.articleAnswers", {});
-  const [articleChecked, setArticleChecked] = useStoredState<boolean>("voca.globalAgent.articleChecked", false);
+  const [articlePractice, setArticlePractice] = useStoredState<ArticlePractice | null>(
+    isChinese ? "voca.globalAgent.articlePractice.zh" : "voca.globalAgent.articlePractice",
+    null,
+  );
+  const [articleAnswers, setArticleAnswers] = useStoredState<Record<number, string>>(
+    isChinese ? "voca.globalAgent.articleAnswers.zh" : "voca.globalAgent.articleAnswers",
+    {},
+  );
+  const [articleChecked, setArticleChecked] = useStoredState<boolean>(
+    isChinese ? "voca.globalAgent.articleChecked.zh" : "voca.globalAgent.articleChecked",
+    false,
+  );
   const [articleError, setArticleError] = useState<string | null>(null);
-  const [conversation, setConversation] = useStoredState<DailyConversation | null>("voca.globalAgent.conversation", null);
+  const [conversation, setConversation] = useStoredState<DailyConversation | null>(
+    isChinese ? "voca.globalAgent.conversation.zh" : "voca.globalAgent.conversation",
+    null,
+  );
   const [conversationError, setConversationError] = useState<string | null>(null);
   const [conversationFormat, setConversationFormat] = useStoredState<ConversationFormat>("voca.globalAgent.conversationFormat", "auto");
   const [activeConversationLineIds, setActiveConversationLineIds] = useState<string[]>([]);
   const [conversationPlayingAll, setConversationPlayingAll] = useState(false);
   const [conversationQueue, setConversationQueue] = useState<DailyConversation[]>([]);
-  const [recentConversationSituations, setRecentConversationSituations] = useStoredState<string[]>("voca.globalAgent.recentConversationSituations", []);
-  const [recentUsedVocabulary, setRecentUsedVocabulary] = useStoredState<string[]>("voca.globalAgent.recentUsedVocabulary", []);
+  const [recentConversationSituations, setRecentConversationSituations] = useStoredState<string[]>(
+    isChinese ? "voca.globalAgent.recentConversationSituations.zh" : "voca.globalAgent.recentConversationSituations",
+    [],
+  );
+  const [recentUsedVocabulary, setRecentUsedVocabulary] = useStoredState<string[]>(
+    isChinese ? "voca.globalAgent.recentUsedVocabulary.zh" : "voca.globalAgent.recentUsedVocabulary",
+    [],
+  );
   const conversationPlaybackRunRef = useRef(0);
   const conversationPreloadRunRef = useRef(0);
   const conversationQueueFillRef = useRef(false);
@@ -4858,7 +4905,15 @@ function GlobalAgentPanel({
   const contextSignature = `${contextScope.mode}|${contextScope.createdDate}|${contextScope.topic}|${contextScope.level}|${contextScope.customKeys.join(",")}`;
   const lastContextSignatureRef = useRef(contextSignature);
   const currentConversationFormat = conversationFormat === "auto" ? conversation?.format || "conversation" : conversationFormat;
-  const conversationPanelTitle = conversationPanelTitles[currentConversationFormat];
+  const conversationPanelTitlesZh: Record<Exclude<ConversationFormat, "auto">, string> = {
+    conversation: "Hội thoại Hán ngữ",
+    radio: "Radio tiếng Trung",
+    announcement: "Thông báo tiếng Trung",
+    story: "Câu chuyện tiếng Trung",
+  };
+  const conversationPanelTitle = isChinese
+    ? conversationPanelTitlesZh[currentConversationFormat]
+    : conversationPanelTitles[currentConversationFormat];
   conversationRef.current = conversation;
   conversationQueueRef.current = conversationQueue;
   recentConversationSituationsRef.current = recentConversationSituations;
@@ -5095,7 +5150,7 @@ function GlobalAgentPanel({
       model: settings.model,
       temperature: 0.35,
       stream: options.stream ?? false,
-      messages: [{ role: "system", content: drillPrompt(activeVocabularyIndex, contextualSelectedWord, count, contextDescription, practiceWeaknessPrompt()) }],
+      messages: [{ role: "system", content: drillPrompt(activeVocabularyIndex, contextualSelectedWord, count, contextDescription, practiceWeaknessPrompt(), language) }],
     });
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
 
@@ -5188,7 +5243,7 @@ function GlobalAgentPanel({
       model: settings.model,
       stream: false,
       temperature: 0.2,
-      messages: [{ role: "system", content: revisePracticePrompt(kind, content, report) }],
+      messages: [{ role: "system", content: revisePracticePrompt(kind, content, report, language) }],
     });
     if (!response.ok) throw new Error(`Revision failed: ${response.status}`);
     const data = await response.json();
@@ -5221,7 +5276,7 @@ function GlobalAgentPanel({
     setDrillError(null);
     if (!configured) {
       setDrill(null);
-      setDrillError("Add Base URL, API key, and model in settings first.");
+      setDrillError(isChinese ? "Vui lòng cấu hình Base URL, API key và model trong cài đặt trước." : "Add Base URL, API key, and model in settings first.");
       return;
     }
 
@@ -5247,14 +5302,14 @@ function GlobalAgentPanel({
         }
       }, { revise: false, stream: true });
       const [nextDrill] = drills;
-      if (!nextDrill) throw new Error("No valid drill returned");
+      if (!nextDrill) throw new Error(isChinese ? "Không nhận được bài luyện tập hợp lệ" : "No valid drill returned");
       if (!firstDrillShown) {
         setDrill(nextDrill);
         setDrillError(null);
       }
       void prefetchDrillQueue();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Cannot generate drill";
+      const message = error instanceof Error ? error.message : (isChinese ? "Không thể tạo bài luyện tập" : "Cannot generate drill");
       setDrillError(message);
     } finally {
       setSending(false);
@@ -5266,7 +5321,7 @@ function GlobalAgentPanel({
       model: settings.model,
       stream: false,
       temperature: 0.35,
-      messages: [{ role: "system", content: readingPrompt(activeVocabularyIndex, contextualSelectedWord, format, contextDescription, practiceWeaknessPrompt()) }],
+      messages: [{ role: "system", content: readingPrompt(activeVocabularyIndex, contextualSelectedWord, format, contextDescription, practiceWeaknessPrompt(), language) }],
     });
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
     const data = await response.json();
@@ -5283,7 +5338,7 @@ function GlobalAgentPanel({
       model: settings.model,
       stream: false,
       temperature: 0.35,
-      messages: [{ role: "system", content: articlePracticePrompt(activeVocabularyIndex, contextualSelectedWord, contextDescription, practiceWeaknessPrompt()) }],
+      messages: [{ role: "system", content: articlePracticePrompt(activeVocabularyIndex, contextualSelectedWord, contextDescription, practiceWeaknessPrompt(), language) }],
     });
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
     const data = await response.json();
@@ -5332,6 +5387,7 @@ function GlobalAgentPanel({
         : `Format preference: ${conversationFormat}. Use this exact format.`;
     const speakerInstruction =
       "Speaker selection is always automatic. Choose speakers as appropriate for the selected format and vocabulary context. conversation should use 2, 3, or 4 speakers; announcement must normally use exactly 1 speaker; story must normally use exactly 1 narrator; radio can use 1 host or 2 hosts.";
+    const isChinese = language === "zh-CN";
     const response = await fetchLlm(settings, {
       model: settings.model,
       stream: false,
@@ -5339,34 +5395,56 @@ function GlobalAgentPanel({
       messages: [
         {
           role: "system",
-          content: [
-            "Generate one practical everyday English listening passage for vocabulary learning and listening exposure.",
-            "Return only JSON in this exact shape:",
-            "{\"type\":\"daily_conversation\",\"format\":\"conversation|radio|announcement|story\",\"title\":\"...\",\"context\":\"...\",\"speakers\":[\"...\"],\"voiceAssignments\":{\"Speaker\":\"voice_id\"},\"lines\":[{\"id\":\"l1\",\"speaker\":\"...\",\"text\":\"...\",\"translation\":\"...\",\"vocabulary\":[\"...\"],\"vocabularyMeanings\":{\"english term\":\"Vietnamese phrase in translation\"}}]}",
-            formatInstruction,
-            speakerInstruction,
-            "First, infer a natural daily-life situation from the active vocabulary index. The conversation must be built around that vocabulary context.",
-            "The active vocabulary index is sorted by priority (least recently used first). You MUST select target words from the top of the list first. Avoid choosing words from the end of the list.",
-            "Pick 5-7 target vocabulary items from the active vocabulary index that can fit one realistic situation together.",
-            "Use at least 4 target vocabulary items naturally in the conversation text. Put used target words/phrases in each line's vocabulary array.",
-            "For every highlighted vocabulary item, include vocabularyMeanings mapping that item to the exact Vietnamese phrase appearing in translation when possible.",
-            "Format rules: conversation covers dialogue, interview, and group chat in one format. It must be back-and-forth spoken interaction with 2, 3, or 4 people chosen by you. Radio sounds like a short radio segment. Announcement is a public notice from one speaker. Story is narrated prose from one narrator.",
-            "If format is story, use exactly one speaker named Narrator. The title/context must describe a story or scene, not people talking. Do not create dialogue turns for story.",
-            "If format is announcement, use exactly one speaker named Announcer.",
-            "Choose a fresh situation that differs from recent situations. If recent situations were about leaks, drainage, water, cones, maintenance, or office facilities, do not choose that cluster again unless most target vocabulary requires it.",
-            "For conversation, use 8-10 short natural turns. For radio with 2 hosts, group consecutive sentences naturally by host. For story or announcement, return 1-3 article-style paragraphs under the same speaker; each paragraph should contain 2-4 connected sentences, not one sentence per line.",
-            "Each line text must be natural spoken English. Optional translation should be Vietnamese.",
-            "Highlight 1-2 vocabulary words or phrases per line.",
-            settings.conversationAutoSelectVoices !== false
-              ? "Choose suitable voiceAssignments from the available voice list. Use only voice ids from the list."
-              : "Voice assignments are optional because the app will map speakers to Voice A, Voice B, and Voice C.",
-            `Active context: ${contextDescription}`,
-            `Selected word: ${contextualSelectedWord || "none"}`,
-            `Recent situations to avoid JSON: ${JSON.stringify(recentSituations.slice(0, 6))}`,
-            `Random seed: ${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            `Active vocabulary index JSON: ${JSON.stringify(prioritizedVocabulary)}`,
-            `Available voices JSON: ${JSON.stringify(availableVoices)}`,
-          ].join("\n"),
+          content: isChinese
+            ? [
+                "Generate one practical everyday Chinese (Hán ngữ giao tiếp) listening passage for vocabulary learning.",
+                "Return only JSON in this exact shape:",
+                "{\"type\":\"daily_conversation\",\"format\":\"conversation|radio|announcement|story\",\"title\":\"...\",\"context\":\"...\",\"speakers\":[\"...\"],\"voiceAssignments\":{\"Speaker\":\"voice_id\"},\"lines\":[{\"id\":\"l1\",\"speaker\":\"...\",\"text\":\"...\",\"translation\":\"...\",\"vocabulary\":[\"...\"],\"vocabularyMeanings\":{\"chinese term\":\"Vietnamese phrase in translation\"}}]}",
+                formatInstruction,
+                speakerInstruction,
+                "First, infer a natural daily-life situation from the active Chinese vocabulary index.",
+                "Pick 5-7 target vocabulary items from the active vocabulary index that can fit one realistic situation together.",
+                "Use at least 4 target vocabulary items naturally in the conversation text. Put used target words/phrases in each line's vocabulary array.",
+                "Each line text must be natural spoken Chinese in simplified characters with Pinyin. Translation must be Vietnamese.",
+                "Highlight 1-2 vocabulary words or phrases per line.",
+                settings.conversationAutoSelectVoices !== false
+                  ? "Choose suitable voiceAssignments from the available voice list. Use only voice ids from the list."
+                  : "Voice assignments are optional because the app will map speakers to Voice A, Voice B, and Voice C.",
+                `Active context: ${contextDescription}`,
+                `Selected word: ${contextualSelectedWord || "none"}`,
+                `Recent situations to avoid JSON: ${JSON.stringify(recentSituations.slice(0, 6))}`,
+                `Random seed: ${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                `Active vocabulary index JSON: ${JSON.stringify(prioritizedVocabulary)}`,
+                `Available voices JSON: ${JSON.stringify(availableVoices)}`,
+              ].join("\n")
+            : [
+                "Generate one practical everyday English listening passage for vocabulary learning and listening exposure.",
+                "Return only JSON in this exact shape:",
+                "{\"type\":\"daily_conversation\",\"format\":\"conversation|radio|announcement|story\",\"title\":\"...\",\"context\":\"...\",\"speakers\":[\"...\"],\"voiceAssignments\":{\"Speaker\":\"voice_id\"},\"lines\":[{\"id\":\"l1\",\"speaker\":\"...\",\"text\":\"...\",\"translation\":\"...\",\"vocabulary\":[\"...\"],\"vocabularyMeanings\":{\"english term\":\"Vietnamese phrase in translation\"}}]}",
+                formatInstruction,
+                speakerInstruction,
+                "First, infer a natural daily-life situation from the active vocabulary index. The conversation must be built around that vocabulary context.",
+                "The active vocabulary index is sorted by priority (least recently used first). You MUST select target words from the top of the list first. Avoid choosing words from the end of the list.",
+                "Pick 5-7 target vocabulary items from the active vocabulary index that can fit one realistic situation together.",
+                "Use at least 4 target vocabulary items naturally in the conversation text. Put used target words/phrases in each line's vocabulary array.",
+                "For every highlighted vocabulary item, include vocabularyMeanings mapping that item to the exact Vietnamese phrase appearing in translation when possible.",
+                "Format rules: conversation covers dialogue, interview, and group chat in one format. It must be back-and-forth spoken interaction with 2, 3, or 4 people chosen by you. Radio sounds like a short radio segment. Announcement is a public notice from one speaker. Story is narrated prose from one narrator.",
+                "If format is story, use exactly one speaker named Narrator. The title/context must describe a story or scene, not people talking. Do not create dialogue turns for story.",
+                "If format is announcement, use exactly one speaker named Announcer.",
+                "Choose a fresh situation that differs from recent situations. If recent situations were about leaks, drainage, water, cones, maintenance, or office facilities, do not choose that cluster again unless most target vocabulary requires it.",
+                "For conversation, use 8-10 short natural turns. For radio with 2 hosts, group consecutive sentences naturally by host. For story or announcement, return 1-3 article-style paragraphs under the same speaker; each paragraph should contain 2-4 connected sentences, not one sentence per line.",
+                "Each line text must be natural spoken English. Optional translation should be Vietnamese.",
+                "Highlight 1-2 vocabulary words or phrases per line.",
+                settings.conversationAutoSelectVoices !== false
+                  ? "Choose suitable voiceAssignments from the available voice list. Use only voice ids from the list."
+                  : "Voice assignments are optional because the app will map speakers to Voice A, Voice B, and Voice C.",
+                `Active context: ${contextDescription}`,
+                `Selected word: ${contextualSelectedWord || "none"}`,
+                `Recent situations to avoid JSON: ${JSON.stringify(recentSituations.slice(0, 6))}`,
+                `Random seed: ${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                `Active vocabulary index JSON: ${JSON.stringify(prioritizedVocabulary)}`,
+                `Available voices JSON: ${JSON.stringify(availableVoices)}`,
+              ].join("\n"),
         },
       ],
     });
@@ -5829,19 +5907,19 @@ function GlobalAgentPanel({
 
         <div className="agent-mode-tabs" role="tablist" aria-label="Agent mode">
           <button className={mode === "assistant" ? "active" : ""} type="button" onClick={() => setMode("assistant")}>
-            Assistant
+            {isChinese ? "Trợ lý" : "Assistant"}
           </button>
           <button className={mode === "drills" ? "active" : ""} type="button" onClick={() => setMode("drills")}>
-            Drills
+            {isChinese ? "Luyện tập" : "Drills"}
           </button>
           <button className={mode === "reading" ? "active" : ""} type="button" onClick={() => setMode("reading")}>
-            Reading
+            {isChinese ? "Đọc hiểu" : "Reading"}
           </button>
           <button className={mode === "article" ? "active" : ""} type="button" onClick={() => setMode("article")}>
-            Articles
+            {isChinese ? "Bài đọc" : "Articles"}
           </button>
           <button className={mode === "conversation" ? "active" : ""} type="button" onClick={() => setMode("conversation")}>
-            Conversation
+            {isChinese ? "Hội thoại" : "Conversation"}
           </button>
         </div>
 
@@ -6035,8 +6113,12 @@ function GlobalAgentPanel({
           <section className="drill-panel">
             <div className="drill-toolbar">
               <div>
-                <h3>IELTS Drill</h3>
-                <p>Agent mixes scenarios, sentence rescue, and collocation practice from the active context.</p>
+                <h3>{isChinese ? "Hán Ngữ Drill" : "IELTS Drill"}</h3>
+                <p>
+                  {isChinese
+                    ? "Agent kết hợp tình huống, chữa câu, và luyện từ ghép / cụm từ từ ngữ cảnh đang chọn."
+                    : "Agent mixes scenarios, sentence rescue, and collocation practice from the active context."}
+                </p>
               </div>
               <button
                 type="button"
@@ -6045,7 +6127,11 @@ function GlobalAgentPanel({
                 disabled={sending || !activeVocabularyIndex.length}
               >
                 {sending ? <RefreshCw className="spin" /> : null}
-                {sending ? "Generating..." : drill ? "Next drill" : "Generate drill"}
+                {sending
+                  ? (isChinese ? "Đang tạo..." : "Generating...")
+                  : drill
+                    ? (isChinese ? "Câu tiếp" : "Next drill")
+                    : (isChinese ? "Tạo bài luyện tập" : "Generate drill")}
               </button>
             </div>
 
@@ -6056,18 +6142,18 @@ function GlobalAgentPanel({
                 <div className="drill-type-row">
                   <span>
                     {drill.kind === "rescue"
-                      ? "Context Rescue"
+                      ? (isChinese ? "Sửa câu ngữ cảnh" : "Context Rescue")
                       : drill.kind === "collocation"
-                        ? "Collocation Builder"
+                        ? (isChinese ? "Từ ghép / Cụm từ" : "Collocation Builder")
                         : drill.kind === "error_spotting"
-                          ? "Error Spotting"
+                          ? (isChinese ? "Tìm lỗi sai" : "Error Spotting")
                           : drill.kind === "trap"
-                            ? "IELTS Trap"
+                            ? (isChinese ? "Bẫy từ vựng" : "IELTS Trap")
                             : drill.kind === "reverse"
-                              ? "Reverse Dictionary"
+                              ? (isChinese ? "Nghĩa sang chữ Hán" : "Reverse Dictionary")
                               : drill.kind === "part2_response"
-                                ? "Part 2 Response"
-                          : "Micro-Scenario"}
+                                ? (isChinese ? "Hỏi đáp phản xạ" : "Part 2 Response")
+                          : (isChinese ? "Tình huống nhỏ" : "Micro-Scenario")}
                   </span>
                   {drill.title ? <strong>{drill.title}</strong> : null}
                 </div>
@@ -6100,33 +6186,49 @@ function GlobalAgentPanel({
                       >
                         <span className="choice-label">{drillChoiceLabels[index] || index + 1}</span>
                         <span>{choice}</span>
-                        <SpeakButton text={choice} label={`Play ${choice}`} settings={settings} />
+                        <SpeakButton text={choice} label={`Play ${choice}`} settings={settings} language={language} />
                       </button>
                     );
                   })}
                 </div>
                 {selectedChoice ? (
                   <div className={`drill-feedback ${answerCorrect ? "correct" : "wrong"}`}>
-                    <strong>{answerCorrect ? "Correct · Đúng rồi" : `Not quite · Chưa đúng. Correct: ${drill.answer}`}</strong>
+                    <strong>
+                      {answerCorrect
+                        ? (isChinese ? "Đúng rồi · 正确" : "Correct · Đúng rồi")
+                        : (isChinese
+                            ? `Chưa đúng · 错误. Đáp án: ${drill.answer}`
+                            : `Not quite · Chưa đúng. Correct: ${drill.answer}`)}
+                    </strong>
                     <p>
                       {answerCorrect
                         ? drill.explanation
                         : drill.whyWrong?.[selectedChoice] ||
-                          `Correct answer: ${drill.answer}. ${drill.explanation} / Đáp án đúng là ${drill.answer}. ${drill.explanation}`}
+                          (isChinese
+                            ? `Đáp án đúng là ${drill.answer}. ${drill.explanation}`
+                            : `Correct answer: ${drill.answer}. ${drill.explanation} / Đáp án đúng là ${drill.answer}. ${drill.explanation}`)}
                     </p>
                   </div>
                 ) : null}
               </div>
             ) : (
-              <div className="chat-notice">Generate a drill to practice choosing the best word for a short IELTS scenario.</div>
+              <div className="chat-notice">
+                {isChinese
+                  ? "Tạo bài luyện tập chọn từ vựng Hán ngữ phù hợp trong ngữ cảnh."
+                  : "Generate a drill to practice choosing the best word for a short IELTS scenario."}
+              </div>
             )}
           </section>
         ) : mode === "reading" ? (
           <section className="reading-panel">
             <div className="drill-toolbar">
               <div>
-                <h3>Context Builder</h3>
-                <p>Generate a random IELTS Academic Reading gap-fill or full passage with questions.</p>
+                <h3>{isChinese ? "Đọc hiểu Hán ngữ" : "Context Builder"}</h3>
+                <p>
+                  {isChinese
+                    ? "Tạo bài đọc hiểu tiếng Trung (điền từ hoặc đoạn văn hoàn chỉnh kèm câu hỏi)."
+                    : "Generate a random IELTS Academic Reading gap-fill or full passage with questions."}
+                </p>
               </div>
               <div className="reading-toolbar-actions">
                 <button
@@ -6136,7 +6238,11 @@ function GlobalAgentPanel({
                   disabled={sending || !activeVocabularyIndex.length}
                 >
                   {sending ? <RefreshCw className="spin" /> : null}
-                  {sending ? "Generating..." : readingContext ? "New context" : "Generate context"}
+                  {sending
+                    ? (isChinese ? "Đang tạo..." : "Generating...")
+                    : readingContext
+                      ? (isChinese ? "Đoạn mới" : "New context")
+                      : (isChinese ? "Tạo bài đọc" : "Generate context")}
                 </button>
               </div>
             </div>
@@ -6145,6 +6251,7 @@ function GlobalAgentPanel({
 
             {readingContext ? (
               <ReadingContextCard
+                language={language}
                 context={readingContext}
                 answers={readingAnswers}
                 checked={readingChecked}
@@ -6160,15 +6267,23 @@ function GlobalAgentPanel({
                 }}
               />
             ) : (
-              <div className="chat-notice">Generate a context to practice vocabulary inside an IELTS Academic Reading passage.</div>
+              <div className="chat-notice">
+                {isChinese
+                  ? "Tạo bài đọc để luyện tập từ vựng tiếng Trung trong ngữ cảnh văn bản."
+                  : "Generate a context to practice vocabulary inside an IELTS Academic Reading passage."}
+              </div>
             )}
           </section>
         ) : mode === "article" ? (
           <section className="reading-panel">
             <div className="drill-toolbar">
               <div>
-                <h3>Article Practice</h3>
-                <p>Generate a short business article with vocabulary notes and context questions.</p>
+                <h3>{isChinese ? "Bài đọc Hán ngữ" : "Article Practice"}</h3>
+                <p>
+                  {isChinese
+                    ? "Tạo bài đọc ngắn tiếng Trung có giải thích từ vựng và câu hỏi ngữ cảnh."
+                    : "Generate a short business article with vocabulary notes and context questions."}
+                </p>
               </div>
               <div className="reading-toolbar-actions">
                 <button
@@ -6178,7 +6293,11 @@ function GlobalAgentPanel({
                   disabled={sending || !activeVocabularyIndex.length}
                 >
                   {sending ? <RefreshCw className="spin" /> : null}
-                  {sending ? "Generating..." : articlePractice ? "New article" : "Generate article"}
+                  {sending
+                    ? (isChinese ? "Đang tạo..." : "Generating...")
+                    : articlePractice
+                      ? (isChinese ? "Bài mới" : "New article")
+                      : (isChinese ? "Tạo bài đọc" : "Generate article")}
                 </button>
               </div>
             </div>
@@ -6187,6 +6306,7 @@ function GlobalAgentPanel({
 
             {articlePractice ? (
               <ArticlePracticeCard
+                language={language}
                 article={articlePractice}
                 answers={articleAnswers}
                 checked={articleChecked}
@@ -6202,7 +6322,11 @@ function GlobalAgentPanel({
                 }}
               />
             ) : (
-              <div className="chat-notice">Generate an article to study vocabulary in context before doing test-style reading.</div>
+              <div className="chat-notice">
+                {isChinese
+                  ? "Tạo bài đọc ngắn để học từ vựng trong ngữ cảnh trước khi làm bài tập đọc hiểu."
+                  : "Generate an article to study vocabulary in context before doing test-style reading."}
+              </div>
             )}
           </section>
         ) : (
@@ -6307,10 +6431,10 @@ function GlobalAgentPanel({
                   className={`agent-toolbar-cta compact-action ${conversation ? "is-secondary" : "is-primary"}`}
                   onClick={generateConversation}
                   disabled={sending || !activeVocabularyIndex.length}
-                  title={conversation ? "New conversation" : "Generate conversation"}
+                  title={conversation ? (isChinese ? "Hội thoại mới" : "New conversation") : (isChinese ? "Tạo hội thoại" : "Generate conversation")}
                 >
                   {sending ? <RefreshCw className="spin" /> : null}
-                  {sending ? "Gen..." : "New"}
+                  {sending ? (isChinese ? "Đang tạo..." : "Gen...") : (isChinese ? "Tạo mới" : "New")}
                 </button>
               </div>
             </div>
@@ -6325,7 +6449,11 @@ function GlobalAgentPanel({
                 onPlayLine={playConversationLine}
               />
             ) : (
-              <div className="chat-notice">Generate an everyday listening passage to hear the full context or replay a section.</div>
+              <div className="chat-notice">
+                {isChinese
+                  ? "Tạo đoạn hội thoại tiếng Trung giao tiếp hàng ngày để luyện nghe và phản xạ."
+                  : "Generate an everyday listening passage to hear the full context or replay a section."}
+              </div>
             )}
           </section>
         )}

@@ -189,7 +189,7 @@ export function parseReadingContext(value: string): ReadingContext {
     throw new Error("Invalid reading context response");
   }
   const isPart6 = parsed.format === "part6";
-  const documentTypes = new Set<ReadingDocumentType>(["email", "notice", "memo", "article", "message", "academic_passage"]);
+  const documentTypes = new Set<ReadingDocumentType>(["email", "notice", "memo", "article", "message", "academic_passage", "chinese_passage"]);
   const passage = Array.isArray(parsed.passage) ? parsed.passage.map((line) => String(line || "").trim()).filter(Boolean) : [];
   const rawDocuments = Array.isArray(parsed.documents) ? parsed.documents : [];
   const documents = (

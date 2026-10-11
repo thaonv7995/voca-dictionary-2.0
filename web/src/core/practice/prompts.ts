@@ -1,5 +1,6 @@
 import { shuffleItems } from "./utils";
 import type { ReadingFormat } from "./types";
+import type { CardLanguage } from "../data/schema";
 
 export function drillPrompt(
   targetVocabularyIndex: string[],
@@ -7,7 +8,43 @@ export function drillPrompt(
   count = 5,
   contextDescription = "All words",
   weaknessContext = "No recorded practice mistakes yet.",
+  language: CardLanguage = "en",
 ): string {
+  if (language === "zh-CN") {
+    return [
+      `You are creating ${count} Chinese (Hán ngữ / HSK) vocabulary drills.`,
+      "Use targetVocabularyIndex as the active learning context and the full list of allowed target answers.",
+      "For wrong choices and supporting context, create plausible Chinese distractors (similar Hanzi, homophones, near-synonyms) yourself when the target list is small.",
+      `Active context: ${contextDescription}.`,
+      "The targetVocabularyIndex is ordered by learning priority: new and learning words first, mastered words last. Prefer earlier unmastered words.",
+      weaknessContext,
+      "Use recent mistakes to choose trap types and target words, but do not repeat the exact same prompt.",
+      "Use exact Chinese words or phrases from targetVocabularyIndex as correct answers whenever possible.",
+      "For wrong choices, create plausible distractors yourself in Chinese characters. Do not make every A/B/C/D choice come only from targetVocabularyIndex when it has fewer than 4 items.",
+      "Each drill must be unique and use a different target answer if possible.",
+      "Mix these drill kinds across the batch: scenario, rescue, collocation, error_spotting, trap, reverse.",
+      "scenario: create a short everyday or business Chinese scenario in Chinese characters and ask which word fits.",
+      "rescue: show one incorrect or awkward Chinese sentence, then ask the learner to choose the best correction.",
+      "collocation: ask which word naturally completes a common Chinese compound, phrase, or collocation.",
+      "error_spotting: show one Chinese sentence with exactly one wrong word/character. The 4 choices must be words from that sentence, and the answer must be the wrong word.",
+      "trap: test a common Chinese confusion such as homophones, wrong measure word (lượng từ), confusing character radicals, or unnatural collocation.",
+      "reverse: show a Vietnamese meaning or Sino-Vietnamese (âm Hán Việt) context and ask the learner to choose the matching Chinese word from targetVocabularyIndex.",
+      "Do not use a plain dictionary-definition prompt.",
+      "Return exactly 4 choices for all drills.",
+      "One choice must be the answer. The other choices must be realistic Chinese traps based on character, sound, pinyin, or meaning.",
+      "Randomize the answer position across A/B/C/D. Do not repeatedly put the correct answer first.",
+      "The explanation must be in Vietnamese with Chinese characters and Pinyin with tone marks.",
+      "whyWrong must explain why each wrong choice is wrong in Vietnamese.",
+      "Set targetWord to the exact tested answer when possible, testedSkill to a short skill label, and difficulty to easy, medium, or hard.",
+      "Prefer the currently selected word as answer if it can make a good drill. Otherwise choose any good target from targetVocabularyIndex.",
+      "Return NDJSON only: each line must be one compact JSON object for one drill.",
+      "Each line shape: {\"kind\":\"scenario|rescue|collocation|error_spotting|trap|reverse\",\"trapType\":\"...\",\"targetWord\":\"...\",\"testedSkill\":\"...\",\"difficulty\":\"easy|medium|hard\",\"title\":\"...\",\"instruction\":\"...\",\"scenario\":\"...\",\"choices\":[\"...\"],\"answer\":\"...\",\"explanation\":\"...\",\"whyWrong\":{\"choice\":\"reason\"}}.",
+      "Do not wrap the lines in an array. Do not use markdown.",
+      selectedWord ? `Currently selected word: ${selectedWord}` : "No selected word.",
+      `Target vocabulary index JSON: ${JSON.stringify(targetVocabularyIndex)}`,
+    ].join("\n");
+  }
+
   return [
     `You are creating ${count} IELTS vocabulary drills.`,
     "Use targetVocabularyIndex as the active learning context and the full list of allowed target answers.",
@@ -49,8 +86,35 @@ export function readingPrompt(
   format: ReadingFormat = "part6",
   contextDescription = "All words",
   weaknessContext = "No recorded practice mistakes yet.",
+  language: CardLanguage = "en",
 ): string {
   const isGapFill = format === "part6";
+  if (language === "zh-CN") {
+    return [
+      `You are creating one Chinese (Hán ngữ / HSK) reading ${isGapFill ? "gap-fill" : "full passage"} practice for a vocabulary learning app.`,
+      "Use targetVocabularyIndex as the active learning context and target vocabulary source.",
+      "For wrong choices and related vocabulary, create plausible Chinese distractors yourself when the target list is small.",
+      `Active context: ${contextDescription}.`,
+      "The targetVocabularyIndex is ordered by learning priority: new and learning words first, mastered words last. Prefer earlier unmastered words for target vocabulary.",
+      weaknessContext,
+      "Create a realistic and interesting Chinese reading passage in simplified Chinese characters (topics: daily life, culture, education, technology, work).",
+      isGapFill
+        ? "Gap-fill passage: create a 120-180 character Chinese passage with 3-6 numbered blanks formatted exactly as [1] _____, [2] _____, [3] _____, etc. Each blank tests vocabulary in context."
+        : "Full passage: create a Chinese reading passage of 200-350 characters. Mix question types: True/False/Not Given, multiple choice (4 choices). Ask 3-6 questions in Vietnamese or Chinese.",
+      isGapFill ? "Create 3-6 questions, one for each blank." : "Create 3-6 questions. Mix question types when possible.",
+      "For multiple choice questions, use exactly 4 answer choices in Chinese and one correct answer.",
+      "For True/False/Not Given questions, choices must be exactly [\"True\", \"False\", \"Not Given\"] or [\"Đúng\", \"Sai\", \"Không đề cập\"].",
+      "Use exact words or phrases from targetVocabularyIndex for correct answers whenever possible.",
+      "Questions, prompts, and explanations should be in Vietnamese with Chinese characters and Pinyin when useful.",
+      isGapFill
+        ? "Return JSON only in this exact shape: {\"type\":\"reading_context\",\"format\":\"part6\",\"documentType\":\"chinese_passage\",\"title\":\"...\",\"passage\":[\"...\"],\"questions\":[{\"blank\":1,\"prompt\":\"...\",\"choices\":[\"...\",\"...\",\"...\",\"...\"],\"answer\":\"...\",\"explanation\":\"...\"}],\"targetWords\":[\"...\"]}."
+        : "Return JSON only in this exact shape: {\"type\":\"reading_context\",\"format\":\"part7\",\"documentType\":\"chinese_passage\",\"title\":\"...\",\"passage\":[\"paragraph lines...\"],\"questions\":[{\"questionType\":\"multiple_choice|true_false_not_given|summary_completion\",\"prompt\":\"...\",\"choices\":[\"...\"],\"answer\":\"...\",\"explanation\":\"...\"}],\"targetWords\":[\"...\"]}.",
+      "Do not use markdown. Do not include extra text outside JSON.",
+      selectedWord ? `Currently selected word: ${selectedWord}` : "No selected word.",
+      `Target vocabulary index JSON: ${JSON.stringify(shuffleItems(targetVocabularyIndex))}`,
+    ].join("\n");
+  }
+
   return [
     `You are creating one IELTS Academic Reading ${isGapFill ? "gap-fill" : "full passage"} practice for a vocabulary learning app.`,
     "Use targetVocabularyIndex as the active learning context and target vocabulary source.",
@@ -85,7 +149,25 @@ export function articlePracticePrompt(
   selectedWord?: string,
   contextDescription = "All words",
   weaknessContext = "No recorded practice mistakes yet.",
+  language: CardLanguage = "en",
 ): string {
+  if (language === "zh-CN") {
+    return [
+      "You are creating one short Chinese (Hán ngữ) article practice set for a vocabulary learning app.",
+      "This is a focused reading article in simplified Chinese that teaches vocabulary in context.",
+      `Active context: ${contextDescription}.`,
+      "Use targetVocabularyIndex as the target vocabulary source.",
+      weaknessContext,
+      "Use 3-5 target Chinese words naturally in an interesting short article in simplified Chinese (150-250 characters).",
+      "Create 3-5 questions across vocabulary-in-context, main purpose, and inference. Questions and options can be in Vietnamese or Chinese.",
+      "Each question must have exactly 4 plausible choices and one correct answer.",
+      "Add vocabularyNotes for the target words used in the passage with Vietnamese meaning and Pinyin.",
+      "Do not use markdown. Do not include extra text outside JSON.",
+      selectedWord ? `Currently selected word: ${selectedWord}` : "No selected word.",
+      `Target vocabulary index JSON: ${JSON.stringify(shuffleItems(targetVocabularyIndex))}`,
+    ].join("\n");
+  }
+
   return [
     "You are creating one short IELTS-style article practice set for a vocabulary learning app.",
     "This is a focused academic or general training article/report/essay excerpt that teaches vocabulary in context.",
