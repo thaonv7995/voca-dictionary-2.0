@@ -43,12 +43,26 @@ public class ChatController {
         this.mapper = mapper;
     }
 
-    public record ChatRequest(String model, List<Map<String, Object>> messages, Map<String, Object> settings) {
+    public record ChatRequest(String model, List<Map<String, Object>> messages, Map<String, Object> settings, Boolean stream) {
     }
 
-    @PostMapping(value = "/chat/completions", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter chat(@RequestBody ChatRequest req, @AuthenticationPrincipal UserPrincipal principal) {
+    @PostMapping(value = "/chat/completions")
+    public Object chat(@RequestBody ChatRequest req, @AuthenticationPrincipal UserPrincipal principal) {
         LlmConfig cfg = resolveConfig(principal.id(), req);
+        if (Boolean.FALSE.equals(req.stream())) {
+            String content = llm.complete(cfg, req.messages());
+            return org.springframework.http.ResponseEntity.ok(Map.of(
+                    "id", "chatcmpl-" + System.currentTimeMillis(),
+                    "object", "chat.completion",
+                    "created", System.currentTimeMillis() / 1000,
+                    "model", cfg.model(),
+                    "choices", List.of(Map.of(
+                            "index", 0,
+                            "message", Map.of("role", "assistant", "content", content),
+                            "finish_reason", "stop"
+                    ))
+            ));
+        }
         SseEmitter emitter = new SseEmitter(180_000L);
         // The upstream WebClient stream runs on a reactive (reactor-http-nio) thread while the SSE
         // response lives on the servlet container. A terminal signal can race with a trailing send

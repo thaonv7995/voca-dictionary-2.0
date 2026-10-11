@@ -69,15 +69,15 @@ export function assessReadingQuality(context: ReadingContext): PracticeQualityRe
     ? context.documents.reduce((total, document) => total + document.passage.length, 0)
     : context.passage.length;
 
-  if (passageLength < (context.format === "part7" ? 8 : 4)) issues.push("passage too short");
-  if (context.format === "part7" && !context.documents?.length) issues.push("Part 7 should include document structure");
+  if (passageLength < (context.format === "part7" ? 6 : 4)) issues.push("passage too short");
+  if (context.format === "part7" && !context.documents?.length && !context.passage?.length) issues.push("Part 7 should include passage or document structure");
   if (!context.questions.length) issues.push("missing questions");
   if (context.format === "part7" && context.questions.length < 2) issues.push("too few Part 7 questions");
   if (context.format === "part7" && context.questions.length < 3) issues.push("Part 7 practice should usually have at least 3 questions");
   if (!context.targetWords?.length) issues.push("missing targetWords");
 
   for (const question of context.questions) {
-    if (question.choices.length !== 4) issues.push("question has wrong choice count");
+    if (question.choices.length < 2 || question.choices.length > 4) issues.push("question has wrong choice count");
     if (!question.choices.some((choice) => normalizeAnswer(choice) === normalizeAnswer(question.answer))) {
       issues.push("answer missing from reading choices");
     }

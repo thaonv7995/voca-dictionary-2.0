@@ -189,7 +189,7 @@ export function parseReadingContext(value: string): ReadingContext {
     throw new Error("Invalid reading context response");
   }
   const isPart6 = parsed.format === "part6";
-  const documentTypes = new Set<ReadingDocumentType>(["email", "notice", "memo", "article", "message"]);
+  const documentTypes = new Set<ReadingDocumentType>(["email", "notice", "memo", "article", "message", "academic_passage"]);
   const passage = Array.isArray(parsed.passage) ? parsed.passage.map((line) => String(line || "").trim()).filter(Boolean) : [];
   const rawDocuments = Array.isArray(parsed.documents) ? parsed.documents : [];
   const documents = (
@@ -229,12 +229,13 @@ export function parseReadingContext(value: string): ReadingContext {
           (question) =>
             (!isPart6 || Number.isFinite(question.blank)) &&
             question.prompt &&
-            question.choices.length === 4 &&
+            question.choices.length >= 2 &&
+            question.choices.length <= 4 &&
             question.answer &&
             question.explanation.length >= 20 &&
             question.choices.some((choice) => normalizeAnswer(choice) === normalizeAnswer(question.answer)),
         )
-        .slice(0, isPart6 ? 3 : 5)
+        .slice(0, isPart6 ? 4 : 8)
     : [];
 
   if (!parsed.title || (!passage.length && !documents.length) || !questions.length) {
@@ -244,7 +245,7 @@ export function parseReadingContext(value: string): ReadingContext {
   return {
     type: "reading_context",
     format: parsed.format,
-    documentType: documentTypes.has(parsed.documentType) ? parsed.documentType : "email",
+    documentType: documentTypes.has(parsed.documentType) ? parsed.documentType : "academic_passage",
     title: String(parsed.title).trim(),
     passage: passage.length ? passage : documents[0]?.passage || [],
     documents: parsed.format === "part7" && documents.length ? documents : undefined,

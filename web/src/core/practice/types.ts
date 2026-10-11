@@ -61,7 +61,7 @@ export type ReadingQuestion = {
 };
 
 export type ReadingFormat = "part6" | "part7";
-export type ReadingDocumentType = "email" | "notice" | "memo" | "article" | "message";
+export type ReadingDocumentType = "email" | "notice" | "memo" | "article" | "message" | "academic_passage";
 
 export type ReadingDocument = {
   title?: string;

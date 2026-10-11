@@ -174,8 +174,9 @@ function formatReadingDocumentKind(value: ReadingDocumentType): string {
     memo: "Memo",
     article: "Article",
     message: "Message",
+    academic_passage: "Academic Passage",
   };
-  return labels[value];
+  return labels[value] || "Passage";
 }
 
 /** Title is pointless if it's only repeating the genre (Email, Notice…) already implied by eyebrow/doc type */
@@ -309,6 +310,65 @@ type ServerAiSettings = {
   hasTtsKey?: boolean;
 };
 
+async function normalizeNonStreamingResponse(response: Response): Promise<Response> {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json") && !contentType.includes("text/event-stream")) {
+    return response;
+  }
+
+  const text = await response.text();
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      JSON.parse(trimmed);
+      return new Response(text, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch {
+      // not JSON, continue to parse SSE
+    }
+  }
+
+  let accumulatedContent = "";
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (!line.startsWith("data:")) continue;
+    const data = line.slice(5).trim();
+    if (!data || data === "[DONE]") continue;
+    try {
+      const chunk = JSON.parse(data);
+      const delta = extractLlmDeltaText(chunk);
+      if (delta) accumulatedContent += delta;
+    } catch {
+      // ignore
+    }
+  }
+
+  const jsonPayload = JSON.stringify({
+    id: "chatcmpl-" + Date.now(),
+    object: "chat.completion",
+    created: Math.floor(Date.now() / 1000),
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: accumulatedContent,
+        },
+        finish_reason: "stop",
+      },
+    ],
+  });
+
+  return new Response(jsonPayload, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 async function fetchLlm(settings: AiSettings, body: any): Promise<Response> {
   const bridgeOrigin = resolvedLocalBridgeOrigin(settings.localBridgeOrigin);
   let isBridgeReachable = false;
@@ -321,7 +381,12 @@ async function fetchLlm(settings: AiSettings, body: any): Promise<Response> {
       }),
     });
     isBridgeReachable = true;
-    if (response.ok) return response;
+    if (response.ok) {
+      if (!body.stream) {
+        return normalizeNonStreamingResponse(response);
+      }
+      return response;
+    }
     if (response.status === 404) {
       throw new Error(`Endpoint '/api/chat/completions' not found on bridge proxy (status 404). Please ensure your bridge API server (at ${bridgeOrigin}) is updated to the latest version and restarted.`);
     }
@@ -335,7 +400,7 @@ async function fetchLlm(settings: AiSettings, body: any): Promise<Response> {
     console.warn("Local bridge LLM proxy unavailable, falling back to direct call:", err);
   }
 
-  return fetch(`${settings.baseURL.replace(/\/+$/, "")}/chat/completions`, {
+  const directResponse = await fetch(`${settings.baseURL.replace(/\/+$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -343,6 +408,11 @@ async function fetchLlm(settings: AiSettings, body: any): Promise<Response> {
     },
     body: JSON.stringify(body),
   });
+
+  if (directResponse.ok && !body.stream) {
+    return normalizeNonStreamingResponse(directResponse);
+  }
+  return directResponse;
 }
 
 const suggestionTtlMs = 60 * 60 * 1000;
