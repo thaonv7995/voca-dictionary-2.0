@@ -4,7 +4,7 @@
   /*
    Typography tokens — chỉnh stack trong :root và load font tương ứng ở index.html:
 
-   • --font-sans (Inter): UI, tab Agent, ô chat, nút đáp án TOEIC, tiêu đề bài đọc.
+   • --font-sans (Inter): UI, tab Agent, ô chat, nút đáp án IELTS, tiêu đề bài đọc.
    • --font-display: khớp sans mặc định — tiêu đề preview / danh sách card.
    • --font-reading (Source Serif 4 + serif hệ thống): passage email/đoạn drill — dòng cơ bản đọc dài rõ.
 

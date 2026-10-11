@@ -8,7 +8,7 @@ Serves:
 
 Content is chosen by keywords in the prompt (mirrors PracticePrompts/ClientPrompts):
   "Return NDJSON"        → drills (3 objects)
-  "reading_context"      → TOEIC Part 6 reading JSON
+  "reading_context"      → IELTS Academic Reading JSON
   "article_practice"     → article JSON
   "speaking_practice"    → speaking JSON
   "daily_conversation"   → conversation JSON
@@ -91,7 +91,7 @@ CONVERSATION = json.dumps({
 CHAT = ("Great question! Here is the difference between **diligent** and **hard-working**:\n\n"
         "1. Diligent — careful AND persistent. It emphasises attention to detail. Ví dụ: a diligent auditor double-checks every figure.\n"
         "2. Hard-working — puts in many hours, but not necessarily carefully. Ví dụ: a hard-working courier does long shifts.\n\n"
-        "In TOEIC, watch for the trap where 'diligent' is replaced by 'urgent' or 'frequent' — they look plausible but describe tasks, not people. "
+        "In IELTS, watch for the trap where 'diligent' is replaced by 'urgent' or 'frequent' — they look plausible but describe tasks, not people. "
         "Tóm lại: 'diligent' nhấn mạnh sự cẩn thận và bền bỉ, còn 'hard-working' chỉ nói về cường độ làm việc. "
         "Hãy thử đặt một câu với 'diligent' về đồng nghiệp của bạn nhé!")
 

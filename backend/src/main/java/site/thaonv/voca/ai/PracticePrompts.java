@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-/** TOEIC practice prompts, ported from packages/voca-core/src/practice/prompts.ts. */
+/** IELTS practice prompts, ported from packages/voca-core/src/practice/prompts.ts. */
 @Component
 public class PracticePrompts {
 
@@ -18,29 +18,29 @@ public class PracticePrompts {
     }
 
     public String assistantSystemPrompt() {
-        return "You are Voca, a concise bilingual (English-Vietnamese) TOEIC vocabulary tutor. "
+        return "You are Voca, a concise bilingual (English-Vietnamese) IELTS vocabulary tutor. "
                 + "Answer in clear Markdown, English first then a short Vietnamese support line when helpful. "
                 + "Ground answers in the learner's vocabulary when relevant.";
     }
 
     public String drillPrompt(List<String> index, String selectedWord, int count, String context, String weakness) {
         List<String> lines = new ArrayList<>();
-        lines.add("You are creating " + count + " TOEIC vocabulary drills.");
+        lines.add("You are creating " + count + " IELTS vocabulary drills.");
         lines.add("Use targetVocabularyIndex as the active learning context and the full list of allowed target answers.");
-        lines.add("For wrong choices and supporting context, create plausible TOEIC/business distractors yourself when the target list is small.");
+        lines.add("For wrong choices and supporting context, create plausible IELTS/academic distractors yourself when the target list is small.");
         lines.add("Active context: " + context + ".");
         lines.add("The targetVocabularyIndex is ordered by learning priority: new and learning words first, mastered words last. Prefer earlier unmastered words.");
         lines.add(weakness);
         lines.add("Use exact words or phrases from targetVocabularyIndex as correct answers whenever possible.");
         lines.add("Each drill must be unique and use a different target answer if possible.");
-        lines.add("Mix these drill kinds across the batch: scenario, rescue, collocation, error_spotting, trap, reverse, part2_response.");
-        lines.add("Use trapType from this taxonomy: same_word_family, wrong_preposition, near_synonym_wrong_context, similar_spelling, similar_sound, grammar_mismatch, collocation_mismatch, too_literal, wrong_question_type.");
-        lines.add("Return exactly 4 choices for normal drills, but exactly 3 choices for part2_response.");
+        lines.add("Mix these drill kinds across the batch: scenario, rescue, collocation, error_spotting, trap, reverse.");
+        lines.add("Use trapType from this taxonomy: same_word_family, wrong_preposition, near_synonym_wrong_context, similar_spelling, similar_sound, grammar_mismatch, collocation_mismatch, too_literal, academic_register.");
+        lines.add("Return exactly 4 choices for all drills.");
         lines.add("Randomize the answer position. The explanation must teach the trap: 2-4 short sentences, English first then Vietnamese support.");
         lines.add("whyWrong must explain why each wrong choice is wrong in English + Vietnamese.");
         lines.add("Set targetWord to the exact tested answer, testedSkill to a short skill label, and difficulty to easy, medium, or hard.");
         lines.add("Return NDJSON only: each line must be one compact JSON object for one drill.");
-        lines.add("Each line shape: {\"kind\":\"scenario|rescue|collocation|error_spotting|trap|reverse|part2_response\",\"trapType\":\"...\",\"targetWord\":\"...\",\"testedSkill\":\"...\",\"difficulty\":\"easy|medium|hard\",\"title\":\"...\",\"instruction\":\"...\",\"scenario\":\"...\",\"choices\":[\"...\"],\"answer\":\"...\",\"explanation\":\"...\",\"whyWrong\":{\"choice\":\"reason\"}}.");
+        lines.add("Each line shape: {\"kind\":\"scenario|rescue|collocation|error_spotting|trap|reverse\",\"trapType\":\"...\",\"targetWord\":\"...\",\"testedSkill\":\"...\",\"difficulty\":\"easy|medium|hard\",\"title\":\"...\",\"instruction\":\"...\",\"scenario\":\"...\",\"choices\":[\"...\"],\"answer\":\"...\",\"explanation\":\"...\",\"whyWrong\":{\"choice\":\"reason\"}}.");
         lines.add("Do not wrap the lines in an array. Do not use markdown.");
         lines.add(selectedWord != null ? "Currently selected word: " + selectedWord : "No selected word.");
         lines.add("Target vocabulary index JSON: " + toJson(index));
@@ -50,14 +50,14 @@ public class PracticePrompts {
     public String readingPrompt(List<String> index, String selectedWord, String format, String context, String weakness) {
         boolean isPart6 = !"part7".equalsIgnoreCase(format);
         List<String> lines = new ArrayList<>();
-        lines.add("You are creating one TOEIC " + (isPart6 ? "Part 6" : "Part 7") + " reading context for a vocabulary learning app.");
+        lines.add("You are creating one IELTS Academic Reading " + (isPart6 ? "gap-fill" : "full passage") + " practice for a vocabulary learning app.");
         lines.add("Use targetVocabularyIndex as the active learning context and target vocabulary source.");
         lines.add("Active context: " + context + ".");
         lines.add(weakness);
-        lines.add("Create a realistic TOEIC-style business document. Use natural workplace context, specific but simple details.");
+        lines.add("Create a realistic IELTS Academic Reading passage. Use topics from science, education, environment, health, technology, history, or social issues. Write in a formal academic register.");
         lines.add(isPart6
-                ? "Part 6 passage: 4-7 short lines, one coherent email/notice/memo/article/message, and 1-3 numbered blanks formatted exactly as [1] _____, [2] _____, [3] _____."
-                : "Part 7 passage: create a TOEIC single, double, or triple passage set with 1-3 related documents, no blanks. Ask 1-5 TOEIC Part 7 style questions about detail, purpose, inference, intended audience, next action, cross-document connection, or vocabulary-in-context.");
+                ? "Gap-fill passage: create a 150-200 word academic passage with 3-6 numbered blanks. Each blank tests vocabulary in context."
+                : "Full passage: create an IELTS Academic Reading passage of 300-500 words. Mix question types: True/False/Not Given, multiple choice, summary completion. Ask 4-8 questions covering detail, inference, writer's purpose, vocabulary-in-context.");
         lines.add("Each question must have exactly 4 answer choices and one correct answer.");
         lines.add("Use exact words or phrases from targetVocabularyIndex for correct answers whenever possible.");
         lines.add(isPart6
@@ -71,7 +71,7 @@ public class PracticePrompts {
 
     public String articlePrompt(List<String> index, String selectedWord, String context, String weakness) {
         List<String> lines = new ArrayList<>();
-        lines.add("You are creating one short TOEIC-style article practice set for a vocabulary learning app.");
+        lines.add("You are creating one short IELTS-style article practice set for a vocabulary learning app.");
         lines.add("This is a focused business article/email/notice/memo that teaches vocabulary in context.");
         lines.add("Active context: " + context + ".");
         lines.add(weakness);
@@ -91,7 +91,7 @@ public class PracticePrompts {
         lines.add("The goal is to help users practice speaking by reading a passage aloud with synchronized words (karaoke style).");
         lines.add("Active context: " + context + ".");
         lines.add(weakness);
-        lines.add("Incorporate 2-4 target words naturally. The passage must be a 150-250 word TOEIC/IELTS/news-style reading in 3-4 paragraphs.");
+        lines.add("Incorporate 2-4 target words naturally. The passage must be a 150-250 word IELTS Academic or news-style reading in 3-4 paragraphs.");
         lines.add("For each sentence provide: the text, the sentence IPA (no slashes), a list of words each with word/ipa/startMs/endMs (~100 wpm, chronological across the whole passage), and connectedSpeech linking points.");
         lines.add("Return JSON only in this shape: {\"type\":\"speaking_practice\",\"title\":\"...\",\"topic\":\"...\",\"passageText\":\"...\",\"sentences\":[{\"text\":\"...\",\"ipa\":\"...\",\"words\":[{\"word\":\"...\",\"ipa\":\"...\",\"startMs\":0,\"endMs\":300}],\"connectedSpeech\":[{\"from\":\"...\",\"to\":\"...\",\"type\":\"linking\",\"symbol\":\"‿\"}]}]}.");
         lines.add("Do not use markdown. Do not include extra text outside JSON.");
@@ -115,7 +115,7 @@ public class PracticePrompts {
                     + "- Include at most two short use cases. Keep memoryTip and toeicTrap to one short sentence each.\n"
                     + "- Do not include explanations, markdown, images, or extra fields.";
         }
-        return "Create compact TOEIC-focused bilingual vocabulary card data for these words/phrases: " + joined + ".\n\n"
+        return "Create compact IELTS-focused bilingual vocabulary card data for these words/phrases: " + joined + ".\n\n"
                 + "Return only a JSON array. Each item must contain: word, pronunciation, partOfSpeech, topic, frequency, "
                 + "meaningEn, meaningVi, useCases, examples, memoryTip, toeicTrap, practicePrompt, answer.\n\n"
                 + "Rules:\n"

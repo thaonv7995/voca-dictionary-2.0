@@ -2,7 +2,7 @@ import Foundation
 
 // Output schemas produced by the server-side PracticePrompts (LLM), consumed after SSE accumulation.
 
-/// One TOEIC drill. `POST /api/practice/drills` streams NDJSON — one JSON object per line.
+/// One IELTS drill. `POST /api/practice/drills` streams NDJSON — one JSON object per line.
 struct Drill: Decodable, Identifiable {
     let id = UUID()
     let kind: String?

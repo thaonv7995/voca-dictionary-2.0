@@ -171,7 +171,7 @@ struct CardDetailView: View {
             section("Mẹo ghi nhớ", text: text, icon: "lightbulb")
         }
         if let text = card.toeicTrap, !text.isEmpty {
-            section("Bẫy TOEIC", text: text, icon: "exclamationmark.triangle")
+            section("Bẫy IELTS", text: text, icon: "exclamationmark.triangle")
         }
         tagsSection
     }

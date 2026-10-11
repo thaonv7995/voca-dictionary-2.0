@@ -17,7 +17,7 @@ struct CardAgentView: View {
     private let starters = [
         "Cho ví dụ",
         "Phân biệt từ gần nghĩa",
-        "Bẫy TOEIC của từ này",
+        "Bẫy IELTS của từ này",
     ]
 
     var body: some View {

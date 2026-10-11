@@ -1,7 +1,7 @@
 import SwiftUI
 import Observation
 
-/// Generates and holds a batch of multiple-choice TOEIC drills.
+/// Generates and holds a batch of multiple-choice IELTS drills.
 @MainActor
 @Observable
 final class DrillsViewModel {

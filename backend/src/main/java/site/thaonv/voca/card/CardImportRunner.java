@@ -69,9 +69,9 @@ public class CardImportRunner implements ApplicationRunner {
             log.warn("No admin user to own the seed cards; skipping import.");
             return;
         }
-        Deck deck = decks.findFirstByNameIgnoreCase("TOEIC Vocabulary").orElseGet(() -> {
+        Deck deck = decks.findFirstByNameIgnoreCase("IELTS Vocabulary").orElseGet(() -> {
             Deck d = new Deck();
-            d.setName("TOEIC Vocabulary");
+            d.setName("IELTS Vocabulary");
             d.setOwnerId(ownerId);
             d.setPublic(true);
             return decks.save(d);

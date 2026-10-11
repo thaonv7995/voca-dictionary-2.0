@@ -13,8 +13,8 @@ export function revisePracticePrompt(kind: RevisePracticeKind, content: string, 
           : "Return JSON only using the reading_context schema. Keep type, format, documentType, title, passage or documents, questions, and targetWords.";
 
   return [
-    "You are a TOEIC practice quality judge and reviser.",
-    "Revise the draft so it is realistic, grammatically correct, and useful for TOEIC learners.",
+    "You are an IELTS practice quality judge and reviser.",
+    "Revise the draft so it is realistic, grammatically correct, and useful for IELTS learners.",
     "Fix these quality issues:",
     ...report.issues.slice(0, 10).map((issue) => `- ${issue}`),
     "Requirements:",

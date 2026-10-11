@@ -461,7 +461,7 @@ function formatTime(value: number | null): string {
 function systemPrompt(card: Card, recentQuizAnswers: string[] = []): string {
   return [
     "You are an Agent Assistant for a vocabulary dictionary app.",
-    "You are also a patient English tutor and TOEIC coach.",
+    "You are also a patient English tutor and IELTS coach.",
     "Keep answers short and scan-friendly.",
     "Default response length: 4-8 lines total, around 120 words unless the user explicitly asks for a table, long list, comparison, practice set, or detailed explanation.",
     "For normal questions, use at most 3 short sections, 3 bullets, and 2 examples.",
@@ -471,7 +471,7 @@ function systemPrompt(card: Card, recentQuizAnswers: string[] = []): string {
     "If the word seems misspelled, mention the likely correction in one short line, then continue briefly. Do not turn the whole answer into a spelling correction.",
     "Use concise markdown with short headings and bullet lists when helpful.",
     "When creating a quick quiz, missing-word quiz, fill-in quiz, or short answer quiz, return JSON only using this shape: {\"type\":\"quick_quiz\",\"title\":\"...\",\"instructions\":\"...\",\"questions\":[{\"prompt\":\"...\",\"answer\":\"...\",\"accepted\":[\"...\"],\"choices\":[\"...\"]}]}",
-    "For quick_quiz, focus on the current word, close confusions, collocations, TOEIC traps, and short applied usage. Include related words only when they help the current word.",
+    "For quick_quiz, focus on the current word, close confusions, collocations, IELTS traps, and short applied usage. Include related words only when they help the current word.",
     "For quick_quiz, keep it lightweight: create 1-3 questions only, prefer 1-2 questions by default. Follow a user-requested count exactly only if they explicitly ask for a specific number.",
     "For quick_quiz, avoid repeating recent prompts, examples, answer choices, and the same question pattern unless the user asks to review mistakes.",
     "For quick_quiz choices, choices are optional. If included, include the answer and vary the answer position.",
@@ -745,7 +745,7 @@ function cardDisplayTags(card: Card): string[] {
 function defaultSuggestions(card: Card): string[] {
   return [
     `Explain "${card.word}" briefly.`,
-    `Give 2 TOEIC examples.`,
+    `Give 2 IELTS examples.`,
     `Show common confusion.`,
   ];
 }
@@ -787,7 +787,7 @@ function globalSuggestions({
   if (contextScope.mode === "topic" && contextScope.topic !== "all") {
     return [
       `Quiz me on ${contextScope.topic} vocabulary.`,
-      `Find TOEIC traps in ${contextScope.topic}.`,
+      `Find IELTS traps in ${contextScope.topic}.`,
       `Make a ${contextScope.topic} study plan.`,
     ];
   }
@@ -2410,7 +2410,7 @@ function AppSettingsPanel({
         const batch = batches[i];
         setFillingStatus(`Querying AI for batch ${i + 1}/${batches.length}...`);
 
-        const prompt = `Provide compact, TOEIC-focused English and Vietnamese meanings for the following vocabulary items.
+        const prompt = `Provide compact, IELTS-focused English and Vietnamese meanings for the following vocabulary items.
 Rules:
 - meaningEn must be a short, clear definition in simple English.
 - meaningVi must be a natural, concise Vietnamese translation.
@@ -2436,7 +2436,7 @@ ${batch.map((c) => `- Word: "${c.word}", Part of speech: "${c.partOfSpeech}", To
           messages: [
             {
               role: "system",
-              content: "You are a professional English-Vietnamese TOEIC dictionary assistant. You must return only valid JSON matching the requested schema.",
+              content: "You are a professional English-Vietnamese IELTS dictionary assistant. You must return only valid JSON matching the requested schema.",
             },
             {
               role: "user",
@@ -4145,7 +4145,7 @@ function CardPreview({
                 <div className="face-section"><h4>Collocations</h4><ul>{card.useCases.map((e, i) => <li key={i}>{e}</li>)}</ul></div>
               ) : null}
               {card.memoryTip ? <div className="face-section"><h4>Memory tip</h4><p>{card.memoryTip}</p></div> : null}
-              {card.toeicTrap ? <div className="face-section"><h4>TOEIC trap</h4><p>{card.toeicTrap}</p></div> : null}
+              {card.toeicTrap ? <div className="face-section"><h4>IELTS trap</h4><p>{card.toeicTrap}</p></div> : null}
             </>
           )}
         </div>
@@ -4330,7 +4330,7 @@ function ReadingContextCard({
     <article className="reading-card">
       <header className="reading-card-header">
         <div>
-          <p className="eyebrow">TOEIC {context.format === "part6" ? "Part 6" : "Part 7"} · {context.documentType}</p>
+          <p className="eyebrow">IELTS Reading {context.format === "part6" ? "Gap-fill" : "Full Passage"} · {context.documentType}</p>
           <h3>{context.title}</h3>
         </div>
         {checked ? (
@@ -4773,7 +4773,7 @@ function GlobalAgentPanel({
               "Create 3 short follow-up prompt suggestions for the Global Voca Agent.",
               "Return only JSON in this exact shape: {\"suggestions\":[\"...\",\"...\",\"...\"]}.",
               "Suggestions must be useful next actions after the latest assistant response.",
-              "Suggestions should vary the task: quiz, compare confusing words, review plan, TOEIC usage, collocations, weak spots.",
+              "Suggestions should vary the task: quiz, compare confusing words, review plan, IELTS usage, collocations, weak spots.",
               `Active context: ${contextDescription}`,
               `Active word count: ${activeVocabularyIndex.length}`,
               contextualSelectedWord ? `Contextual selected word: ${contextualSelectedWord}` : "No contextual selected word.",
@@ -5817,7 +5817,7 @@ function GlobalAgentPanel({
           <section className="drill-panel">
             <div className="drill-toolbar">
               <div>
-                <h3>TOEIC Drill</h3>
+                <h3>IELTS Drill</h3>
                 <p>Agent mixes scenarios, sentence rescue, and collocation practice from the active context.</p>
               </div>
               <button
@@ -5844,7 +5844,7 @@ function GlobalAgentPanel({
                         : drill.kind === "error_spotting"
                           ? "Error Spotting"
                           : drill.kind === "trap"
-                            ? "TOEIC Trap"
+                            ? "IELTS Trap"
                             : drill.kind === "reverse"
                               ? "Reverse Dictionary"
                               : drill.kind === "part2_response"
@@ -5900,7 +5900,7 @@ function GlobalAgentPanel({
                 ) : null}
               </div>
             ) : (
-              <div className="chat-notice">Generate a drill to practice choosing the best word for a short TOEIC scenario.</div>
+              <div className="chat-notice">Generate a drill to practice choosing the best word for a short IELTS scenario.</div>
             )}
           </section>
         ) : mode === "reading" ? (
@@ -5908,7 +5908,7 @@ function GlobalAgentPanel({
             <div className="drill-toolbar">
               <div>
                 <h3>Context Builder</h3>
-                <p>Generate a random TOEIC Part 6 or Part 7 passage with A/B/C/D questions.</p>
+                <p>Generate a random IELTS Academic Reading gap-fill or full passage with questions.</p>
               </div>
               <div className="reading-toolbar-actions">
                 <button
@@ -5942,7 +5942,7 @@ function GlobalAgentPanel({
                 }}
               />
             ) : (
-              <div className="chat-notice">Generate a context to practice vocabulary inside a TOEIC Part 6 or Part 7 reading passage.</div>
+              <div className="chat-notice">Generate a context to practice vocabulary inside an IELTS Academic Reading passage.</div>
             )}
           </section>
         ) : mode === "article" ? (
@@ -6380,7 +6380,7 @@ function ChatPanel({
             content: [
               "Create 3 short follow-up prompt suggestions for an English learner using this vocabulary dictionary chat.",
               "Return only JSON in this exact shape: {\"suggestions\":[\"...\",\"...\",\"...\"]}.",
-              "Suggestions should help learn meaning, examples, TOEIC traps, collocations, confusing words, or quick practice.",
+              "Suggestions should help learn meaning, examples, IELTS traps, collocations, confusing words, or quick practice.",
               `Current word or phrase: ${card.word}`,
             ].join("\n"),
           },
@@ -6495,7 +6495,7 @@ function ChatPanel({
 
       <div className="chat-messages global-chat-messages">
         {!messages.length ? (
-          <div className="chat-notice">Ask about meaning, grammar, collocations, examples, or TOEIC traps.</div>
+          <div className="chat-notice">Ask about meaning, grammar, collocations, examples, or IELTS traps.</div>
         ) : null}
         {messages.map((message, index) => (
           <article key={`${message.role}-${index}`} className={`chat-message ${message.role} ${message.pending ? "streaming" : ""}`}>
