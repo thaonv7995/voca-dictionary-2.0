@@ -95,20 +95,71 @@ struct SettingsRootView: View {
         }
     }
 
+    private static let popularVoices: [(label: String, value: String)] = [
+        ("Xiaoxiao (Chinese Mainland · F)", "edge-tts/zh-CN-XiaoxiaoNeural"),
+        ("Yunxi (Chinese Mainland · M)", "edge-tts/zh-CN-YunxiNeural"),
+        ("Xiaoyi (Chinese Mainland · F)", "edge-tts/zh-CN-XiaoyiNeural"),
+        ("Yunjian (Chinese Mainland · M)", "edge-tts/zh-CN-YunjianNeural"),
+        ("Yunxia (Chinese Mainland · M)", "edge-tts/zh-CN-YunxiaNeural"),
+        ("Yunyang (Chinese Mainland · M)", "edge-tts/zh-CN-YunyangNeural"),
+        ("Xiaobei (Chinese NE · F)", "edge-tts/zh-CN-liaoning-XiaobeiNeural"),
+        ("HsiaoChen (Chinese TW · F)", "edge-tts/zh-TW-HsiaoChenNeural"),
+        ("YunJhe (Chinese TW · M)", "edge-tts/zh-TW-YunJheNeural"),
+        ("HsiaoYu (Chinese TW · F)", "edge-tts/zh-TW-HsiaoYuNeural"),
+        ("HiuGaai (Cantonese · F)", "edge-tts/zh-HK-HiuGaaiNeural"),
+        ("HiuMaan (HK · F)", "edge-tts/zh-HK-HiuMaanNeural"),
+        ("WanLung (HK · M)", "edge-tts/zh-HK-WanLungNeural"),
+        ("Xiaoni (Shaanxi · F)", "edge-tts/zh-CN-shaanxi-XiaoniNeural"),
+        ("Steffan (US · M)", "edge-tts/en-US-SteffanNeural"),
+        ("Ava (US · F)", "edge-tts/en-US-AvaNeural"),
+        ("Andrew (US · M)", "edge-tts/en-US-AndrewNeural"),
+        ("Emma (US · F)", "edge-tts/en-US-EmmaNeural"),
+        ("Brian (US · M)", "edge-tts/en-US-BrianNeural"),
+    ]
+
     private var ttsSection: some View {
         Section("Giọng đọc (TTS)") {
             TextField("Base URL", text: $ttsBaseUrl)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
-            TextField("Model", text: $ttsModel)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
+            HStack {
+                TextField("Model", text: $ttsModel)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                Menu {
+                    Section("Giọng tiếng Trung (Chinese)") {
+                        ForEach(Self.popularVoices.filter { $0.value.contains("/zh-") }, id: \.value) { item in
+                            Button(item.label) { ttsModel = item.value }
+                        }
+                    }
+                    Section("Giọng tiếng Anh (English)") {
+                        ForEach(Self.popularVoices.filter { $0.value.contains("/en-") }, id: \.value) { item in
+                            Button(item.label) { ttsModel = item.value }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(Brand.green)
+                        .imageScale(.large)
+                }
+            }
             SecureField("••• để trống nếu không đổi", text: $ttsApiKey)
 
             LabeledContent("Khóa API") {
                 Text(hasTtsKey ? "Đã cấu hình khóa" : "Chưa có khóa")
                     .foregroundStyle(hasTtsKey ? Color.green : Color.secondary)
+            }
+
+            Button {
+                Task {
+                    let testSentence = ttsModel.contains("/zh-")
+                        ? "你好，这是语音测试。"
+                        : "Hello, this is a voice test."
+                    try? await TTSService().speak(testSentence, voiceModel: ttsModel.isEmpty ? nil : ttsModel)
+                }
+            } label: {
+                Label("Nghe thử giọng", systemImage: "speaker.wave.2")
             }
 
             Button {

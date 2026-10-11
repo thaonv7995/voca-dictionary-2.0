@@ -16,13 +16,13 @@
 .language-switch button { min-height: 38px; border: 0; border-radius: 0; padding: 0 11px; color: var(--muted); background: transparent; font-size: 12px; }
 .language-switch button + button { border-left: 1px solid var(--line); }
 .language-switch button.active { color: #fff; background: var(--accent); }
-.hanzi-title { font-size: 42px !important; letter-spacing: .08em; }
-.row-main strong.hanzi-word { font-size: 27px; letter-spacing: .06em; }
+.hanzi-title { font-family: var(--font-hanzi); font-size: 42px !important; letter-spacing: .08em; }
+.row-main strong.hanzi-word { font-family: var(--font-hanzi); font-size: 27px; letter-spacing: .06em; }
 .row-main .hanzi-card-pinyin { display: block; margin-top: 3px; overflow: visible; color: var(--ink); font-family: var(--font-ipa); font-size: 14px; font-weight: 750; line-height: 1.25; letter-spacing: .02em; text-overflow: clip; }
 .chinese-card-face { gap: 18px; }
 .chinese-example { display: grid; gap: 3px; }
 .chinese-example p { margin: 0; }
-.chinese-example > p:first-child { font-size: 20px; font-weight: 700; }
+.chinese-example > p:first-child { font-family: var(--font-hanzi); font-size: 20px; font-weight: 700; letter-spacing: .02em; }
 .chinese-example-pinyin { color: var(--accent); font-size: 14px; font-weight: 700; }
 .chinese-example-meaning { color: var(--muted); font-size: 14px; }
 .hanzi-writer-list { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; }
@@ -34,7 +34,7 @@
 .hanzi-writer-target::after { inset: 0 auto 0 50%; border-left: 1px dashed #cbd5e1; }
 .hanzi-writer-target svg,
 .hanzi-writer-target canvas { position: relative; z-index: 1; width: 132px; height: 132px; }
-.hanzi-load-fallback { position: relative; z-index: 1; color: #111827; font-family: "Noto Sans SC", "PingFang SC", sans-serif; font-size: 82px; font-weight: 800; }
+.hanzi-load-fallback { position: relative; z-index: 1; color: #111827; font-family: var(--font-hanzi); font-size: 82px; font-weight: 800; }
 .hanzi-writer-actions { display: flex; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 2px 8px rgba(15, 23, 42, .06); }
 .hanzi-writer-actions .hanzi-writer-icon-button { display: grid; width: 44px; min-height: 36px; place-items: center; border: 0; border-radius: 0; padding: 0; background: transparent; color: var(--muted); }
 .hanzi-writer-actions .hanzi-writer-icon-button + .hanzi-writer-icon-button { border-left: 1px solid var(--line); }
@@ -392,5 +392,79 @@ button.primary:active:not(:disabled) {
   color: var(--accent, #dc2626);
   background: color-mix(in srgb, var(--accent, #dc2626) 14%, transparent);
   transform: scale(1.12);
+}
+
+/* ─────────────── Voice Settings: Language tabs & Pill Chips ─────────────── */
+.voice-lang-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.voice-lang-tab-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.voice-lang-tab-btn:hover {
+  background: var(--panel-soft);
+  color: var(--ink);
+}
+
+.voice-lang-tab-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.voice-pills-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 12px;
+}
+
+.voice-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border-radius: 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel), var(--bg) 18%);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.voice-pill-btn:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+  background: var(--panel-soft);
+}
+
+.voice-pill-btn.active {
+  border-color: #ea580c;
+  background: color-mix(in srgb, #ea580c 14%, var(--panel));
+  color: #ea580c;
+  font-weight: 600;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #ea580c 30%, transparent);
 }
 

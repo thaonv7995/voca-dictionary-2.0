@@ -36,6 +36,9 @@ export function escapeRawControlCharsInStrings(jsonStr: string): string {
 export function parseJsonObject<T>(value: string): T {
   const sanitized = escapeRawControlCharsInStrings(value);
   const trimmed = sanitized.trim();
+  if (trimmed.startsWith("⚠️") || trimmed.includes("Không gọi được LLM")) {
+    throw new Error(trimmed);
+  }
   try {
     return JSON.parse(trimmed) as T;
   } catch {
@@ -77,3 +80,35 @@ export function shuffleItems<T>(items: T[]): T[] {
   }
   return shuffled;
 }
+
+/**
+ * Strips parenthetical and inline Pinyin annotations so TTS voice reads only pure Chinese characters.
+ * E.g. "谢谢！有你这样的朋友（péng yǒu），我（wǒ）觉得很幸运。" -> "谢谢！有你这样的朋友，我觉得很幸运。"
+ */
+export function extractSpokenChineseText(text: string): string {
+  if (!text) return "";
+  return text
+    // Remove full-width or half-width parentheses containing pinyin / Latin letters
+    .replace(/[（(][^）)]*[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ][^）)]*[）)]/g, "")
+    // Remove brackets with pinyin / Latin
+    .replace(/[\[【][^\]】]*[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ][^\]】]*[\]】]/g, "")
+    // Remove any isolated Latin word tokens that don't belong to Chinese characters
+    .replace(/(^|[\s\p{P}])+[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]+(?=[\s\p{P}]|$)/gu, "")
+    // Normalize leftover whitespace
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s+([，。！？；：、])/g, "$1")
+    .trim();
+}
+
+/**
+ * Extracts inline Pinyin tokens in parentheses from mixed text if the model put pinyin inline.
+ * E.g. "谢谢！有你这样的朋友（péng yǒu），我（wǒ）觉得很幸运。" -> "péng yǒu wǒ"
+ */
+export function extractInlinePinyin(text: string): string | undefined {
+  if (!text) return undefined;
+  const matches = Array.from(text.matchAll(/[（(]([^）)]*[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ][^）)]*)[）)]/g));
+  if (!matches.length) return undefined;
+  const combined = matches.map((m) => m[1].trim()).join(" ");
+  return combined || undefined;
+}
+

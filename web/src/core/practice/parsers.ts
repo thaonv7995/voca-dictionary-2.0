@@ -168,6 +168,10 @@ export function normalizeDrillBatch(input: ChallengeDrillBatch | ChallengeDrill[
 }
 
 export function parseDrillText(value: string, vocabularyIndex: string[]): ChallengeDrill[] {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("⚠️") || trimmed.includes("Không gọi được LLM")) {
+    throw new Error(trimmed);
+  }
   const lineDrills = value
     .split(/\r?\n/)
     .map((line) => line.trim().replace(/^```(?:json)?|```$/g, "").trim())

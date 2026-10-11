@@ -85,7 +85,12 @@ import type {
   ReadingQuestion,
   ReadingQueue,
 } from "@voca/core/practice/types";
-import { normalizeAnswer, shuffleItems } from "@voca/core/practice/utils";
+import {
+  extractInlinePinyin,
+  extractSpokenChineseText,
+  normalizeAnswer,
+  shuffleItems,
+} from "@voca/core/practice/utils";
 
 const GLOBAL_AGENT_PANEL_STORAGE_KEY = "voca.globalAgent.panelWidthPx";
 const DEFAULT_GLOBAL_AGENT_PANEL_PX = 720;
@@ -103,6 +108,10 @@ type AiSettings = {
   conversationVoiceA: string;
   conversationVoiceB: string;
   conversationVoiceC: string;
+  chineseTtsModel?: string;
+  chineseConversationVoiceA?: string;
+  chineseConversationVoiceB?: string;
+  chineseConversationVoiceC?: string;
   conversationAutoSelectVoices: boolean;
   nonStopListeningEnabled: boolean;
   nonStopListeningPreloadCount: number;
@@ -138,6 +147,7 @@ type ConversationLine = {
   id: string;
   speaker: string;
   text: string;
+  pinyin?: string;
   translation?: string;
   vocabulary?: string[];
   vocabularyMeanings?: Record<string, string>;
@@ -225,6 +235,25 @@ const defaultFilters: Filters = {
 
 const defaultTtsModel = "edge-tts/en-US-SteffanNeural";
 const defaultChineseTtsModel = "edge-tts/zh-CN-XiaoxiaoNeural";
+const defaultChineseConversationVoiceA = "edge-tts/zh-CN-XiaoxiaoNeural";
+const defaultChineseConversationVoiceB = "edge-tts/zh-CN-YunxiNeural";
+const defaultChineseConversationVoiceC = "edge-tts/zh-CN-XiaoyiNeural";
+const chineseTtsVoiceOptions = [
+  { value: "edge-tts/zh-HK-HiuGaaiNeural", label: "HiuGaai (Chinese (Cantonese Traditional) · F)" },
+  { value: "edge-tts/zh-HK-HiuMaanNeural", label: "HiuMaan (Chinese (Hong Kong SAR) · F)" },
+  { value: "edge-tts/zh-HK-WanLungNeural", label: "WanLung (Chinese (Hong Kong SAR) · M)" },
+  { value: "edge-tts/zh-CN-XiaoxiaoNeural", label: "Xiaoxiao (Chinese (Mainland) · F)" },
+  { value: "edge-tts/zh-CN-XiaoyiNeural", label: "Xiaoyi (Chinese (Mainland) · F)" },
+  { value: "edge-tts/zh-CN-YunjianNeural", label: "Yunjian (Chinese (Mainland) · M)" },
+  { value: "edge-tts/zh-CN-YunxiNeural", label: "Yunxi (Chinese (Mainland) · M)" },
+  { value: "edge-tts/zh-CN-YunxiaNeural", label: "Yunxia (Chinese (Mainland) · M)" },
+  { value: "edge-tts/zh-CN-YunyangNeural", label: "Yunyang (Chinese (Mainland) · M)" },
+  { value: "edge-tts/zh-CN-liaoning-XiaobeiNeural", label: "Xiaobei (Chinese (Northeastern Mandarin) · F)" },
+  { value: "edge-tts/zh-TW-HsiaoChenNeural", label: "HsiaoChen (Chinese (Taiwan) · F)" },
+  { value: "edge-tts/zh-TW-YunJheNeural", label: "YunJhe (Chinese (Taiwan) · M)" },
+  { value: "edge-tts/zh-TW-HsiaoYuNeural", label: "HsiaoYu (Chinese (Taiwanese Mandarin) · F)" },
+  { value: "edge-tts/zh-CN-shaanxi-XiaoniNeural", label: "Xiaoni (Chinese (Zhongyuan Mandarin Shaanxi) · F)" },
+];
 const ttsVoiceOptions = [
   { value: "edge-tts/en-US-SteffanNeural", label: "Steffan (US) · M" },
   { value: "edge-tts/en-US-AvaNeural", label: "Ava (US) · F" },
@@ -266,6 +295,10 @@ const defaultSettings: AiSettings = {
   conversationVoiceA: defaultTtsModel,
   conversationVoiceB: "edge-tts/en-US-AvaNeural",
   conversationVoiceC: "edge-tts/en-US-AndrewNeural",
+  chineseTtsModel: defaultChineseTtsModel,
+  chineseConversationVoiceA: defaultChineseConversationVoiceA,
+  chineseConversationVoiceB: defaultChineseConversationVoiceB,
+  chineseConversationVoiceC: defaultChineseConversationVoiceC,
   conversationAutoSelectVoices: true,
   nonStopListeningEnabled: false,
   nonStopListeningPreloadCount: 2,
@@ -751,11 +784,28 @@ function speakWithBrowserVoice(text: string, language: CardLanguage = "en", opti
 }
 
 async function speakEnglish(text: string, settings?: AiSettings, options?: { ttsModel?: string; waitForEnd?: boolean; language?: CardLanguage }) {
-  const cleanText = text.trim();
+  let cleanText = text.trim();
+  const isChinese = options?.language === "zh-CN" || /[\u4e00-\u9fa5]/.test(cleanText);
+  if (isChinese) {
+    cleanText = extractSpokenChineseText(cleanText);
+  }
   if (!cleanText) return;
   stopCurrentSpeech();
   const apiSettings = settings?.useApiTts !== false ? settings : null;
-  const model = options?.ttsModel || (options?.language === "zh-CN" ? defaultChineseTtsModel : apiSettings?.ttsModel || defaultTtsModel);
+
+  let model = options?.ttsModel;
+  if (isChinese) {
+    // Chinese text MUST use a Chinese voice. Never allow an English voice (e.g. Steffan or Andrew) to read Chinese.
+    if (!model || !model.includes("/zh-")) {
+      model = settings?.chineseTtsModel || defaultChineseTtsModel;
+    }
+  } else {
+    // English text should not use a Chinese voice
+    if (!model || model.includes("/zh-")) {
+      model = apiSettings?.ttsModel || defaultTtsModel;
+    }
+  }
+
   const requestSettings = apiSettings ? { ...apiSettings, ttsModel: model } : null;
   const cachedAudioUrl = speechAudioUrlCache.get(speechCacheKey(cleanText, model));
 
@@ -795,13 +845,23 @@ async function speakEnglish(text: string, settings?: AiSettings, options?: { tts
     }
   }
 
-  await speakWithBrowserVoice(cleanText, options?.language, options);
+  await speakWithBrowserVoice(cleanText, isChinese ? "zh-CN" : (options?.language || "en"), options);
 }
 
 async function prefetchEnglishAudioUrl(text: string, settings: AiSettings, ttsModel?: string): Promise<string | null> {
   const cleanText = text.trim();
   if (!cleanText) return null;
-  const model = ttsModel || settings.ttsModel || defaultTtsModel;
+  const isChinese = /[\u4e00-\u9fa5]/.test(cleanText);
+  let model = ttsModel;
+  if (isChinese) {
+    if (!model || !model.includes("/zh-")) {
+      model = settings.chineseTtsModel || defaultChineseTtsModel;
+    }
+  } else {
+    if (!model || model.includes("/zh-")) {
+      model = settings.ttsModel || defaultTtsModel;
+    }
+  }
   const cacheKey = speechCacheKey(cleanText, model);
   const cached = speechAudioUrlCache.get(cacheKey);
   if (cached) return cached;
@@ -1073,6 +1133,9 @@ function escapeRawControlCharsInStrings(jsonStr: string): string {
 function parseJsonPayload<T>(value: string): T {
   const sanitized = escapeRawControlCharsInStrings(value);
   const trimmed = sanitized.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
+  if (trimmed.startsWith("⚠️") || trimmed.includes("Không gọi được LLM")) {
+    throw new Error(trimmed);
+  }
   try {
     return JSON.parse(trimmed) as T;
   } catch {
@@ -1089,23 +1152,34 @@ function normalizeConversationVoiceAssignments(
   speakers: string[],
   assignments: Record<string, string> | undefined,
   settings: AiSettings,
+  isChinese: boolean = false,
 ): Record<string, string> {
-  const availableVoiceIds = new Set(ttsVoiceOptions.map((voice) => voice.value));
-  const fallbackVoices = [
-    settings.conversationVoiceA || defaultTtsModel,
-    settings.conversationVoiceB || defaultSettings.conversationVoiceB,
-    settings.conversationVoiceC || defaultSettings.conversationVoiceC,
-  ];
+  const allVoices = isChinese ? chineseTtsVoiceOptions : ttsVoiceOptions;
+  const availableVoiceIds = new Set(allVoices.map((voice) => voice.value));
+  const fallbackVoices = isChinese
+    ? [
+        settings.chineseConversationVoiceA || defaultChineseConversationVoiceA,
+        settings.chineseConversationVoiceB || defaultChineseConversationVoiceB,
+        settings.chineseConversationVoiceC || defaultChineseConversationVoiceC,
+      ]
+    : [
+        settings.conversationVoiceA || defaultTtsModel,
+        settings.conversationVoiceB || defaultSettings.conversationVoiceB,
+        settings.conversationVoiceC || defaultSettings.conversationVoiceC,
+      ];
   return Object.fromEntries(
     speakers.map((speaker, index) => {
       const assigned = settings.conversationAutoSelectVoices ? assignments?.[speaker] : undefined;
       const usableAssigned = assigned && availableVoiceIds.has(assigned) ? assigned : undefined;
-      return [speaker, usableAssigned || fallbackVoices[index % fallbackVoices.length] || defaultTtsModel];
+      return [
+        speaker,
+        usableAssigned || fallbackVoices[index % fallbackVoices.length] || (isChinese ? defaultChineseTtsModel : defaultTtsModel),
+      ];
     }),
   );
 }
 
-function normalizeDailyConversation(value: string, settings: AiSettings): DailyConversation {
+function normalizeDailyConversation(value: string, settings: AiSettings, isChinesePreference?: boolean): DailyConversation {
   const parsed = parseJsonPayload<Partial<DailyConversation>>(value);
   const rawFormat = String(parsed.format || "").trim().toLowerCase();
   const format = ["dialogue", "group_chat", "interview"].includes(rawFormat)
@@ -1115,30 +1189,45 @@ function normalizeDailyConversation(value: string, settings: AiSettings): DailyC
       : undefined;
   const rawLines = Array.isArray(parsed.lines) ? parsed.lines : [];
   const lines = rawLines
-    .map((line, index) => ({
-      id: String(line.id || `line-${index + 1}`),
-      speaker: String(line.speaker || "").trim(),
-      text: String(line.text || "").trim(),
-      translation: line.translation ? String(line.translation).trim() : undefined,
-      vocabulary: Array.isArray(line.vocabulary) ? line.vocabulary.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 5) : [],
-      vocabularyMeanings:
-        line.vocabularyMeanings && typeof line.vocabularyMeanings === "object"
-          ? Object.fromEntries(
-              Object.entries(line.vocabularyMeanings)
-                .map(([term, meaning]) => [String(term || "").trim(), String(meaning || "").trim()] as const)
-                .filter(([term, meaning]) => term && meaning),
-            )
-          : undefined,
-    }))
+    .map((line, index) => {
+      const rawText = String(line.text || "").trim();
+      const hasChinese = /[\u4e00-\u9fa5]/.test(rawText);
+      let text = rawText;
+      let pinyin = line.pinyin ? String(line.pinyin).trim() : undefined;
+      if (hasChinese) {
+        if (!pinyin) {
+          pinyin = extractInlinePinyin(rawText);
+        }
+        text = extractSpokenChineseText(rawText);
+      }
+      return {
+        id: String(line.id || `line-${index + 1}`),
+        speaker: String(line.speaker || "").trim(),
+        text,
+        pinyin,
+        translation: line.translation ? String(line.translation).trim() : undefined,
+        vocabulary: Array.isArray(line.vocabulary) ? line.vocabulary.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 5) : [],
+        vocabularyMeanings:
+          line.vocabularyMeanings && typeof line.vocabularyMeanings === "object"
+            ? Object.fromEntries(
+                Object.entries(line.vocabularyMeanings)
+                  .map(([term, meaning]) => [String(term || "").trim(), String(meaning || "").trim()] as const)
+                  .filter(([term, meaning]) => term && meaning),
+              )
+            : undefined,
+      };
+    })
     .filter((line) => line.speaker && line.text)
     .slice(0, 12);
   const rawSpeakers = Array.isArray(parsed.speakers) ? parsed.speakers : [];
   const speakers = Array.from(new Set([...rawSpeakers, ...lines.map((line) => line.speaker)].map((speaker) => String(speaker || "").trim()).filter(Boolean))).slice(0, 4);
   if (!lines.length || speakers.length < 1) throw new Error("Conversation needs at least one speaker and one line.");
+  const isChinese = isChinesePreference ?? lines.some((line) => /[\u4e00-\u9fa5]/.test(line.text));
   const voiceAssignments = normalizeConversationVoiceAssignments(
     speakers,
     parsed.voiceAssignments && typeof parsed.voiceAssignments === "object" ? parsed.voiceAssignments : undefined,
     settings,
+    isChinese,
   );
   return {
     type: "daily_conversation",
@@ -1539,13 +1628,20 @@ export function App() {
   // The API key lives server-side per user; hydrate the (non-secret) LLM base URL + model
   // from the server on load so the agent recognises the config on any device / fresh browser.
   useEffect(() => {
-    void api<{ llmBaseUrl?: string; llmModel?: string }>("/api/user/settings")
+    void api<{ llmBaseUrl?: string; llmModel?: string; voices?: Record<string, unknown> }>("/api/user/settings")
       .then((s) => {
         if (!s) return;
         setSettings((prev) => ({
           ...prev,
           baseURL: s.llmBaseUrl || prev.baseURL,
           model: s.llmModel || prev.model,
+          conversationVoiceA: (s.voices?.a as string) || prev.conversationVoiceA,
+          conversationVoiceB: (s.voices?.b as string) || prev.conversationVoiceB,
+          conversationVoiceC: (s.voices?.c as string) || prev.conversationVoiceC,
+          chineseConversationVoiceA: (s.voices?.chineseA as string) || prev.chineseConversationVoiceA,
+          chineseConversationVoiceB: (s.voices?.chineseB as string) || prev.chineseConversationVoiceB,
+          chineseConversationVoiceC: (s.voices?.chineseC as string) || prev.chineseConversationVoiceC,
+          chineseTtsModel: (s.voices?.chineseModel as string) || prev.chineseTtsModel,
         }));
       })
       .catch(() => {});
@@ -1981,7 +2077,8 @@ export function App() {
     <main
       className={`app-shell ${globalAgentOpen ? "global-agent-open" : ""} ${selected && !globalAgentOpen ? "preview-open" : ""} ${
         chatOpen && !globalAgentOpen ? "chat-open" : ""
-      }`}
+      } ${activeLanguage === "zh-CN" ? "is-chinese-app" : ""}`}
+      data-language={activeLanguage}
       style={{
         "--list-col": `${layout.list}px`,
         "--preview-col": `${layout.preview}px`,
@@ -2149,6 +2246,7 @@ export function App() {
           onClose={() => setSettingsOpen(false)}
           cards={manifestCards}
           onRefresh={refresh}
+          activeLanguage={activeLanguage}
         />
       ) : null}
       {shortcutsOpen ? (
@@ -2195,13 +2293,16 @@ function AppSettingsPanel({
   onClose,
   cards,
   onRefresh,
+  activeLanguage = "en",
 }: {
   settings: AiSettings;
   onSettingsChange: (settings: AiSettings) => void;
   onClose: () => void;
   cards: Card[];
   onRefresh: () => void;
+  activeLanguage?: CardLanguage;
 }) {
+  const [voiceLang, setVoiceLang] = useState<"en" | "zh-CN">(activeLanguage === "zh-CN" ? "zh-CN" : "en");
   const [testingVoice, setTestingVoice] = useState(false);
   const [testingConversationVoice, setTestingConversationVoice] = useState<"A" | "B" | "C" | null>(null);
   
@@ -2523,6 +2624,10 @@ function AppSettingsPanel({
           a: settings.conversationVoiceA,
           b: settings.conversationVoiceB,
           c: settings.conversationVoiceC,
+          chineseA: settings.chineseConversationVoiceA,
+          chineseB: settings.chineseConversationVoiceB,
+          chineseC: settings.chineseConversationVoiceC,
+          chineseModel: settings.chineseTtsModel,
           autoSelect: settings.conversationAutoSelectVoices,
         },
       };
@@ -2685,6 +2790,10 @@ ${batch.map((c) => `- Word: "${c.word}", Part of speech: "${c.partOfSpeech}", To
   const conversationVoiceAIsPreset = ttsVoiceOptions.some((option) => option.value === (settings.conversationVoiceA || defaultTtsModel));
   const conversationVoiceBIsPreset = ttsVoiceOptions.some((option) => option.value === (settings.conversationVoiceB || defaultSettings.conversationVoiceB));
   const conversationVoiceCIsPreset = ttsVoiceOptions.some((option) => option.value === (settings.conversationVoiceC || defaultSettings.conversationVoiceC));
+  const selectedChineseVoiceIsPreset = chineseTtsVoiceOptions.some((option) => option.value === (settings.chineseTtsModel || defaultChineseTtsModel));
+  const chineseConversationVoiceAIsPreset = chineseTtsVoiceOptions.some((option) => option.value === (settings.chineseConversationVoiceA || defaultChineseConversationVoiceA));
+  const chineseConversationVoiceBIsPreset = chineseTtsVoiceOptions.some((option) => option.value === (settings.chineseConversationVoiceB || defaultChineseConversationVoiceB));
+  const chineseConversationVoiceCIsPreset = chineseTtsVoiceOptions.some((option) => option.value === (settings.chineseConversationVoiceC || defaultChineseConversationVoiceC));
   return (
     <div className="settings-backdrop" role="presentation" onClick={onClose}>
       <section className="app-settings-panel" aria-label="Settings" onClick={(event) => event.stopPropagation()}>
@@ -2829,157 +2938,383 @@ ${batch.map((c) => `- Word: "${c.word}", Part of speech: "${c.partOfSpeech}", To
           )}
           {settingsTab === "voice" && (
           <>
-          <section className="app-settings-section">
-            <div className="settings-section-title-row">
-              <h3>Voice</h3>
-              <label className="settings-toggle">
-                <input
-                  type="checkbox"
-                  checked={settings.useApiTts !== false}
-                  onChange={(event) => onSettingsChange({ ...settings, useApiTts: event.target.checked })}
-                />
-                <span>Use API TTS</span>
-              </label>
-            </div>
-            <label>
-              <span>Speech Endpoint</span>
-              <input
-                value={ttsEndpoint}
-                type="url"
-                placeholder="http://localhost:20128/v1/audio/speech"
-                onChange={(event) => onSettingsChange({ ...settings, ttsEndpoint: event.target.value })}
-                autoComplete="url"
-              />
-            </label>
-            <label>
-              <span>Voice Model</span>
-              <select
-                value={settings.ttsModel || defaultTtsModel}
-                onChange={(event) => onSettingsChange({ ...settings, ttsModel: event.target.value })}
-              >
-                {!selectedVoiceIsPreset ? (
-                  <option value={settings.ttsModel}>{settings.ttsModel}</option>
-                ) : null}
-                {ttsVoiceOptions.map((voice) => (
-                  <option key={voice.value} value={voice.value}>
-                    {voice.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="settings-test-row">
-              <button
-                type="button"
-                disabled={testingVoice}
-                onClick={() => {
-                  setTestingVoice(true);
-                  void speakEnglish("Hello, this is a text to speech test.", settings).finally(() => setTestingVoice(false));
-                }}
-              >
-                {testingVoice ? <Loader2 className="spin" /> : <Volume2 />}
-                {testingVoice ? "Loading voice..." : "Test voice"}
-              </button>
-              <p>Falls back to the browser voice if API TTS is off or unavailable.</p>
-            </div>
-          </section>
+          <div className="voice-lang-tabs" role="tablist" aria-label="Voice settings language">
+            <button
+              type="button"
+              className={`voice-lang-tab-btn ${voiceLang === "en" ? "active" : ""}`}
+              onClick={() => setVoiceLang("en")}
+            >
+              🇺🇸 English (Tiếng Anh)
+            </button>
+            <button
+              type="button"
+              className={`voice-lang-tab-btn ${voiceLang === "zh-CN" ? "active" : ""}`}
+              onClick={() => setVoiceLang("zh-CN")}
+            >
+              🇨🇳 Chinese (Tiếng Trung)
+            </button>
+          </div>
 
-          <section className="app-settings-section conversation-voice-settings">
-            <div className="settings-section-title-row">
-              <h3>Conversation Voice</h3>
-              <label className="settings-toggle">
-                <input
-                  type="checkbox"
-                  checked={settings.conversationAutoSelectVoices !== false}
-                  onChange={(event) => onSettingsChange({ ...settings, conversationAutoSelectVoices: event.target.checked })}
-                />
-                <span>Auto-select voices</span>
-              </label>
-            </div>
-            <label>
-              <span>Voice A</span>
-              <select
-                value={settings.conversationVoiceA || defaultTtsModel}
-                onChange={(event) => onSettingsChange({ ...settings, conversationVoiceA: event.target.value })}
-              >
-                {!conversationVoiceAIsPreset ? <option value={settings.conversationVoiceA}>{settings.conversationVoiceA}</option> : null}
-                {ttsVoiceOptions.map((voice) => (
-                  <option key={voice.value} value={voice.value}>
-                    {voice.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Voice B</span>
-              <select
-                value={settings.conversationVoiceB || defaultSettings.conversationVoiceB}
-                onChange={(event) => onSettingsChange({ ...settings, conversationVoiceB: event.target.value })}
-              >
-                {!conversationVoiceBIsPreset ? <option value={settings.conversationVoiceB}>{settings.conversationVoiceB}</option> : null}
-                {ttsVoiceOptions.map((voice) => (
-                  <option key={voice.value} value={voice.value}>
-                    {voice.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Voice C</span>
-              <select
-                value={settings.conversationVoiceC || defaultSettings.conversationVoiceC}
-                onChange={(event) => onSettingsChange({ ...settings, conversationVoiceC: event.target.value })}
-              >
-                {!conversationVoiceCIsPreset ? <option value={settings.conversationVoiceC}>{settings.conversationVoiceC}</option> : null}
-                {ttsVoiceOptions.map((voice) => (
-                  <option key={voice.value} value={voice.value}>
-                    {voice.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="settings-test-row conversation-voice-test-row">
-              <button
-                type="button"
-                disabled={Boolean(testingConversationVoice)}
-                onClick={() => {
-                  setTestingConversationVoice("A");
-                  void speakEnglish("Hi, I can start the conversation.", settings, {
-                    ttsModel: settings.conversationVoiceA || defaultTtsModel,
-                  }).finally(() => setTestingConversationVoice(null));
-                }}
-              >
-                {testingConversationVoice === "A" ? <Loader2 className="spin" /> : <Volume2 />}
-                Test A
-              </button>
-              <button
-                type="button"
-                disabled={Boolean(testingConversationVoice)}
-                onClick={() => {
-                  setTestingConversationVoice("B");
-                  void speakEnglish("And I can reply with the second voice.", settings, {
-                    ttsModel: settings.conversationVoiceB || defaultSettings.conversationVoiceB,
-                  }).finally(() => setTestingConversationVoice(null));
-                }}
-              >
-                {testingConversationVoice === "B" ? <Loader2 className="spin" /> : <Volume2 />}
-                Test B
-              </button>
-              <button
-                type="button"
-                disabled={Boolean(testingConversationVoice)}
-                onClick={() => {
-                  setTestingConversationVoice("C");
-                  void speakEnglish("I can be the third speaker when the conversation needs one.", settings, {
-                    ttsModel: settings.conversationVoiceC || defaultSettings.conversationVoiceC,
-                  }).finally(() => setTestingConversationVoice(null));
-                }}
-              >
-                {testingConversationVoice === "C" ? <Loader2 className="spin" /> : <Volume2 />}
-                Test C
-              </button>
-              <p>When auto-select is on, the agent receives this voice list and returns speaker-to-voice assignments.</p>
-            </div>
-          </section>
+          {voiceLang === "zh-CN" ? (
+            <>
+              <section className="app-settings-section">
+                <div className="settings-section-title-row">
+                  <h3>Giọng đọc Tiếng Trung (Chinese Voice)</h3>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={settings.useApiTts !== false}
+                      onChange={(event) => onSettingsChange({ ...settings, useApiTts: event.target.checked })}
+                    />
+                    <span>Use API TTS</span>
+                  </label>
+                </div>
+                <label>
+                  <span>Speech Endpoint</span>
+                  <input
+                    value={ttsEndpoint}
+                    type="url"
+                    placeholder="http://localhost:20128/v1/audio/speech"
+                    onChange={(event) => onSettingsChange({ ...settings, ttsEndpoint: event.target.value })}
+                    autoComplete="url"
+                  />
+                </label>
+                <label>
+                  <span>Voice Model</span>
+                  <select
+                    value={settings.chineseTtsModel || defaultChineseTtsModel}
+                    onChange={(event) => onSettingsChange({ ...settings, chineseTtsModel: event.target.value })}
+                  >
+                    {!selectedChineseVoiceIsPreset ? (
+                      <option value={settings.chineseTtsModel}>{settings.chineseTtsModel}</option>
+                    ) : null}
+                    {chineseTtsVoiceOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {/* Quick-selection pill badges matching user's screenshot */}
+                <div className="voice-pills-wrap" aria-label="Danh sách giọng tiếng Trung">
+                  {chineseTtsVoiceOptions.map((voice) => {
+                    const isSelected = (settings.chineseTtsModel || defaultChineseTtsModel) === voice.value;
+                    return (
+                      <button
+                        key={voice.value}
+                        type="button"
+                        className={`voice-pill-btn ${isSelected ? "active" : ""}`}
+                        onClick={() => onSettingsChange({ ...settings, chineseTtsModel: voice.value })}
+                      >
+                        {voice.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="settings-test-row">
+                  <button
+                    type="button"
+                    disabled={testingVoice}
+                    onClick={() => {
+                      setTestingVoice(true);
+                      void speakEnglish("你好，这是中文语音测试。", settings, {
+                        ttsModel: settings.chineseTtsModel || defaultChineseTtsModel,
+                        language: "zh-CN",
+                      }).finally(() => setTestingVoice(false));
+                    }}
+                  >
+                    {testingVoice ? <Loader2 className="spin" /> : <Volume2 />}
+                    {testingVoice ? "Loading voice..." : "Test Chinese voice"}
+                  </button>
+                  <p>Phát âm tiếng Trung chuẩn bằng Edge TTS Neural model được chọn.</p>
+                </div>
+              </section>
+
+              <section className="app-settings-section conversation-voice-settings">
+                <div className="settings-section-title-row">
+                  <h3>Giọng hội thoại Tiếng Trung (Conversation Voice)</h3>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={settings.conversationAutoSelectVoices !== false}
+                      onChange={(event) => onSettingsChange({ ...settings, conversationAutoSelectVoices: event.target.checked })}
+                    />
+                    <span>Auto-select voices</span>
+                  </label>
+                </div>
+                <label>
+                  <span>Voice A</span>
+                  <select
+                    value={settings.chineseConversationVoiceA || defaultChineseConversationVoiceA}
+                    onChange={(event) => onSettingsChange({ ...settings, chineseConversationVoiceA: event.target.value })}
+                  >
+                    {!chineseConversationVoiceAIsPreset ? (
+                      <option value={settings.chineseConversationVoiceA}>{settings.chineseConversationVoiceA}</option>
+                    ) : null}
+                    {chineseTtsVoiceOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Voice B</span>
+                  <select
+                    value={settings.chineseConversationVoiceB || defaultChineseConversationVoiceB}
+                    onChange={(event) => onSettingsChange({ ...settings, chineseConversationVoiceB: event.target.value })}
+                  >
+                    {!chineseConversationVoiceBIsPreset ? (
+                      <option value={settings.chineseConversationVoiceB}>{settings.chineseConversationVoiceB}</option>
+                    ) : null}
+                    {chineseTtsVoiceOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Voice C</span>
+                  <select
+                    value={settings.chineseConversationVoiceC || defaultChineseConversationVoiceC}
+                    onChange={(event) => onSettingsChange({ ...settings, chineseConversationVoiceC: event.target.value })}
+                  >
+                    {!chineseConversationVoiceCIsPreset ? (
+                      <option value={settings.chineseConversationVoiceC}>{settings.chineseConversationVoiceC}</option>
+                    ) : null}
+                    {chineseTtsVoiceOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="settings-test-row conversation-voice-test-row">
+                  <button
+                    type="button"
+                    disabled={Boolean(testingConversationVoice)}
+                    onClick={() => {
+                      setTestingConversationVoice("A");
+                      void speakEnglish("你好，我可以开始这段中文对话。", settings, {
+                        ttsModel: settings.chineseConversationVoiceA || defaultChineseConversationVoiceA,
+                        language: "zh-CN",
+                      }).finally(() => setTestingConversationVoice(null));
+                    }}
+                  >
+                    {testingConversationVoice === "A" ? <Loader2 className="spin" /> : <Volume2 />}
+                    Test A
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(testingConversationVoice)}
+                    onClick={() => {
+                      setTestingConversationVoice("B");
+                      void speakEnglish("好的，我用第二个中文声音回答你。", settings, {
+                        ttsModel: settings.chineseConversationVoiceB || defaultChineseConversationVoiceB,
+                        language: "zh-CN",
+                      }).finally(() => setTestingConversationVoice(null));
+                    }}
+                  >
+                    {testingConversationVoice === "B" ? <Loader2 className="spin" /> : <Volume2 />}
+                    Test B
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(testingConversationVoice)}
+                    onClick={() => {
+                      setTestingConversationVoice("C");
+                      void speakEnglish("当对话需要三人时，我是第三个中文说话者。", settings, {
+                        ttsModel: settings.chineseConversationVoiceC || defaultChineseConversationVoiceC,
+                        language: "zh-CN",
+                      }).finally(() => setTestingConversationVoice(null));
+                    }}
+                  >
+                    {testingConversationVoice === "C" ? <Loader2 className="spin" /> : <Volume2 />}
+                    Test C
+                  </button>
+                  <p>Khi bật Auto-select, AI sẽ phân bổ 14 giọng tiếng Trung cho các nhân vật trong bài hội thoại.</p>
+                </div>
+              </section>
+            </>
+          ) : (
+            <>
+              <section className="app-settings-section">
+                <div className="settings-section-title-row">
+                  <h3>Voice</h3>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={settings.useApiTts !== false}
+                      onChange={(event) => onSettingsChange({ ...settings, useApiTts: event.target.checked })}
+                    />
+                    <span>Use API TTS</span>
+                  </label>
+                </div>
+                <label>
+                  <span>Speech Endpoint</span>
+                  <input
+                    value={ttsEndpoint}
+                    type="url"
+                    placeholder="http://localhost:20128/v1/audio/speech"
+                    onChange={(event) => onSettingsChange({ ...settings, ttsEndpoint: event.target.value })}
+                    autoComplete="url"
+                  />
+                </label>
+                <label>
+                  <span>Voice Model</span>
+                  <select
+                    value={settings.ttsModel || defaultTtsModel}
+                    onChange={(event) => onSettingsChange({ ...settings, ttsModel: event.target.value })}
+                  >
+                    {!selectedVoiceIsPreset ? (
+                      <option value={settings.ttsModel}>{settings.ttsModel}</option>
+                    ) : null}
+                    {ttsVoiceOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="voice-pills-wrap" aria-label="Danh sách giọng tiếng Anh">
+                  {ttsVoiceOptions.map((voice) => {
+                    const isSelected = (settings.ttsModel || defaultTtsModel) === voice.value;
+                    return (
+                      <button
+                        key={voice.value}
+                        type="button"
+                        className={`voice-pill-btn ${isSelected ? "active" : ""}`}
+                        onClick={() => onSettingsChange({ ...settings, ttsModel: voice.value })}
+                      >
+                        {voice.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="settings-test-row">
+                  <button
+                    type="button"
+                    disabled={testingVoice}
+                    onClick={() => {
+                      setTestingVoice(true);
+                      void speakEnglish("Hello, this is a text to speech test.", settings, {
+                        ttsModel: settings.ttsModel || defaultTtsModel,
+                        language: "en",
+                      }).finally(() => setTestingVoice(false));
+                    }}
+                  >
+                    {testingVoice ? <Loader2 className="spin" /> : <Volume2 />}
+                    {testingVoice ? "Loading voice..." : "Test voice"}
+                  </button>
+                  <p>Falls back to the browser voice if API TTS is off or unavailable.</p>
+                </div>
+              </section>
+
+              <section className="app-settings-section conversation-voice-settings">
+                <div className="settings-section-title-row">
+                  <h3>Conversation Voice</h3>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={settings.conversationAutoSelectVoices !== false}
+                      onChange={(event) => onSettingsChange({ ...settings, conversationAutoSelectVoices: event.target.checked })}
+                    />
+                    <span>Auto-select voices</span>
+                  </label>
+                </div>
+                <label>
+                  <span>Voice A</span>
+                  <select
+                    value={settings.conversationVoiceA || defaultTtsModel}
+                    onChange={(event) => onSettingsChange({ ...settings, conversationVoiceA: event.target.value })}
+                  >
+                    {!conversationVoiceAIsPreset ? <option value={settings.conversationVoiceA}>{settings.conversationVoiceA}</option> : null}
+                    {ttsVoiceOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Voice B</span>
+                  <select
+                    value={settings.conversationVoiceB || defaultSettings.conversationVoiceB}
+                    onChange={(event) => onSettingsChange({ ...settings, conversationVoiceB: event.target.value })}
+                  >
+                    {!conversationVoiceBIsPreset ? <option value={settings.conversationVoiceB}>{settings.conversationVoiceB}</option> : null}
+                    {ttsVoiceOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Voice C</span>
+                  <select
+                    value={settings.conversationVoiceC || defaultSettings.conversationVoiceC}
+                    onChange={(event) => onSettingsChange({ ...settings, conversationVoiceC: event.target.value })}
+                  >
+                    {!conversationVoiceCIsPreset ? <option value={settings.conversationVoiceC}>{settings.conversationVoiceC}</option> : null}
+                    {ttsVoiceOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="settings-test-row conversation-voice-test-row">
+                  <button
+                    type="button"
+                    disabled={Boolean(testingConversationVoice)}
+                    onClick={() => {
+                      setTestingConversationVoice("A");
+                      void speakEnglish("Hi, I can start the conversation.", settings, {
+                        ttsModel: settings.conversationVoiceA || defaultTtsModel,
+                        language: "en",
+                      }).finally(() => setTestingConversationVoice(null));
+                    }}
+                  >
+                    {testingConversationVoice === "A" ? <Loader2 className="spin" /> : <Volume2 />}
+                    Test A
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(testingConversationVoice)}
+                    onClick={() => {
+                      setTestingConversationVoice("B");
+                      void speakEnglish("And I can reply with the second voice.", settings, {
+                        ttsModel: settings.conversationVoiceB || defaultSettings.conversationVoiceB,
+                        language: "en",
+                      }).finally(() => setTestingConversationVoice(null));
+                    }}
+                  >
+                    {testingConversationVoice === "B" ? <Loader2 className="spin" /> : <Volume2 />}
+                    Test B
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(testingConversationVoice)}
+                    onClick={() => {
+                      setTestingConversationVoice("C");
+                      void speakEnglish("I can be the third speaker when the conversation needs one.", settings, {
+                        ttsModel: settings.conversationVoiceC || defaultSettings.conversationVoiceC,
+                        language: "en",
+                      }).finally(() => setTestingConversationVoice(null));
+                    }}
+                  >
+                    {testingConversationVoice === "C" ? <Loader2 className="spin" /> : <Volume2 />}
+                    Test C
+                  </button>
+                  <p>When auto-select is on, the agent receives this voice list and returns speaker-to-voice assignments.</p>
+                </div>
+              </section>
+            </>
+          )}
           </>
           )}
           {settingsTab === "learning" && (
@@ -5168,6 +5503,9 @@ function GlobalAgentPanel({
 
     const data = await response.json();
     const content = extractLlmResponseText(data);
+    if (content.trim().startsWith("⚠️") || content.includes("Không gọi được LLM")) {
+      throw new Error(content.trim());
+    }
     const drills = options.revise ? await parseOrReviseDrillBatch(content) : parseDrillText(content, activeVocabularyIndex);
     drills.forEach((item) => onDrill?.(item));
     return drills;
@@ -5240,6 +5578,9 @@ function GlobalAgentPanel({
     }
 
     if (!drills.length && content.trim()) {
+      if (content.trim().startsWith("⚠️") || content.includes("Không gọi được LLM")) {
+        throw new Error(content.trim());
+      }
       parseDrillText(content, activeVocabularyIndex).forEach(acceptDrill);
     }
 
@@ -5359,7 +5700,8 @@ function GlobalAgentPanel({
   }
 
   async function fetchDailyConversation(recentSituations: string[]): Promise<DailyConversation> {
-    const availableVoices = ttsVoiceOptions.map((voice) => ({ id: voice.value, label: voice.label }));
+    const isChinese = language === "zh-CN";
+    const availableVoices = (isChinese ? chineseTtsVoiceOptions : ttsVoiceOptions).map((voice) => ({ id: voice.value, label: voice.label }));
 
     const activeWords = [...activeVocabularyIndex];
     const history = recentUsedVocabularyRef.current || [];
@@ -5395,7 +5737,6 @@ function GlobalAgentPanel({
         : `Format preference: ${conversationFormat}. Use this exact format.`;
     const speakerInstruction =
       "Speaker selection is always automatic. Choose speakers as appropriate for the selected format and vocabulary context. conversation should use 2, 3, or 4 speakers; announcement must normally use exactly 1 speaker; story must normally use exactly 1 narrator; radio can use 1 host or 2 hosts.";
-    const isChinese = language === "zh-CN";
     const response = await fetchLlm(settings, {
       model: settings.model,
       stream: false,
@@ -5407,13 +5748,16 @@ function GlobalAgentPanel({
             ? [
                 "Generate one practical everyday Chinese (Hán ngữ giao tiếp) listening passage for vocabulary learning.",
                 "Return only JSON in this exact shape:",
-                "{\"type\":\"daily_conversation\",\"format\":\"conversation|radio|announcement|story\",\"title\":\"...\",\"context\":\"...\",\"speakers\":[\"...\"],\"voiceAssignments\":{\"Speaker\":\"voice_id\"},\"lines\":[{\"id\":\"l1\",\"speaker\":\"...\",\"text\":\"...\",\"translation\":\"...\",\"vocabulary\":[\"...\"],\"vocabularyMeanings\":{\"chinese term\":\"Vietnamese phrase in translation\"}}]}",
+                "{\"type\":\"daily_conversation\",\"format\":\"conversation|radio|announcement|story\",\"title\":\"...\",\"context\":\"...\",\"speakers\":[\"...\"],\"voiceAssignments\":{\"Speaker\":\"voice_id\"},\"lines\":[{\"id\":\"l1\",\"speaker\":\"...\",\"text\":\"...\",\"pinyin\":\"...\",\"translation\":\"...\",\"vocabulary\":[\"...\"],\"vocabularyMeanings\":{\"chinese term\":\"Vietnamese phrase in translation\"}}]}",
                 formatInstruction,
                 speakerInstruction,
                 "First, infer a natural daily-life situation from the active Chinese vocabulary index.",
                 "Pick 5-7 target vocabulary items from the active vocabulary index that can fit one realistic situation together.",
                 "Use at least 4 target vocabulary items naturally in the conversation text. Put used target words/phrases in each line's vocabulary array.",
-                "Each line text must be natural spoken Chinese in simplified characters with Pinyin. Translation must be Vietnamese.",
+                "CRITICAL 3-PART FORMAT RULE PER LINE:",
+                "1. 'text': MUST contain ONLY natural spoken simplified Chinese characters and Chinese punctuation. NEVER put Pinyin, Latin letters, or parentheses in 'text' (e.g. '谢谢！有你这样的朋友，我觉得很幸运。'). The voice synthesizer will read this field directly.",
+                "2. 'pinyin': Complete, accurate Pinyin with tone marks for the ENTIRE sentence in 'text' (e.g. 'Xièxie! Yǒu nǐ zhèyàng de péngyou, wǒ juéde hěn xìngyùn.').",
+                "3. 'translation': Natural Vietnamese translation for the line (e.g. 'Cảm ơn! Có người bạn như bạn, tôi thấy thật may mắn.').",
                 "Highlight 1-2 vocabulary words or phrases per line.",
                 settings.conversationAutoSelectVoices !== false
                   ? "Choose suitable voiceAssignments from the available voice list. Use only voice ids from the list."
@@ -5458,7 +5802,7 @@ function GlobalAgentPanel({
     });
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
     const data = await response.json();
-    const nextConversation = normalizeDailyConversation(extractLlmResponseText(data), settings);
+    const nextConversation = normalizeDailyConversation(extractLlmResponseText(data), settings, isChinese);
 
     const usedWords = Array.from(
       new Set(
@@ -5589,6 +5933,7 @@ function GlobalAgentPanel({
     try {
       await speakEnglish(unit.text, settings, {
         ttsModel: conversation.voiceAssignments[unit.speaker],
+        language: isChinese ? "zh-CN" : "en",
         waitForEnd: true,
       });
     } finally {
@@ -5610,6 +5955,7 @@ function GlobalAgentPanel({
           setActiveConversationLineIds(unit.ids);
           await speakEnglish(unit.text, settings, {
             ttsModel: conversation.voiceAssignments[unit.speaker],
+            language: isChinese ? "zh-CN" : "en",
             waitForEnd: true,
           });
         }
@@ -5634,6 +5980,7 @@ function GlobalAgentPanel({
         setActiveConversationLineIds([]);
         await speakEnglish(introUnit.text, settings, {
           ttsModel: activeConversation.voiceAssignments[introUnit.speaker],
+          language: isChinese ? "zh-CN" : "en",
           waitForEnd: true,
         });
         if (conversationPlaybackRunRef.current !== runId) break;
@@ -5645,6 +5992,7 @@ function GlobalAgentPanel({
         setActiveConversationLineIds(unit.ids);
         await speakEnglish(unit.text, settings, {
           ttsModel: activeConversation.voiceAssignments[unit.speaker],
+          language: isChinese ? "zh-CN" : "en",
           waitForEnd: true,
         });
       }
@@ -5876,7 +6224,8 @@ function GlobalAgentPanel({
 
   return (
       <section
-        className="global-agent-panel"
+        className={`global-agent-panel ${isChinese ? "is-chinese" : ""}`}
+        data-language={language}
         style={{ "--ga-panel-x": `${panelWidthPx}px` } as CSSProperties}
         aria-label="Global Agent Assistant"
       >
@@ -6021,7 +6370,7 @@ function GlobalAgentPanel({
 
         {mode === "assistant" ? (
           <>
-            <div className="chat-messages global-chat-messages">
+            <div className={`chat-messages global-chat-messages ${isChinese ? "chinese-chat-messages" : ""}`}>
               {!messages.length ? (
                 <div className="chat-notice global-prompt-starters">
                   <span>{language === "zh-CN" ? "Gợi ý câu hỏi" : "Prompt suggestions"}</span>
@@ -6042,7 +6391,7 @@ function GlobalAgentPanel({
                 </div>
               ) : null}
               {messages.map((message, index) => (
-                <article key={`${message.role}-${index}`} className={`chat-message ${message.role} ${message.pending ? "streaming" : ""}`}>
+                <article key={`${message.role}-${index}`} className={`chat-message ${message.role} ${message.pending ? "streaming" : ""} ${isChinese ? "chinese-chat-message" : ""}`}>
                   <span className="message-avatar">{message.role === "user" ? "You" : "Agent"}</span>
                   <div className="message-content">
                     {message.role === "assistant" ? (
@@ -6471,6 +6820,7 @@ function GlobalAgentPanel({
                 activeLineIds={activeConversationLineIds}
                 vocabularyPartOfSpeech={vocabularyPartOfSpeech}
                 onPlayLine={playConversationLine}
+                language={language}
               />
             ) : (
               <div className="chat-notice">
@@ -6490,11 +6840,13 @@ function ConversationCard({
   activeLineIds,
   vocabularyPartOfSpeech,
   onPlayLine,
+  language = "en",
 }: {
   conversation: DailyConversation;
   activeLineIds: string[];
   vocabularyPartOfSpeech: Record<string, string>;
   onPlayLine: (line: ConversationLine) => void;
+  language?: CardLanguage;
 }) {
   const cardRef = useRef<HTMLElement | null>(null);
   const lineRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -6504,7 +6856,8 @@ function ConversationCard({
   const formatClass = `conversation-${displayFormat}`;
   const showSpeakerChips = conversationalFormat || conversation.speakers.length > 1;
   const articleSpeaker = conversation.speakers[0] || conversation.lines[0]?.speaker || "Speaker";
-  const articleVoice = ttsVoiceOptions.find((option) => option.value === conversation.voiceAssignments[articleSpeaker]);
+  const allVoiceOptions = [...chineseTtsVoiceOptions, ...ttsVoiceOptions];
+  const articleVoice = allVoiceOptions.find((option) => option.value === conversation.voiceAssignments[articleSpeaker]);
   const articleActive = articleFormat && activeLineIds.some((id) => conversation.lines.some((line) => line.id === id));
   const conversationKey = `${conversation.title}|${conversation.context || ""}|${conversation.lines.map((line) => line.id).join(",")}`;
 
@@ -6542,7 +6895,7 @@ function ConversationCard({
         <div className="conversation-meta-row">
           <div className="conversation-speakers" aria-label="Conversation speaker voices">
             {conversation.speakers.map((speaker, index) => {
-              const voice = ttsVoiceOptions.find((option) => option.value === conversation.voiceAssignments[speaker]);
+              const voice = allVoiceOptions.find((option) => option.value === conversation.voiceAssignments[speaker]);
               return (
                 <span key={speaker}>
                   <strong>{speaker}</strong>
@@ -6589,9 +6942,14 @@ function ConversationCard({
           </div>
           <div className="conversation-article-body">
             {conversation.lines.map((line) => (
-              <p key={line.id} className="conversation-article-paragraph">
-                {renderHighlightedVocabulary(line.text, line.vocabulary, vocabularyPartOfSpeech)}
-              </p>
+              <div key={line.id} className="conversation-article-line">
+                <p className="conversation-article-paragraph" lang={language === "zh-CN" ? "zh-CN" : undefined}>
+                  {renderHighlightedVocabulary(line.text, line.vocabulary, vocabularyPartOfSpeech)}
+                </p>
+                {line.pinyin ? (
+                  <p className="conversation-article-pinyin" lang="zh-Latn">{line.pinyin}</p>
+                ) : null}
+              </div>
             ))}
           </div>
           {conversation.lines.some((line) => line.translation) ? (
@@ -6611,7 +6969,7 @@ function ConversationCard({
         {conversation.lines.map((line) => {
           const speakerIndex = Math.max(0, conversation.speakers.indexOf(line.speaker));
           const speakerSide = conversationalFormat && speakerIndex % 2 !== 0 ? "speaker-b" : "speaker-a";
-          const voice = ttsVoiceOptions.find((option) => option.value === conversation.voiceAssignments[line.speaker]);
+          const voice = allVoiceOptions.find((option) => option.value === conversation.voiceAssignments[line.speaker]);
           const active = activeLineIds.includes(line.id);
           return (
             <section
@@ -6649,7 +7007,12 @@ function ConversationCard({
                     )}
                   </button>
                 </div>
-                <p className="conversation-line-text">{renderHighlightedVocabulary(line.text, line.vocabulary, vocabularyPartOfSpeech)}</p>
+                <p className="conversation-line-text" lang={language === "zh-CN" ? "zh-CN" : undefined}>
+                  {renderHighlightedVocabulary(line.text, line.vocabulary, vocabularyPartOfSpeech)}
+                </p>
+                {line.pinyin ? (
+                  <p className="conversation-line-pinyin" lang="zh-Latn">{line.pinyin}</p>
+                ) : null}
                 {line.translation ? (
                   <p className="conversation-line-translation">{renderTranslationWithVocabularyMeanings(line.translation, line.vocabularyMeanings)}</p>
                 ) : null}
@@ -6858,7 +7221,7 @@ function ChatPanel({
   }
 
   return (
-    <section className="drawer agent-drawer open" aria-label="Agent Assistant">
+    <section className={`drawer agent-drawer open ${card.language === "zh-CN" ? "is-chinese" : ""}`} data-language={card.language} aria-label="Agent Assistant">
       <header className="viewer-header">
         <div>
           <p className="eyebrow">{card.language === "zh-CN" ? "Trợ lý Hán ngữ" : "Agent Assistant"}</p>
@@ -6872,7 +7235,7 @@ function ChatPanel({
         </div>
       </header>
 
-      <div className="chat-messages global-chat-messages">
+      <div className={`chat-messages global-chat-messages ${card.language === "zh-CN" ? "chinese-chat-messages" : ""}`}>
         {!messages.length ? (
           <div className="chat-notice">
             {card.language === "zh-CN"
@@ -6881,7 +7244,7 @@ function ChatPanel({
           </div>
         ) : null}
         {messages.map((message, index) => (
-          <article key={`${message.role}-${index}`} className={`chat-message ${message.role} ${message.pending ? "streaming" : ""}`}>
+          <article key={`${message.role}-${index}`} className={`chat-message ${message.role} ${message.pending ? "streaming" : ""} ${card.language === "zh-CN" ? "chinese-chat-message" : ""}`}>
             <span className="message-avatar">{message.role === "user" ? "You" : "Agent"}</span>
             <div className="message-content">
               {message.role === "assistant" ? (

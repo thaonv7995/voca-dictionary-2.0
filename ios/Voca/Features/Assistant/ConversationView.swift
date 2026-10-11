@@ -287,13 +287,26 @@ private struct ConversationBubble: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
-                PronounceButton(text: line.text ?? "", voiceModel: voiceModel, size: 24, font: .footnote)
+                PronounceButton(
+                    text: line.text ?? "",
+                    voiceModel: voiceModel,
+                    language: (line.text?.hasChineseCharacters == true) ? .chinese : .english,
+                    size: 24,
+                    font: .footnote
+                )
             }
 
             if let text = line.text, !text.isEmpty {
                 Text(attributed)
                     .font(.body)
                     .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let pinyin = line.pinyin, !pinyin.isEmpty {
+                Text(pinyin)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Brand.green)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
