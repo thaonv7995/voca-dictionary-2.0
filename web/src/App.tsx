@@ -3853,6 +3853,17 @@ function CardList({
   const itemCount = Math.ceil(cards.length / columns);
   const contextPickMode = Boolean(selectedKeys);
   const showQuickPreviewButton = contextPickMode || quickPreviewEnabled;
+  const createCandidate = searchQuery.trim();
+  const exactCardExists = cards.some(
+    (card) => card.word.trim().toLowerCase() === createCandidate.toLowerCase(),
+  );
+  const canCreateFromResults =
+    Boolean(createCandidate) &&
+    !exactCardExists &&
+    !createCandidate.includes(",");
+  const isCreatingCandidate =
+    createCardState.status === "creating" &&
+    createCardState.word.toLowerCase() === createCandidate.toLowerCase();
 
   useEffect(() => {
     const element = parentRef.current;
@@ -3933,6 +3944,32 @@ function CardList({
       className={`card-list ${effectiveCompact ? "compact-list" : "grid-list"} ${effectiveCompact && columns >= 2 ? "compact-list-two-cols" : ""}`}
       aria-label="Vocabulary cards"
     >
+      {canCreateFromResults ? (
+        <div className="empty-list">
+          <span>
+            Found related vocabulary, but no exact card for <strong>{createCandidate}</strong>.
+          </span>
+          <button
+            className="create-missing-card-button"
+            type="button"
+            onClick={() => onCreateMissing(createCandidate)}
+            disabled={isCreatingCandidate}
+          >
+            {isCreatingCandidate
+              ? searchMode === "idioms"
+                ? "Creating Idioms..."
+                : "Creating..."
+              : searchMode === "idioms"
+                ? `Create Idioms for "${createCandidate}"`
+                : `Create "${createCandidate}"`}
+          </button>
+          {createCardState.message ? (
+            <span className={`create-card-status ${createCardState.status === "error" ? "error" : ""}`}>
+              {createCardState.message}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const rowCards = cards.slice(virtualRow.index * columns, virtualRow.index * columns + columns);
