@@ -49,6 +49,42 @@ enum MacSystemIntegrations {
         }
     }
 
+    @MainActor
+    static func dismissMenuBarPopoverIfNeeded() {
+        guard let app = NSApp else { return }
+        for window in app.windows where window.isVisible {
+            let className = window.className
+            if className.contains("MenuBarExtraWindow")
+                || className.contains("NSStatusBarWindow") {
+                if className.contains("MenuBarExtraWindow") {
+                    window.orderOut(nil)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    static func bringMainWindowsToFront() {
+        DispatchQueue.main.async {
+            guard let app = NSApp else { return }
+            app.activate(ignoringOtherApps: true)
+            for window in app.windows {
+                let className = window.className
+                guard !window.isMiniaturized,
+                      !window.isFloatingPanel,
+                      !className.contains("StatusBar"),
+                      !className.contains("MenuBarExtra")
+                else {
+                    continue
+                }
+                if window.canBecomeMain {
+                    window.makeKeyAndOrderFront(nil)
+                    window.orderFrontRegardless()
+                }
+            }
+        }
+    }
+
     static func indexVocabularyInSpotlight(_ items: [MacVocabularyItem]) {
         guard CSSearchableIndex.isIndexingAvailable() else { return }
 
@@ -95,8 +131,8 @@ enum MacSystemIntegrations {
             guard dueCount > 0 else { return }
 
             let content = UNMutableNotificationContent()
-            content.title = "Voca Review Ready"
-            content.body = "You have \(dueCount) \(dueCount == 1 ? "card" : "cards") ready for review today."
+            content.title = "Đã đến giờ ôn tập Voca"
+            content.body = "Bạn có \(dueCount) thẻ từ vựng sẵn sàng ôn tập hôm nay."
             content.sound = .default
 
             var dateComponents = DateComponents()

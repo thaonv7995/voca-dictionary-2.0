@@ -95,6 +95,19 @@ enum MacReviewGrade: String, CaseIterable, Identifiable, Sendable {
             .blue
         }
     }
+
+    var intervalHint: String {
+        switch self {
+        case .again:
+            "< 10 phút"
+        case .hard:
+            "~2 ngày"
+        case .good:
+            "~5 ngày"
+        case .easy:
+            "~12 ngày"
+        }
+    }
 }
 
 struct MacReviewView: View {
@@ -115,6 +128,7 @@ struct MacReviewView: View {
     @ViewState private var currentIndex = 0
     @ViewState private var phase: Phase = .overview
     @ViewState private var grades: [MacReviewCard.ID: MacReviewGrade] = [:]
+    @ViewState private var undoStack: [(card: MacReviewCard, index: Int)] = []
 
     private let closeReview: () -> Void
     private let isFocusWindow: Bool
@@ -153,6 +167,16 @@ struct MacReviewView: View {
                         Label("Tạm dừng", systemImage: "pause")
                     }
                     .keyboardShortcut(".", modifiers: .command)
+                }
+
+                if !undoStack.isEmpty && (phase == .prompt || phase == .revealed || phase == .completed) {
+                    Button {
+                        undoLastGrade()
+                    } label: {
+                        Label("Hoàn tác", systemImage: "arrow.uturn.backward")
+                    }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .help("Hoàn tác thẻ vừa chấm (⌘Z)")
                 }
 
                 if !isFocusWindow && !cards.isEmpty {
@@ -328,6 +352,11 @@ struct MacReviewView: View {
                         }
                         Text("·").foregroundStyle(.quaternary)
                         HStack(spacing: 5) {
+                            VocaKeycap(label: "⌘Z")
+                            Text("Hoàn tác")
+                        }
+                        Text("·").foregroundStyle(.quaternary)
+                        HStack(spacing: 5) {
                             VocaKeycap(label: "⌘P")
                             Text("Phát âm")
                         }
@@ -425,8 +454,8 @@ struct MacReviewView: View {
                         )
                         Text(
                             speech.isSpeaking && speech.speakingText == currentCard.prompt
-                                ? "Stop"
-                                : "Listen"
+                                ? "Dừng"
+                                : "Nghe"
                         )
                         .font(.caption.weight(.semibold))
                     }
@@ -600,7 +629,7 @@ struct MacReviewView: View {
                     Button {
                         submit(grade)
                     } label: {
-                        VStack(spacing: 8) {
+                        VStack(spacing: 6) {
                             HStack(spacing: 6) {
                                 Image(systemName: grade.systemImage)
                                     .font(.system(size: 14, weight: .semibold))
@@ -609,9 +638,13 @@ struct MacReviewView: View {
                             }
                             .foregroundStyle(grade.tint)
 
+                            Text(grade.intervalHint)
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+
                             VocaKeycap(label: String(grade.keyboardKey.character))
                         }
-                        .padding(.vertical, 14)
+                        .padding(.vertical, 12)
                         .frame(maxWidth: .infinity)
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -755,6 +788,7 @@ struct MacReviewView: View {
         guard phase == .revealed, !cards.isEmpty else { return }
 
         let card = currentCard
+        let submittedIndex = currentIndex
         let cardCountBeforeSubmission = cards.count
 
         Task {
@@ -767,6 +801,7 @@ struct MacReviewView: View {
                 return
             }
 
+            undoStack.append((card: card, index: submittedIndex))
             grades[card.id] = grade
             today.recordCompletedReview()
             vocabulary.markReviewed(cardID: card.id)
@@ -791,6 +826,17 @@ struct MacReviewView: View {
         }
     }
 
+    private func undoLastGrade() {
+        guard let last = undoStack.popLast() else { return }
+        grades.removeValue(forKey: last.card.id)
+        review.restoreCard(last.card, at: last.index)
+        currentIndex = min(max(last.index, 0), max(review.cards.count - 1, 0))
+        withAnimation(.snappy(duration: 0.2)) {
+            phase = .revealed
+        }
+        review.saveSessionProgress(currentIndex: currentIndex, grades: grades)
+    }
+
     private func gradeCount(_ grade: MacReviewGrade) -> Int {
         grades.values.filter { $0 == grade }.count
     }
@@ -798,6 +844,7 @@ struct MacReviewView: View {
     private func reset() {
         currentIndex = 0
         grades = [:]
+        undoStack = []
         review.clearSessionProgress()
 
         Task {

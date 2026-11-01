@@ -609,55 +609,60 @@ struct MacShortcutCheatsheetSheet: View {
 
     private let sections: [ShortcutSection] = [
         ShortcutSection(
-            title: "Global & Navigation",
+            title: "Toàn hệ thống & Điều hướng",
             icon: "command",
             tint: VocaDesign.brandGreen,
             items: [
-                ShortcutItem(keys: ["⌘", "1…6"], description: "Chuyển nhanh các màn hình (Today → Insights)"),
-                ShortcutItem(keys: ["⌥", "Space"], description: "Mở Floating Quick Lookup ở mọi nơi"),
-                ShortcutItem(keys: ["⌘", "⇧", "K"], description: "Mở Quick Lookup trong ứng dụng"),
+                ShortcutItem(keys: ["⌘", "1…6"], description: "Chuyển nhanh các màn hình (Hôm nay → Thống kê)"),
+                ShortcutItem(keys: ["⌥", "Space"], description: "Mở Tra từ nổi toàn hệ thống (tùy chỉnh trong Cài đặt)"),
+                ShortcutItem(keys: ["⌘", "⇧", "K"], description: "Mở Tra từ nhanh trong ứng dụng"),
                 ShortcutItem(keys: ["⌘", "N"], description: "Thêm từ vựng mới bằng AI"),
-                ShortcutItem(keys: ["⌘", "⇧", "I"], description: "Mở bảng Import / Vision OCR"),
-                ShortcutItem(keys: ["⌘", "/"], description: "Xem bảng phím tắt này")
+                ShortcutItem(keys: ["⌘", "⇧", "I"], description: "Mở bảng Nhập từ / Quét ảnh OCR"),
+                ShortcutItem(keys: ["⌘", "/"], description: "Xem bảng tổng hợp phím tắt")
             ]
         ),
         ShortcutSection(
-            title: "Vocabulary Dictionary",
+            title: "Thanh Menu Bar & Tra từ nổi",
+            icon: "menubar.rectangle",
+            tint: VocaDesign.brandTeal,
+            items: [
+                ShortcutItem(keys: ["⌘", "F"], description: "Đặt con trỏ vào ô tìm kiếm Menu Bar"),
+                ShortcutItem(keys: ["↑", "↓", "↩"], description: "Di chuyển & Xem nhanh nghĩa (Quick Peek)"),
+                ShortcutItem(keys: ["⇧", "↩"], description: "Mở chi tiết từ trong cửa sổ chính hoặc Tạo AI"),
+                ShortcutItem(keys: ["⌘", "R"], description: "Bắt đầu Ôn nhanh 5 thẻ ngay trên Menu Bar"),
+                ShortcutItem(keys: ["⌘", "L"], description: "Chuyển ngôn ngữ tạo từ AI (🇺🇸 EN / 🇨🇳 中文)"),
+                ShortcutItem(keys: ["⇧", "⌘", "R"], description: "Đổi từ vựng nổi bật trong ngày"),
+                ShortcutItem(keys: ["⌘", "P", "D", "C"], description: "Phát âm / Yêu thích / Sao chép thẻ đang xem"),
+                ShortcutItem(keys: ["⌘", "O"], description: "Mở cửa sổ chính Voca")
+            ]
+        ),
+        ShortcutSection(
+            title: "Kho từ vựng",
             icon: "books.vertical.fill",
             tint: VocaDesign.accentSky,
             items: [
-                ShortcutItem(keys: ["⌘", "F"], description: "Đặt con trỏ vào ô Tìm kiếm (Search)"),
+                ShortcutItem(keys: ["⌘", "F"], description: "Đặt con trỏ vào ô Tìm kiếm"),
                 ShortcutItem(keys: ["⌘", "↩"], description: "Tạo từ bằng AI (nếu chưa có) hoặc Phát âm"),
                 ShortcutItem(keys: ["↑", "↓"], description: "Di chuyển qua lại giữa các thẻ từ vựng"),
                 ShortcutItem(keys: ["⌘", "P"], description: "Phát âm từ đang chọn"),
                 ShortcutItem(keys: ["⌘", "D"], description: "Đánh dấu / Bỏ đánh dấu Yêu thích (★)"),
-                ShortcutItem(keys: ["⌘", "I"], description: "Mở / Đóng AI Agent Chat cho từ đang chọn"),
-                ShortcutItem(keys: ["⌘", "L"], description: "Mở bộ thẻ lật Flashcard Deck"),
-                ShortcutItem(keys: ["⌘", "C"], description: "Sao chép từ vựng & nghĩa vào Clipboard"),
-                ShortcutItem(keys: ["Esc"], description: "Đóng AI Chat / Preview hoặc xóa tìm kiếm")
+                ShortcutItem(keys: ["⌘", "I"], description: "Mở / Đóng Gia sư AI cho từ đang chọn"),
+                ShortcutItem(keys: ["⌘", "L"], description: "Mở bộ thẻ lật (Thẻ lật)"),
+                ShortcutItem(keys: ["⌘", "C"], description: "Sao chép từ vựng & nghĩa vào bộ nhớ tạm"),
+                ShortcutItem(keys: ["Esc"], description: "Đóng Gia sư AI / Xem trước hoặc xóa lọc")
             ]
         ),
         ShortcutSection(
-            title: "FSRS Review & Flashcards",
+            title: "Ôn tập FSRS & Luyện tập",
             icon: "rectangle.stack.fill",
             tint: VocaDesign.accentIndigo,
             items: [
                 ShortcutItem(keys: ["Space"], description: "Lật thẻ / Hiện đáp án"),
-                ShortcutItem(keys: ["1", "2", "3", "4"], description: "Chấm mức độ: Again / Hard / Good / Easy"),
-                ShortcutItem(keys: ["←", "→"], description: "Chuyển thẻ Trước / Tiếp theo (Flashcards)"),
+                ShortcutItem(keys: ["1", "2", "3", "4"], description: "Chấm mức độ nhớ (Quên / Khó / Tốt / Dễ)"),
+                ShortcutItem(keys: ["⌘", "Z"], description: "Hoàn tác thẻ vừa chấm"),
+                ShortcutItem(keys: ["←", "→"], description: "Chuyển thẻ Trước / Tiếp theo (Thẻ lật)"),
                 ShortcutItem(keys: ["⌘", "P"], description: "Nghe lại phát âm của thẻ hiện tại"),
-                ShortcutItem(keys: ["⌘", "."], description: "Tạm dừng phiên ôn tập")
-            ]
-        ),
-        ShortcutSection(
-            title: "Practice & AI Assistant",
-            icon: "sparkles",
-            tint: VocaDesign.accentAmber,
-            items: [
-                ShortcutItem(keys: ["1…4"], description: "Chọn đáp án trắc nghiệm A / B / C / D"),
-                ShortcutItem(keys: ["↩"], description: "Kiểm tra đáp án / Sang câu tiếp theo"),
-                ShortcutItem(keys: ["⌘", "↩"], description: "Gửi tin nhắn cho AI Assistant"),
-                ShortcutItem(keys: ["⌘", "⇧", "N"], description: "Tạo cuộc hội thoại AI mới")
+                ShortcutItem(keys: ["⌘", "↩"], description: "Gửi tin nhắn cho Gia sư AI")
             ]
         )
     ]
@@ -673,9 +678,9 @@ struct MacShortcutCheatsheetSheet: View {
                 )
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Keyboard Shortcuts")
+                    Text("Bảng Phím tắt macOS")
                         .font(.system(size: 20, weight: .bold, design: .rounded))
-                    Text("Tối ưu tốc độ tra cứu, học từ và ôn tập trên macOS")
+                    Text("Tối ưu tốc độ tra cứu, học từ và ôn tập trên Menu Bar & toàn hệ thống")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -20,16 +20,40 @@ struct VocaMacApp: App {
     init() {
         VocaDesign.ensureChineseFontsRegistered()
         let activityLedger = MacActivityLedger()
+        let initialRouter = MacAppRouter()
+        let initialSession = MacSessionStore()
+        let initialPreferences = MacPreferencesStore()
+        let initialVocabulary = MacVocabularyStore(ledger: activityLedger)
+        let initialReview = MacReviewStore(ledger: activityLedger)
+        let initialToday = MacTodayStore(ledger: activityLedger)
+        let initialSpeech = MacSpeechService()
+
+        _router = State(initialValue: initialRouter)
+        _session = State(initialValue: initialSession)
+        _preferences = State(initialValue: initialPreferences)
         _ledger = State(initialValue: activityLedger)
-        _vocabulary = State(
-            initialValue: MacVocabularyStore(ledger: activityLedger)
-        )
-        _review = State(
-            initialValue: MacReviewStore(ledger: activityLedger)
-        )
-        _today = State(
-            initialValue: MacTodayStore(ledger: activityLedger)
-        )
+        _vocabulary = State(initialValue: initialVocabulary)
+        _review = State(initialValue: initialReview)
+        _today = State(initialValue: initialToday)
+        _speech = State(initialValue: initialSpeech)
+
+        Task { @MainActor in
+            MacQuickLookupPanelController.shared.configure(
+                router: initialRouter,
+                vocabulary: initialVocabulary,
+                speech: initialSpeech,
+                preferences: initialPreferences
+            )
+            await initialSession.bootstrap()
+            if initialSession.isSignedIn {
+                async let todayTask: Void = initialToday.load(
+                    dailyGoal: initialPreferences.dailyGoal
+                )
+                async let reviewTask: Void = initialReview.load()
+                async let vocabTask: Void = initialVocabulary.load()
+                _ = await (todayTask, reviewTask, vocabTask)
+            }
+        }
     }
 
     private var menuBarSelection: Binding<Bool> {
@@ -37,6 +61,10 @@ struct VocaMacApp: App {
             get: { preferences.showInMenuBar },
             set: { preferences.setShowInMenuBar($0) }
         )
+    }
+
+    private var menuBarDueCount: Int {
+        max(today.snapshot.dueCount, review.cards.count)
     }
 
     var body: some Scene {
@@ -67,10 +95,11 @@ struct VocaMacApp: App {
         }
         .defaultSize(width: 1180, height: 760)
         .commands {
-            CommandMenu("Navigate") {
+            CommandMenu("Điều hướng") {
                 ForEach(Array(MacDestination.allCases.enumerated()), id: \.element.id) { index, destination in
                     Button(destination.title) {
                         router.select(destination)
+                        MacSystemIntegrations.bringMainWindowsToFront()
                     }
                     .keyboardShortcut(
                         KeyEquivalent(Character("\(index + 1)")),
@@ -79,37 +108,61 @@ struct VocaMacApp: App {
                 }
             }
 
+            CommandMenu("Học tập") {
+                Button("Bắt đầu ôn tập ngay") {
+                    router.select(.review)
+                    MacSystemIntegrations.bringMainWindowsToFront()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+
+                Button("Luyện tập trắc nghiệm & kỹ năng") {
+                    router.select(.practice)
+                    MacSystemIntegrations.bringMainWindowsToFront()
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Button("Hỏi Gia sư AI") {
+                    router.select(.assistant)
+                    MacSystemIntegrations.bringMainWindowsToFront()
+                }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+            }
+
             CommandGroup(after: .newItem) {
-                Button("Add Word…") {
+                Button("Thêm từ mới bằng AI…") {
                     router.requestAddWord()
+                    MacSystemIntegrations.bringMainWindowsToFront()
                 }
                 .keyboardShortcut("n", modifiers: .command)
 
-                Button("Quick Lookup") {
-                    MacQuickLookupPanelController.shared.toggleFloatingPanel()
+                Button("Tra nhanh trong ứng dụng") {
+                    router.open(.quickLookup(query: nil))
+                    MacSystemIntegrations.bringMainWindowsToFront()
                 }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
 
-                Button("Floating Quick Lookup Panel") {
+                Button("Bảng tra từ nổi toàn hệ thống") {
                     MacQuickLookupPanelController.shared.toggleFloatingPanel()
                 }
                 .keyboardShortcut(.space, modifiers: .option)
 
                 Divider()
 
-                Button("Import Vocabulary…") {
+                Button("Nhập từ vựng / Quét OCR…") {
                     router.requestImportExport(mode: .importWords)
+                    MacSystemIntegrations.bringMainWindowsToFront()
                 }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
 
-                Button("Export Vocabulary…") {
+                Button("Xuất từ vựng…") {
                     router.requestImportExport(mode: .exportWords)
+                    MacSystemIntegrations.bringMainWindowsToFront()
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
             }
         }
 
-        Window("Review Session", id: "review-focus") {
+        Window("Phòng ôn tập tập trung", id: "review-focus") {
             MacReviewView(isFocusWindow: true)
                 .environment(router)
                 .environment(session)
@@ -119,6 +172,7 @@ struct VocaMacApp: App {
                 .environment(review)
                 .environment(today)
                 .environment(speech)
+                .tint(VocaDesign.brandGreen)
                 .preferredColorScheme(preferredColorScheme)
                 .frame(minWidth: 520, minHeight: 460)
         }
@@ -134,15 +188,37 @@ struct VocaMacApp: App {
                 .environment(review)
                 .environment(today)
                 .environment(speech)
+                .tint(VocaDesign.brandGreen)
+                .preferredColorScheme(preferredColorScheme)
         } label: {
-            Image(nsImage: VocaDesign.menuBarStatusImage)
-                .accessibilityLabel("Voca")
+            HStack(spacing: 4) {
+                Image(nsImage: VocaDesign.menuBarStatusImage)
+                if session.isSignedIn && menuBarDueCount > 0 {
+                    switch preferences.menuBarBadgeStyle {
+                    case .dueCount:
+                        Text(menuBarDueCount > 99 ? "99+" : "\(menuBarDueCount)")
+                            .font(.system(size: 11.5, weight: .semibold, design: .rounded).monospacedDigit())
+                    case .dotOnly:
+                        Text("•")
+                            .font(.system(size: 12, weight: .black))
+                    case .iconOnly:
+                        EmptyView()
+                    }
+                }
+            }
+            .accessibilityLabel(
+                menuBarDueCount > 0
+                    ? "Voca, \(menuBarDueCount) thẻ cần ôn tập"
+                    : "Voca"
+            )
         }
         .menuBarExtraStyle(.window)
 
         Settings {
             MacSettingsView()
                 .environment(preferences)
+                .environment(speech)
+                .tint(VocaDesign.brandGreen)
                 .preferredColorScheme(preferredColorScheme)
         }
     }
@@ -174,7 +250,7 @@ private struct MacRootView: View {
                     ProgressView()
                         .controlSize(.large)
 
-                    Text("Loading Voca…")
+                    Text("Đang khởi động Voca…")
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -195,7 +271,8 @@ private struct MacRootView: View {
             MacQuickLookupPanelController.shared.configure(
                 router: router,
                 vocabulary: vocabulary,
-                speech: speech
+                speech: speech,
+                preferences: preferences
             )
         }
     }
@@ -1030,7 +1107,7 @@ private struct MacWorkspaceView: View {
                 Button {
                     isShortcutsSheetPresented = true
                 } label: {
-                    Label("Keyboard Shortcuts", systemImage: "keyboard")
+                    Label("Phím tắt", systemImage: "keyboard")
                 }
                 .keyboardShortcut("/", modifiers: .command)
                 .help("Phím tắt toàn hệ thống (⌘/)")
@@ -1038,21 +1115,21 @@ private struct MacWorkspaceView: View {
                 Button {
                     router.open(.quickLookup(query: nil))
                 } label: {
-                    Label("Quick Lookup", systemImage: "magnifyingglass")
+                    Label("Tra nhanh", systemImage: "magnifyingglass")
                 }
-                .help("Tra nhanh từ vựng (⌥Space / ⇧⌘K)")
+                .help("Tra nhanh từ vựng (\(preferences.quickLookupHotkey.badgeLabel) / ⇧⌘K)")
 
                 Button {
                     router.requestImportExport(mode: .importWords)
                 } label: {
-                    Label("Import / Export", systemImage: "square.and.arrow.down")
+                    Label("Nhập / Xuất", systemImage: "square.and.arrow.down")
                 }
-                .help("Nhập / Xuất từ vựng (⇧⌘I)")
+                .help("Nhập / Xuất từ vựng & Quét OCR (⇧⌘I)")
 
                 Button {
                     router.requestAddWord()
                 } label: {
-                    Label("Add Word", systemImage: "plus")
+                    Label("Thêm từ", systemImage: "plus")
                 }
                 .keyboardShortcut("n", modifiers: .command)
                 .help("Thêm từ mới bằng AI (⌘N)")
@@ -1114,7 +1191,7 @@ private struct MacWorkspaceView: View {
             )
         }
         .alert(
-            "Unable to Open Link",
+            "Không thể mở liên kết",
             isPresented: Binding(
                 get: { router.routeError != nil },
                 set: { isPresented in
@@ -1125,7 +1202,7 @@ private struct MacWorkspaceView: View {
             ),
             presenting: router.routeError
         ) { _ in
-            Button("OK") {
+            Button("Đóng") {
                 router.dismissRouteError()
             }
         } message: { error in
@@ -1163,10 +1240,10 @@ private struct MacWorkspaceView: View {
                         .frame(width: 6, height: 6)
                     Text(
                         vocabulary.isLoading
-                            ? "Syncing…"
+                            ? "Đang đồng bộ…"
                             : (vocabulary.pendingMutationCount > 0
-                                ? "\(vocabulary.pendingMutationCount) pending"
-                                : "Cloud Synced")
+                                ? "\(vocabulary.pendingMutationCount) chờ đồng bộ"
+                                : "Đã đồng bộ Cloud")
                     )
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -1178,7 +1255,7 @@ private struct MacWorkspaceView: View {
             Button {
                 router.open(.quickLookup(query: nil))
             } label: {
-                Text("⌥Space")
+                Text(preferences.quickLookupHotkey.badgeLabel)
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
@@ -1186,7 +1263,7 @@ private struct MacWorkspaceView: View {
                     .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.plain)
-            .help("Open Quick Lookup (Option + Space)")
+            .help("Mở Tra nhanh (\(preferences.quickLookupHotkey.badgeLabel))")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -1223,23 +1300,27 @@ private struct MacWorkspaceView: View {
             Spacer()
 
             Menu {
-                Button("Import Vocabulary…") {
+                Button("Nhập từ vựng / Quét OCR… (⇧⌘I)") {
                     router.requestImportExport(mode: .importWords)
                 }
 
-                Button("Export Vocabulary…") {
+                Button("Xuất từ vựng… (⇧⌘E)") {
                     router.requestImportExport(mode: .exportWords)
                 }
 
                 Divider()
 
-                Button("Settings…") {
+                Button("Bảng phím tắt… (⌘/)") {
+                    isShortcutsSheetPresented = true
+                }
+
+                Button("Cài đặt… (⌘,)") {
                     openSettings()
                 }
 
                 Divider()
 
-                Button("Sign Out", role: .destructive) {
+                Button("Đăng xuất", role: .destructive) {
                     session.signOut()
                     router.select(.today)
                 }
@@ -1250,7 +1331,7 @@ private struct MacWorkspaceView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .accessibilityLabel("Account menu")
+            .accessibilityLabel("Menu tài khoản")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -1325,6 +1406,7 @@ struct MacQuickLookupView: View {
     @ViewState private var clipboardCandidate: String?
     @ViewState private var isCreatingWithAI = false
     @ViewState private var creationError: String?
+    @ViewState private var toastState: (icon: String, message: String, tint: Color)?
     @FocusState private var isSearchFocused: Bool
 
     let onDismiss: () -> Void
@@ -1346,352 +1428,35 @@ struct MacQuickLookupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Spotlight / Raycast Top Search Header
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(VocaDesign.brandGreen)
-
-                TextField("Tra từ vựng, ngữ nghĩa, Pinyin/IPA hoặc thêm từ bằng AI…", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 17, weight: .medium, design: .rounded))
-                    .focused($isSearchFocused)
-                    .onSubmit {
-                        if let first = matchingItems.first {
-                            onOpenWordDetail(first.id)
-                        } else if !trimmedQuery.isEmpty {
-                            createWord(language: selectedLanguage)
-                        }
-                    }
-
-                if !query.isEmpty {
-                    Button {
-                        query = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Spacer(minLength: 4)
-
-                // Trailing Flag Switcher + ESC button (Sát mép phải)
-                HStack(spacing: 8) {
-                    HStack(spacing: 2) {
-                        Button {
-                            withAnimation(.snappy(duration: 0.18)) {
-                                selectedLanguage = .english
-                            }
-                        } label: {
-                            Text("🇺🇸")
-                                .font(.system(size: 16))
-                                .frame(width: 30, height: 26)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .fill(selectedLanguage == .english ? Color.primary.opacity(0.12) : Color.clear)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .strokeBorder(
-                                            selectedLanguage == .english ? VocaDesign.accentSky.opacity(0.5) : Color.clear,
-                                            lineWidth: 1.2
-                                        )
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .help("Tiếng Anh (⌘L / ⌘1)")
-
-                        Button {
-                            withAnimation(.snappy(duration: 0.18)) {
-                                selectedLanguage = .chinese
-                            }
-                        } label: {
-                            Text("🇨🇳")
-                                .font(.system(size: 16))
-                                .frame(width: 30, height: 26)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .fill(selectedLanguage == .chinese ? Color.primary.opacity(0.12) : Color.clear)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .strokeBorder(
-                                            selectedLanguage == .chinese ? VocaDesign.accentAmber.opacity(0.5) : Color.clear,
-                                            lineWidth: 1.2
-                                        )
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .help("Hán ngữ (⌘L / ⌘2)")
-                    }
-                    .padding(2)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.primary.opacity(0.06))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                    )
-
-                    Button(action: onDismiss) {
-                        VocaKeycap(label: "ESC")
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.cancelAction)
-                    .help("Đóng (ESC)")
-                }
-
-                // Hot-Switch Shortcuts
-                Button("") {
-                    toggleLanguage()
-                }
-                .keyboardShortcut("l", modifiers: .command)
-                .hidden()
-
-                Button("") {
-                    selectedLanguage = .english
-                }
-                .keyboardShortcut("1", modifiers: .command)
-                .hidden()
-
-                Button("") {
-                    selectedLanguage = .chinese
-                }
-                .keyboardShortcut("2", modifiers: .command)
-                .hidden()
-            }
-            .padding(.leading, 18)
-            .padding(.trailing, 10)
-            .padding(.vertical, 14)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.85))
+            searchHeaderBar
 
             Divider().opacity(0.6)
 
-            // Body Area
-            VStack(alignment: .leading, spacing: 14) {
-                if trimmedQuery.isEmpty, let clipboardCandidate {
-                    HStack(spacing: 12) {
-                        VocaIconBadge(
-                            systemImage: "doc.on.clipboard.fill",
-                            tint: VocaDesign.brandGreen,
-                            size: 32,
-                            iconSize: 14
-                        )
+            mainContentArea
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Gợi ý từ bộ nhớ tạm")
-                                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                            Text("Tra từ “\(clipboardCandidate)”")
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(1)
-                        }
+            Divider().opacity(0.55)
 
-                        Spacer()
-
-                        Button("Tra từ này") {
-                            query = clipboardCandidate
-                        }
-                        .buttonStyle(VocaSecondaryButtonStyle())
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(VocaDesign.brandGreen.opacity(0.28), lineWidth: 1)
-                    )
-                }
-
-                if let creationError {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(VocaDesign.accentRose)
-                        Text(creationError)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(VocaDesign.accentRose)
-                        Spacer()
-                    }
-                    .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(VocaDesign.accentRose.opacity(0.10))
-                    )
-                }
-
-                if trimmedQuery.isEmpty {
-                    VStack(spacing: 12) {
-                        VocaIconBadge(
-                            systemImage: "sparkles",
-                            tint: VocaDesign.brandGreen,
-                            size: 48,
-                            iconSize: 22
-                        )
-                        Text("Tra cứu nhanh & Tạo từ với AI")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                        Text("Nhập từ tiếng Anh hoặc chữ Hán để xem phiên âm, giải nghĩa và phát âm tức thì.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: 400)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if matchingItems.isEmpty {
-                    VStack(spacing: 14) {
-                        VocaIconBadge(
-                            systemImage: "sparkles",
-                            tint: VocaDesign.brandGreen,
-                            size: 48,
-                            iconSize: 22
-                        )
-
-                        Text("“\(trimmedQuery)” chưa có trong từ điển")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-
-                        Text("Tự động tạo thẻ từ hoàn chỉnh với phiên âm, giải nghĩa tiếng Việt và câu ví dụ bằng AI.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: 400)
-
-                        HStack(spacing: 12) {
-                            Button {
-                                createWord(language: selectedLanguage)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    if isCreatingWithAI {
-                                        ProgressView().controlSize(.small)
-                                    } else {
-                                        Image(systemName: "sparkles")
-                                    }
-                                    Text(
-                                        isCreatingWithAI
-                                            ? "Đang tạo bằng AI…"
-                                            : "Tạo thẻ \(selectedLanguage == .chinese ? "Hán ngữ" : "Tiếng Anh") bằng AI (↩)"
-                                    )
-                                }
-                            }
-                            .buttonStyle(VocaPrimaryButtonStyle())
-                            .disabled(isCreatingWithAI)
-
-                            Button {
-                                let other: MacVocabularyItem.Language = selectedLanguage == .chinese ? .english : .chinese
-                                withAnimation(.snappy(duration: 0.18)) {
-                                    selectedLanguage = other
-                                }
-                                createWord(language: other)
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Text(selectedLanguage == .chinese ? "🇺🇸" : "🇨🇳")
-                                    Text("Tạo thẻ \(selectedLanguage == .chinese ? "Tiếng Anh" : "Hán ngữ")")
-                                }
-                            }
-                            .buttonStyle(VocaSecondaryButtonStyle())
-                            .disabled(isCreatingWithAI)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 8) {
-                            ForEach(matchingItems) { item in
-                                let isSelected = selectedItemID == item.id
-                                HStack(alignment: .center, spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack(spacing: 8) {
-                                            Text(item.term)
-                                                .font(
-                                                    item.language == .chinese
-                                                        ? VocaDesign.hanziFont(size: 20, weight: .bold)
-                                                        : .system(size: 15.5, weight: .bold, design: .rounded)
-                                                )
-
-                                            if let pronunciation = item.pronunciation {
-                                                Text(pronunciation)
-                                                    .font(.system(size: 12, design: .monospaced))
-                                                    .foregroundStyle(VocaDesign.brandGreen)
-                                            }
-
-                                            if let pos = item.partOfSpeech, !pos.isEmpty {
-                                                Text(pos)
-                                                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                                                    .foregroundStyle(.secondary)
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 2)
-                                                    .background(Color.primary.opacity(0.06), in: Capsule())
-                                            }
-
-                                            if item.isFavorite {
-                                                Image(systemName: "star.fill")
-                                                    .font(.caption)
-                                                    .foregroundStyle(VocaDesign.accentAmber)
-                                            }
-                                        }
-
-                                        Text(item.displayMeaningVi)
-                                            .font(.system(size: 13))
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                    }
-
-                                    Spacer()
-
-                                    Button {
-                                        speech.toggle(item.term, language: item.language)
-                                    } label: {
-                                        Image(systemName: "speaker.wave.2.fill")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundStyle(VocaDesign.brandGreen)
-                                            .frame(width: 28, height: 28)
-                                            .background(VocaDesign.brandGreen.opacity(0.12), in: Circle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Nghe phát âm")
-
-                                    Button("Mở") {
-                                        onOpenWordDetail(item.id)
-                                    }
-                                    .buttonStyle(VocaSecondaryButtonStyle())
-                                }
-                                .padding(12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                        .fill(
-                                            isSelected
-                                                ? VocaDesign.brandGreen.opacity(0.10)
-                                                : Color(nsColor: .controlBackgroundColor)
-                                        )
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                        .strokeBorder(
-                                            isSelected
-                                                ? VocaDesign.brandGreen.opacity(0.45)
-                                                : Color.primary.opacity(0.08),
-                                            lineWidth: 1
-                                        )
-                                )
-                                .onTapGesture {
-                                    selectedItemID = item.id
-                                }
-                            }
-                        }
-                    }
-                    .accessibilityLabel("Lookup results")
-                }
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            shortcutFooterBar
         }
         .background(VocaDesign.subtleWindowBackground)
-        .frame(minWidth: 600, minHeight: 400)
+        .frame(minWidth: 660, idealWidth: 680, minHeight: 420, idealHeight: 440)
+        .overlay(alignment: .bottom) {
+            if let toastState {
+                VocaToastBanner(
+                    icon: toastState.icon,
+                    message: toastState.message,
+                    tint: toastState.tint
+                )
+                .padding(.bottom, 42)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .background {
+            lookupKeyboardShortcuts
+        }
         .onAppear {
-            selectedItemID = matchingItems.first?.id
+            syncSelectedItem()
             inspectClipboardSuggestion()
             DispatchQueue.main.async {
                 isSearchFocused = true
@@ -1699,12 +1464,13 @@ struct MacQuickLookupView: View {
         }
         .task {
             await vocabulary.load()
-            selectedItemID = matchingItems.first?.id
+            syncSelectedItem()
             try? await Task.sleep(nanoseconds: 50_000_000)
             isSearchFocused = true
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notif in
             if let window = notif.object as? NSWindow, window === NSApp.keyWindow {
+                inspectClipboardSuggestion()
                 isSearchFocused = true
             }
         }
@@ -1715,23 +1481,784 @@ struct MacQuickLookupView: View {
                     selectedLanguage = .chinese
                 }
             }
-            selectedItemID = matchingItems.first?.id
+            syncSelectedItem()
         }
         .onChange(of: vocabulary.items) { _, _ in
-            selectedItemID = matchingItems.first?.id
+            syncSelectedItem()
         }
         .onChange(of: selectedLanguage) { _, _ in
-            selectedItemID = matchingItems.first?.id
+            syncSelectedItem()
         }
     }
+
+    // MARK: - Header
+
+    private var searchHeaderBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(VocaDesign.brandGreen)
+
+            TextField("Tra từ Anh / Trung, Pinyin, nghĩa tiếng Việt hoặc tạo bằng AI…", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 16.5, weight: .medium, design: .rounded))
+                .focused($isSearchFocused)
+                .onSubmit {
+                    submitPrimaryAction()
+                }
+
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Xóa từ khóa (Esc)")
+            }
+
+            Spacer(minLength: 4)
+
+            HStack(spacing: 8) {
+                HStack(spacing: 2) {
+                    languageChip(language: .english, flag: "🇺🇸", label: "EN", tint: VocaDesign.accentSky, helpText: "Ưu tiên / Tạo bằng Tiếng Anh (⌘L / ⌘1)")
+                    languageChip(language: .chinese, flag: "🇨🇳", label: "中文", tint: VocaDesign.accentAmber, helpText: "Ưu tiên / Tạo bằng Hán ngữ (⌘L / ⌘2)")
+                }
+                .padding(2)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+
+                Button(action: onDismiss) {
+                    VocaKeycap(label: "ESC")
+                }
+                .buttonStyle(.plain)
+                .help("Đóng cửa sổ tra nhanh (Esc)")
+            }
+        }
+        .padding(.leading, 18)
+        .padding(.trailing, 12)
+        .padding(.vertical, 13)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.86))
+    }
+
+    private func languageChip(
+        language: MacVocabularyItem.Language,
+        flag: String,
+        label: String,
+        tint: Color,
+        helpText: String
+    ) -> some View {
+        let isSelected = selectedLanguage == language
+        return Button {
+            withAnimation(.snappy(duration: 0.18)) {
+                selectedLanguage = language
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(flag)
+                    .font(.system(size: 13))
+                Text(label)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 25)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? Color.primary.opacity(0.11) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(isSelected ? tint.opacity(0.55) : Color.clear, lineWidth: 1.1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+    }
+
+    // MARK: - Body
+
+    @ViewBuilder
+    private var mainContentArea: some View {
+        if trimmedQuery.isEmpty {
+            emptyPromptView
+                .padding(18)
+        } else if matchingItems.isEmpty {
+            aiCreationEmptyView
+                .padding(18)
+        } else {
+            splitResultsView
+        }
+    }
+
+    private var emptyPromptView: some View {
+        VStack(spacing: 16) {
+            if let clipboardCandidate {
+                HStack(spacing: 12) {
+                    VocaIconBadge(
+                        systemImage: "doc.on.clipboard.fill",
+                        tint: VocaDesign.brandGreen,
+                        size: 32,
+                        iconSize: 14
+                    )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("GỢI Ý TỪ BỘ NHỚ TẠM")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Text("Tra nhanh “\(clipboardCandidate)”")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Button("Tra từ này") {
+                        query = clipboardCandidate
+                    }
+                    .buttonStyle(VocaSecondaryButtonStyle())
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(VocaDesign.brandGreen.opacity(0.28), lineWidth: 1)
+                )
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 12) {
+                VocaIconBadge(
+                    systemImage: "sparkles",
+                    tint: VocaDesign.brandGreen,
+                    size: 46,
+                    iconSize: 21
+                )
+                Text("Tra cứu đa ngôn ngữ & Tạo thẻ AI")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                Text("Tìm đồng thời cả Tiếng Anh và Hán ngữ theo từ vựng, Pinyin/IPA hoặc nghĩa tiếng Việt.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var aiCreationEmptyView: some View {
+        VStack(spacing: 14) {
+            if let creationError {
+                errorBanner(creationError)
+            }
+
+            Spacer(minLength: 0)
+
+            VocaIconBadge(
+                systemImage: "sparkles",
+                tint: VocaDesign.brandGreen,
+                size: 48,
+                iconSize: 22
+            )
+
+            Text("“\(trimmedQuery)” chưa có trong kho từ")
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+
+            Text("Tự động tạo thẻ từ hoàn chỉnh với phiên âm, giải nghĩa tiếng Việt, câu ví dụ và mẹo ghi nhớ bằng AI.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+
+            HStack(spacing: 12) {
+                Button {
+                    createWord(language: selectedLanguage)
+                } label: {
+                    HStack(spacing: 8) {
+                        if isCreatingWithAI {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "sparkles")
+                        }
+                        Text(
+                            isCreatingWithAI
+                                ? "Đang tạo bằng AI…"
+                                : "Tạo thẻ \(selectedLanguage == .chinese ? "Hán ngữ" : "Tiếng Anh") (↩)"
+                        )
+                    }
+                }
+                .buttonStyle(VocaPrimaryButtonStyle())
+                .disabled(isCreatingWithAI)
+
+                Button {
+                    let other: MacVocabularyItem.Language = selectedLanguage == .chinese ? .english : .chinese
+                    withAnimation(.snappy(duration: 0.18)) {
+                        selectedLanguage = other
+                    }
+                    createWord(language: other)
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(selectedLanguage == .chinese ? "🇺🇸" : "🇨🇳")
+                        Text("Tạo thẻ \(selectedLanguage == .chinese ? "Tiếng Anh" : "Hán ngữ")")
+                    }
+                }
+                .buttonStyle(VocaSecondaryButtonStyle())
+                .disabled(isCreatingWithAI)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var splitResultsView: some View {
+        HStack(spacing: 0) {
+            // Left: Results List
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 5) {
+                            ForEach(matchingItems) { item in
+                                resultRow(item)
+                                    .id(item.id)
+                            }
+                        }
+                        .padding(10)
+                    }
+                    .accessibilityLabel("Danh sách kết quả tra cứu")
+                    .onChange(of: selectedItemID) { _, newID in
+                        if let newID {
+                            withAnimation(.snappy(duration: 0.15)) {
+                                proxy.scrollTo(newID, anchor: .center)
+                            }
+                        }
+                    }
+                }
+
+                if !hasExactTermMatch {
+                    Divider().opacity(0.5)
+                    Button {
+                        createWord(language: selectedLanguage)
+                    } label: {
+                        HStack(spacing: 6) {
+                            if isCreatingWithAI {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(VocaDesign.brandGreen)
+                            }
+                            Text(
+                                isCreatingWithAI
+                                    ? "Đang tạo “\(trimmedQuery)”…"
+                                    : "Tạo mới “\(trimmedQuery)” bằng AI"
+                            )
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .lineLimit(1)
+
+                            Spacer(minLength: 4)
+
+                            VocaKeycap(label: "⇧↩")
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isCreatingWithAI)
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+                }
+            }
+            .frame(width: 256)
+
+            Divider().opacity(0.6)
+
+            // Right: Rich Detail Preview
+            Group {
+                if let item = selectedItem {
+                    detailPreviewPane(item)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func resultRow(_ item: MacVocabularyItem) -> some View {
+        let isSelected = selectedItem?.id == item.id
+        return HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(item.language == .chinese ? "🇨🇳" : "🇺🇸")
+                        .font(.system(size: 11))
+
+                    Text(item.term)
+                        .font(
+                            item.language == .chinese
+                                ? VocaDesign.hanziFont(size: 17, weight: .bold)
+                                : .system(size: 14, weight: .bold, design: .rounded)
+                        )
+                        .lineLimit(1)
+
+                    if item.isFavorite {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(VocaDesign.accentAmber)
+                    }
+                }
+
+                Text(item.displayMeaningVi)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            if isSelected {
+                VocaKeycap(label: "↩")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(
+                    isSelected
+                        ? VocaDesign.brandGreen.opacity(0.13)
+                        : Color(nsColor: .controlBackgroundColor).opacity(0.65)
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(
+                    isSelected
+                        ? VocaDesign.brandGreen.opacity(0.45)
+                        : Color.primary.opacity(0.06),
+                    lineWidth: 1
+                )
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            onOpenWordDetail(item.id)
+        }
+        .onTapGesture {
+            selectedItemID = item.id
+        }
+    }
+
+    private func detailPreviewPane(_ item: MacVocabularyItem) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let creationError {
+                    errorBanner(creationError)
+                }
+
+                // Metadata & Action Row
+                HStack(spacing: 6) {
+                    VocaPillBadge(
+                        text: item.language == .chinese ? "🇨🇳 Hán ngữ" : "🇺🇸 Tiếng Anh",
+                        tint: item.language == .chinese ? VocaDesign.accentAmber : VocaDesign.accentSky
+                    )
+
+                    if let pos = item.partOfSpeech, !pos.isEmpty {
+                        Text(pos)
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.primary.opacity(0.06), in: Capsule())
+                    }
+
+                    if item.isDue {
+                        VocaPillBadge(
+                            text: "Đến hạn",
+                            icon: "clock.fill",
+                            tint: VocaDesign.accentAmber
+                        )
+                    }
+
+                    Spacer()
+
+                    previewActionButton(
+                        icon: speech.isSpeaking && speech.speakingText == item.term
+                            ? "stop.fill"
+                            : "speaker.wave.2.fill",
+                        tint: VocaDesign.brandGreen,
+                        tooltip: "Phát âm (⌘P)"
+                    ) {
+                        speech.toggle(item.term, language: item.language)
+                    }
+
+                    previewActionButton(
+                        icon: item.isFavorite ? "star.fill" : "star",
+                        tint: item.isFavorite ? VocaDesign.accentAmber : .secondary,
+                        tooltip: "Yêu thích (⌘D)"
+                    ) {
+                        toggleFavorite(item)
+                    }
+
+                    previewActionButton(
+                        icon: "doc.on.doc",
+                        tint: .secondary,
+                        tooltip: "Sao chép thẻ từ (⌘C)"
+                    ) {
+                        copyItem(item)
+                    }
+
+                    Button {
+                        onOpenWordDetail(item.id)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Mở kho từ")
+                                .font(.system(size: 11.5, weight: .semibold))
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                    }
+                    .buttonStyle(VocaSecondaryButtonStyle())
+                    .help("Mở chi tiết trong cửa sổ chính (↩)")
+                }
+
+                // Term / Hanzi Tianzige Guide
+                if item.language == .chinese && VocaDesign.containsHanCharacters(item.term) {
+                    MacHanziWritingGuide(
+                        word: item.term,
+                        compact: true,
+                        tileSize: 46
+                    )
+                } else {
+                    Text(item.term)
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .textSelection(.enabled)
+                }
+
+                if let pronunciation = item.pronunciation, !pronunciation.isEmpty {
+                    Text(pronunciation)
+                        .font(.system(size: 13.5, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(VocaDesign.brandGreen)
+                        .textSelection(.enabled)
+                }
+
+                // Meanings
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(item.displayMeaningVi)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+
+                    if let meaningEn = item.meaningEn,
+                       !meaningEn.isEmpty,
+                       meaningEn != item.displayMeaningVi {
+                        Text(meaningEn)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                // Examples
+                if !item.examples.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("VÍ DỤ NGỮ CẢNH")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+
+                        ForEach(Array(item.examples.prefix(2).enumerated()), id: \.offset) { _, example in
+                            HStack(alignment: .top, spacing: 8) {
+                                RoundedRectangle(cornerRadius: 1.5)
+                                    .fill(VocaDesign.brandGreen.opacity(0.65))
+                                    .frame(width: 2.5)
+
+                                Text(example)
+                                    .font(.system(size: 12.5))
+                                    .foregroundStyle(.primary.opacity(0.88))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .textSelection(.enabled)
+
+                                Spacer(minLength: 4)
+
+                                Button {
+                                    speech.toggle(example, language: item.language)
+                                } label: {
+                                    Image(systemName: "speaker.wave.2.fill")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Nghe câu ví dụ")
+                            }
+                            .padding(9)
+                            .background(
+                                Color(nsColor: .controlBackgroundColor).opacity(0.8),
+                                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            )
+                        }
+                    }
+                }
+
+                // Memory Tip
+                if let memoryTip = item.memoryTip, !memoryTip.isEmpty {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(VocaDesign.accentAmber)
+                            .padding(.top, 1)
+
+                        Text(memoryTip)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(10)
+                    .background(
+                        VocaDesign.accentAmber.opacity(0.08),
+                        in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    )
+                }
+            }
+            .padding(16)
+        }
+    }
+
+    private func previewActionButton(
+        icon: String,
+        tint: Color,
+        tooltip: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(tint.opacity(0.12), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(VocaDesign.accentRose)
+            Text(message)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(VocaDesign.accentRose)
+            Spacer()
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(VocaDesign.accentRose.opacity(0.10))
+        )
+    }
+
+    // MARK: - Footer Shortcut Hints & Hidden Shortcuts
+
+    private var shortcutFooterBar: some View {
+        HStack(spacing: 14) {
+            shortcutHint(keys: "↑↓", label: "Chọn từ")
+            shortcutHint(keys: "↩", label: matchingItems.isEmpty ? "Tạo AI" : "Mở chi tiết")
+            shortcutHint(keys: "⌘P", label: "Phát âm")
+            shortcutHint(keys: "⌘D", label: "Yêu thích")
+            shortcutHint(keys: "⌘C", label: "Sao chép")
+            shortcutHint(keys: "⌘L", label: "Đổi Anh/Trung")
+            Spacer(minLength: 0)
+            shortcutHint(keys: "Esc", label: query.isEmpty ? "Đóng" : "Xóa tìm")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.78))
+    }
+
+    private func shortcutHint(keys: String, label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(keys)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1.5)
+                .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 4))
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var lookupKeyboardShortcuts: some View {
+        Button("") { moveSelection(delta: -1) }
+            .keyboardShortcut(.upArrow, modifiers: [])
+            .hidden()
+
+        Button("") { moveSelection(delta: 1) }
+            .keyboardShortcut(.downArrow, modifiers: [])
+            .hidden()
+
+        Button("") {
+            if !trimmedQuery.isEmpty {
+                createWord(language: selectedLanguage)
+            }
+        }
+        .keyboardShortcut(.return, modifiers: .shift)
+        .hidden()
+
+        Button("") { toggleLanguage() }
+            .keyboardShortcut("l", modifiers: .command)
+            .hidden()
+
+        Button("") { selectedLanguage = .english }
+            .keyboardShortcut("1", modifiers: .command)
+            .hidden()
+
+        Button("") { selectedLanguage = .chinese }
+            .keyboardShortcut("2", modifiers: .command)
+            .hidden()
+
+        Button("") { pronounceSelectedOrQuery() }
+            .keyboardShortcut("p", modifiers: .command)
+            .hidden()
+
+        Button("") {
+            if let item = selectedItem {
+                toggleFavorite(item)
+            }
+        }
+        .keyboardShortcut("d", modifiers: .command)
+        .hidden()
+
+        if let item = selectedItem {
+            Button("") { copyItem(item) }
+                .keyboardShortcut("c", modifiers: .command)
+                .hidden()
+        }
+
+        Button("") { handleEscape() }
+            .keyboardShortcut(.cancelAction)
+            .hidden()
+    }
+
+    // MARK: - Helpers & Actions
 
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var selectedItem: MacVocabularyItem? {
+        if let selectedItemID,
+           let matched = matchingItems.first(where: { $0.id == selectedItemID }) {
+            return matched
+        }
+        return matchingItems.first
+    }
+
+    private var hasExactTermMatch: Bool {
+        let q = trimmedQuery
+        guard !q.isEmpty else { return false }
+        return matchingItems.contains { item in
+            item.term.compare(q, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }
+    }
+
+    private func syncSelectedItem() {
+        if let selectedItemID,
+           matchingItems.contains(where: { $0.id == selectedItemID }) {
+            return
+        }
+        selectedItemID = matchingItems.first?.id
+    }
+
+    private func moveSelection(delta: Int) {
+        guard !matchingItems.isEmpty else { return }
+        let currentIndex = matchingItems.firstIndex(where: { $0.id == selectedItem?.id }) ?? 0
+        let nextIndex = min(max(currentIndex + delta, 0), matchingItems.count - 1)
+        selectedItemID = matchingItems[nextIndex].id
+    }
+
+    private func submitPrimaryAction() {
+        if let item = selectedItem {
+            onOpenWordDetail(item.id)
+        } else if !trimmedQuery.isEmpty {
+            createWord(language: selectedLanguage)
+        }
+    }
+
+    private func handleEscape() {
+        if !query.isEmpty {
+            query = ""
+        } else {
+            onDismiss()
+        }
+    }
+
     private func toggleLanguage() {
         withAnimation(.snappy(duration: 0.18)) {
             selectedLanguage = selectedLanguage == .english ? .chinese : .english
+        }
+    }
+
+    private func pronounceSelectedOrQuery() {
+        if let item = selectedItem {
+            speech.toggle(item.term, language: item.language)
+        } else if !trimmedQuery.isEmpty {
+            speech.toggle(trimmedQuery, language: selectedLanguage)
+        }
+    }
+
+    private func toggleFavorite(_ item: MacVocabularyItem) {
+        let willFavorite = !item.isFavorite
+        vocabulary.toggleFavorite(item.id)
+        showToast(
+            icon: willFavorite ? "star.fill" : "star.slash",
+            message: willFavorite ? "Đã lưu Yêu thích ★" : "Đã bỏ Yêu thích",
+            tint: willFavorite ? VocaDesign.accentAmber : .secondary
+        )
+    }
+
+    private func copyItem(_ item: MacVocabularyItem) {
+        var parts = [item.term]
+        if let pronunciation = item.pronunciation, !pronunciation.isEmpty {
+            parts.append(pronunciation)
+        }
+        parts.append("— \(item.displayMeaningVi)")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(parts.joined(separator: " "), forType: .string)
+        showToast(
+            icon: "doc.on.doc.fill",
+            message: "Đã sao chép “\(item.term)”",
+            tint: VocaDesign.brandGreen
+        )
+    }
+
+    private func showToast(icon: String, message: String, tint: Color) {
+        withAnimation(.snappy(duration: 0.18)) {
+            toastState = (icon, message, tint)
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await MainActor.run {
+                if toastState?.message == message {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        toastState = nil
+                    }
+                }
+            }
         }
     }
 
@@ -1746,14 +2273,14 @@ struct MacQuickLookupView: View {
             return []
         }
 
-        let baseItems = vocabulary.items.filter { $0.language == selectedLanguage }
-
-        return baseItems
+        return vocabulary.items
             .filter { item in
                 let searchableContent = [
                     item.term,
                     item.pronunciation ?? "",
+                    item.displayMeaningVi,
                     item.meaning,
+                    item.meaningEn ?? "",
                     item.language.title,
                     item.tags.joined(separator: " ")
                 ]
@@ -1766,17 +2293,31 @@ struct MacQuickLookupView: View {
                 return searchableContent.contains(normalizedQuery)
             }
             .sorted { left, right in
-                let leftIsExact = left.term.compare(
-                    normalizedQuery,
-                    options: [.caseInsensitive, .diacriticInsensitive]
-                ) == .orderedSame
-                let rightIsExact = right.term.compare(
-                    normalizedQuery,
-                    options: [.caseInsensitive, .diacriticInsensitive]
-                ) == .orderedSame
+                let leftTerm = left.term.folding(
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    locale: .current
+                )
+                let rightTerm = right.term.folding(
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    locale: .current
+                )
 
-                if leftIsExact != rightIsExact {
-                    return leftIsExact
+                let leftExact = leftTerm == normalizedQuery
+                let rightExact = rightTerm == normalizedQuery
+                if leftExact != rightExact {
+                    return leftExact
+                }
+
+                let leftPrefix = leftTerm.hasPrefix(normalizedQuery)
+                let rightPrefix = rightTerm.hasPrefix(normalizedQuery)
+                if leftPrefix != rightPrefix {
+                    return leftPrefix
+                }
+
+                let leftPreferredLang = left.language == selectedLanguage
+                let rightPreferredLang = right.language == selectedLanguage
+                if leftPreferredLang != rightPreferredLang {
+                    return leftPreferredLang
                 }
 
                 return left.term.localizedCaseInsensitiveCompare(
@@ -1797,12 +2338,6 @@ struct MacQuickLookupView: View {
             return
         }
         clipboardCandidate = raw
-    }
-
-    private func detectedLanguage(
-        for text: String
-    ) -> MacVocabularyItem.Language {
-        VocaDesign.containsHanCharacters(text) ? .chinese : .english
     }
 
     private func createWord(language: MacVocabularyItem.Language) {
@@ -1830,6 +2365,7 @@ struct MacQuickLookupView: View {
 
 private struct MacSettingsView: View {
     @Environment(MacPreferencesStore.self) private var preferences
+    @Environment(MacSpeechService.self) private var speech
 
     @ViewState private var serverURLInput = AppConfig.baseURL.absoluteString
     @ViewState private var isTestingServer = false
@@ -1855,6 +2391,20 @@ private struct MacSettingsView: View {
         Binding(
             get: { preferences.showInMenuBar },
             set: preferences.setShowInMenuBar
+        )
+    }
+
+    private var menuBarBadgeStyle: Binding<MacPreferencesStore.MenuBarBadgeStyle> {
+        Binding(
+            get: { preferences.menuBarBadgeStyle },
+            set: preferences.setMenuBarBadgeStyle
+        )
+    }
+
+    private var quickLookupHotkey: Binding<MacPreferencesStore.QuickLookupHotkey> {
+        Binding(
+            get: { preferences.quickLookupHotkey },
+            set: preferences.setQuickLookupHotkey
         )
     }
 
@@ -1894,26 +2444,42 @@ private struct MacSettingsView: View {
     }
 
     var body: some View {
+        TabView {
+            generalSettingsTab
+                .tabItem {
+                    Label("Chung", systemImage: "gearshape")
+                }
+
+            menuBarAndShortcutsTab
+                .tabItem {
+                    Label("Menu Bar & Phím tắt", systemImage: "menubar.rectangle")
+                }
+
+            audioAndAITab
+                .tabItem {
+                    Label("Âm thanh & AI", systemImage: "waveform")
+                }
+
+            serverSettingsTab
+                .tabItem {
+                    Label("Máy chủ", systemImage: "server.rack")
+                }
+        }
+        .frame(width: 580, height: 470)
+    }
+
+    private var generalSettingsTab: some View {
         Form {
-            Section("Cài đặt chung") {
-                Picker("Giao diện", selection: appearance) {
-                    ForEach(
-                        MacPreferencesStore.Appearance.allCases
-                    ) { option in
-                        Text(option.title)
-                            .tag(option)
+            Section("Giao diện & Điều hướng") {
+                Picker("Chế độ giao diện", selection: appearance) {
+                    ForEach(MacPreferencesStore.Appearance.allCases) { option in
+                        Text(option.title).tag(option)
                     }
                 }
 
-                Picker(
-                    "Mở Voca tại",
-                    selection: defaultDestination
-                ) {
-                    ForEach(
-                        MacPreferencesStore.DefaultDestination.allCases
-                    ) { option in
-                        Text(option.title)
-                            .tag(option)
+                Picker("Màn hình mở mặc định", selection: defaultDestination) {
+                    ForEach(MacPreferencesStore.DefaultDestination.allCases) { option in
+                        Text(option.title).tag(option)
                     }
                 }
 
@@ -1924,18 +2490,140 @@ private struct MacSettingsView: View {
                 )
             }
 
-            Section("Âm thanh & AI Assistant") {
-                Toggle(
-                    "Tự động phát âm từ vựng",
-                    isOn: playAudioAutomatically
-                )
+            Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Khôi phục cài đặt mặc định")
+                            .font(.body)
+                        Text("Đặt lại giao diện, Menu Bar, phím tắt và mục tiêu học tập về ban đầu.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Đặt lại mặc định", role: .destructive) {
+                        preferences.reset()
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
 
-                Toggle(
-                    "Bật tính năng trợ lý AI Assistant",
-                    isOn: enableAssistantFeatures
-                )
+    private var menuBarAndShortcutsTab: some View {
+        Form {
+            Section("Thanh Menu Bar macOS") {
+                Toggle("Hiển thị Voca trên thanh Menu Bar", isOn: showInMenuBar)
+
+                Picker("Kiểu huy hiệu trên Menu Bar", selection: menuBarBadgeStyle) {
+                    ForEach(MacPreferencesStore.MenuBarBadgeStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .disabled(!preferences.showInMenuBar)
+
+                Toggle("Ẩn biểu tượng dưới Dock (chế độ Menu Bar gọn nhẹ)", isOn: hideDockIcon)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Khởi động cùng macOS", isOn: launchAtLogin)
+
+                    if preferences.launchAtLogin, let error = preferences.launchAtLoginError {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(VocaDesign.accentAmber)
+                                Text("Chưa kích hoạt tự động mở: \(error)")
+                                    .font(.caption)
+                                    .foregroundStyle(VocaDesign.accentAmber)
+                            }
+                            Button("Mở Cài đặt Hệ thống > Mục đăng nhập") {
+                                MacSystemIntegrations.openLoginItemsSettings()
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(VocaDesign.accentAmber.opacity(0.12))
+                        )
+                    }
+                }
             }
 
+            Section("Phím tắt toàn hệ thống & Nhắc nhở") {
+                Picker("Phím tắt Tra từ nổi (Quick Lookup)", selection: quickLookupHotkey) {
+                    ForEach(MacPreferencesStore.QuickLookupHotkey.allCases) { hotkey in
+                        Text(hotkey.title).tag(hotkey)
+                    }
+                }
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Nhắc nhở ôn tập FSRS hàng ngày")
+                        Text("Thông báo nhẹ nhàng vào 20:00 khi còn thẻ từ đến hạn.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Kích hoạt thông báo") {
+                        MacSystemIntegrations.requestNotificationPermissionAndSchedule(
+                            dueCount: max(preferences.dailyGoal, 5)
+                        )
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var audioAndAITab: some View {
+        Form {
+            Section("Giọng đọc bản xứ (macOS Speech)") {
+                Toggle("Tự động phát âm khi lật thẻ hoặc mở từ", isOn: playAudioAutomatically)
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Giọng Tiếng Anh (en-US)")
+                        Text(speech.preferredVoiceSummary(for: .english))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Nghe thử") {
+                        speech.speak("Serendipity brings pleasant discoveries.", language: .english)
+                    }
+                    .controlSize(.small)
+                }
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Giọng Hán ngữ (zh-CN)")
+                        Text(speech.preferredVoiceSummary(for: .chinese))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Nghe thử") {
+                        speech.speak("温故而知新", language: .chinese)
+                    }
+                    .controlSize(.small)
+                }
+
+                Text("Mẹo: Tải giọng đọc Enhanced / Premium trong Cài đặt Hệ thống > Trợ năng > Nội dung được đọc để Voca tự động ưu tiên chất lượng cao nhất.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Gia sư AI & Tạo từ thông minh") {
+                Toggle("Bật tính năng trợ lý Gia sư AI", isOn: enableAssistantFeatures)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var serverSettingsTab: some View {
+        Form {
             Section("Máy chủ Voca Backend") {
                 VocaInputField(
                     icon: "server.rack",
@@ -1987,71 +2675,8 @@ private struct MacSettingsView: View {
                     .foregroundStyle(isServerHealthy == true ? Color.green : Color.orange)
                 }
             }
-
-            Section("Tích hợp hệ thống macOS") {
-                Toggle(
-                    "Hiển thị Voca trên thanh Menu Bar",
-                    isOn: showInMenuBar
-                )
-
-                Toggle(
-                    "Ẩn icon dưới Dock (chế độ Menu Bar)",
-                    isOn: hideDockIcon
-                )
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Toggle(
-                        "Khởi động cùng macOS",
-                        isOn: launchAtLogin
-                    )
-
-                    if preferences.launchAtLogin, let error = preferences.launchAtLoginError {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(VocaDesign.accentAmber)
-                                Text("Chưa được kích hoạt tự động mở: \(error)")
-                                    .font(.caption)
-                                    .foregroundStyle(VocaDesign.accentAmber)
-                            }
-                            Button("Mở Cài đặt Hệ thống > Mục đăng nhập") {
-                                MacSystemIntegrations.openLoginItemsSettings()
-                            }
-                            .buttonStyle(.link)
-                            .font(.caption)
-                        }
-                        .padding(8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(VocaDesign.accentAmber.opacity(0.12))
-                        )
-                    }
-                }
-
-                Button("Bật thông báo nhắc nhở ôn tập hàng ngày") {
-                    MacSystemIntegrations.requestNotificationPermissionAndSchedule(
-                        dueCount: max(preferences.dailyGoal, 5)
-                    )
-                }
-                .controlSize(.small)
-
-                Text(
-                    "Khi bật Menu Bar, bạn có thể tra nhanh từ điển (⌥Space), ôn tập siêu tốc "
-                    + "và xem từ vựng trong ngày mà không cần mở toàn bộ cửa sổ ứng dụng."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Button("Khôi phục cài đặt mặc định", role: .destructive) {
-                    preferences.reset()
-                }
-            }
         }
         .formStyle(.grouped)
-        .frame(width: 560, height: 620)
-        .padding()
     }
 
     private func testAndSaveServerURL() {

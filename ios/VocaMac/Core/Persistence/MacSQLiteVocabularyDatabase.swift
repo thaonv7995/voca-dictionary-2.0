@@ -289,10 +289,20 @@ final class MacSQLiteVocabularyDatabase: @unchecked Sendable {
         """
         if sqlite3_prepare_v2(db, insertSQL, -1, &insertStmt, nil) == SQLITE_OK,
            let insertStmt {
+            let combinedMeanings = [
+                item.meaning,
+                item.meaningVi,
+                item.meaningEn,
+                item.topic
+            ]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+
             bindText(item.id, at: 1, in: insertStmt)
             bindText(item.term, at: 2, in: insertStmt)
             bindText(item.pronunciation ?? "", at: 3, in: insertStmt)
-            bindText(item.meaning, at: 4, in: insertStmt)
+            bindText(combinedMeanings, at: 4, in: insertStmt)
             bindText(item.tags.joined(separator: " "), at: 5, in: insertStmt)
             bindText(item.personalNote, at: 6, in: insertStmt)
             sqlite3_step(insertStmt)

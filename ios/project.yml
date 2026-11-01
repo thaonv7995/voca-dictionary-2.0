@@ -110,6 +110,7 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: VocaMac
+      - path: Shared/WidgetSharedStore.swift
       # Shared product infrastructure extracted from the iOS application.
       # Keep this list explicit so platform-specific SwiftUI, WidgetKit,
       # camera, and photo-import code cannot leak into the macOS target.
@@ -131,10 +132,13 @@ targets:
         CODE_SIGN_STYLE: Automatic
         ENABLE_APP_SANDBOX: "YES"
         ENABLE_HARDENED_RUNTIME: "YES"
+        OTHER_LDFLAGS: "-lsqlite3"
     info:
       path: VocaMac/SupportingFiles/Info.plist
       properties:
         CFBundleDisplayName: Voca
+        CFBundleIconFile: AppIcon
+        CFBundleIconName: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.education
@@ -175,6 +179,8 @@ targets:
         PRODUCT_NAME: VocaMacTests
         GENERATE_INFOPLIST_FILE: "YES"
         CODE_SIGNING_ALLOWED: "NO"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Voca.app/Contents/MacOS/Voca"
+        BUNDLE_LOADER: "$(TEST_HOST)"
 
 schemes:
   Voca:

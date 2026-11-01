@@ -153,6 +153,14 @@ final class MacReviewStore {
         submissionError = nil
     }
 
+    func restoreCard(_ card: MacReviewCard, at index: Int) {
+        guard !cards.contains(where: { $0.id == card.id }) else {
+            return
+        }
+        let targetIndex = min(max(index, 0), cards.count)
+        cards.insert(card, at: targetIndex)
+    }
+
     func replaceCardsForTesting(_ cards: [MacReviewCard]) {
         self.cards = cards
         loadState = .loaded

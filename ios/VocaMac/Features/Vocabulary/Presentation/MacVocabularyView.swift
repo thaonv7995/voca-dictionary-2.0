@@ -204,6 +204,7 @@ struct MacVocabularyItem: Identifiable, Hashable, Sendable {
 
 struct MacVocabularyView: View {
     enum LanguageFilter: String, CaseIterable, Identifiable {
+        case all
         case english
         case chinese
 
@@ -211,6 +212,8 @@ struct MacVocabularyView: View {
 
         var title: String {
             switch self {
+            case .all:
+                "Tất cả"
             case .english:
                 "English"
             case .chinese:
@@ -233,19 +236,19 @@ struct MacVocabularyView: View {
         var title: String {
             switch self {
             case .all:
-                "All dates"
+                "Mọi thời gian"
             case .today:
-                "Today"
+                "Hôm nay"
             case .yesterday:
-                "Yesterday"
+                "Hôm qua"
             case .last7Days:
-                "Last 7 days"
+                "7 ngày qua"
             case .last30Days:
-                "Last 30 days"
+                "30 ngày qua"
             case .older:
-                "Older than 30 days"
+                "Trước 30 ngày"
             case .none:
-                "No date"
+                "Chưa rõ ngày"
             }
         }
     }
@@ -264,19 +267,19 @@ struct MacVocabularyView: View {
         var title: String {
             switch self {
             case .all:
-                "All levels"
+                "Mọi cấp độ"
             case .new:
-                "● New"
+                "● Từ mới (New)"
             case .learning:
-                "● Learning"
+                "● Đang học (Learning)"
             case .known:
-                "● Known"
+                "● Đã biết (Known)"
             case .mastered:
-                "● Mastered"
+                "● Thành thạo (Mastered)"
             case .due:
-                "Due for Review"
+                "⏰ Đến hạn ôn tập"
             case .favorites:
-                "★ Favorites"
+                "★ Yêu thích"
             }
         }
     }
@@ -286,7 +289,7 @@ struct MacVocabularyView: View {
 
     @ViewState private var selectedItemID: MacVocabularyItem.ID?
     @ViewState private var query = ""
-    @ViewState private var languageFilter: LanguageFilter = .english
+    @ViewState private var languageFilter: LanguageFilter = .all
     @ViewState private var selectedTopic = ""
     @ViewState private var selectedPartOfSpeech = ""
     @ViewState private var selectedCreatedDate: CreatedDateFilter = .all
@@ -509,7 +512,7 @@ struct MacVocabularyView: View {
     private var webTopHeaderTitleBlock: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 10) {
-                Text("Voca Dictionary")
+                Text("Kho từ vựng")
                     .font(.system(size: 21, weight: .bold, design: .rounded))
 
                 if vocabulary.isLoading {
@@ -519,12 +522,12 @@ struct MacVocabularyView: View {
             }
 
             HStack(spacing: 8) {
-                Text("\(languageFilteredItems.count) cards · \(visibleItems.count) shown")
+                Text("\(languageFilteredItems.count) thẻ · \(visibleItems.count) đang hiển thị")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
 
                 if vocabulary.pendingMutationCount > 0 {
-                    Text("· \(vocabulary.pendingMutationCount) waiting to sync")
+                    Text("· \(vocabulary.pendingMutationCount) chờ đồng bộ")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(VocaDesign.accentAmber)
                 }
@@ -534,7 +537,7 @@ struct MacVocabularyView: View {
 
     private var webTopHeaderControlsBlock: some View {
         HStack(spacing: 8) {
-            // Language Switcher (`All | English | 中文`)
+            // Language Switcher (`Tất cả | English | 中文`)
             HStack(spacing: 3) {
                 ForEach(LanguageFilter.allCases) { option in
                     let isSelected = languageFilter == option
@@ -577,29 +580,32 @@ struct MacVocabularyView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "rectangle.stack.fill")
                         .font(.system(size: 12, weight: .semibold))
-                    Text("Flashcards")
+                    Text("Thẻ lật")
                         .font(.system(size: 12.5, weight: .semibold))
                 }
             }
             .buttonStyle(VocaSecondaryButtonStyle())
             .disabled(languageFilteredItems.isEmpty)
             .keyboardShortcut("l", modifiers: .command)
-            .help("Open Flashcard Deck (⌘L)")
+            .help("Mở bộ thẻ lật (⌘L)")
 
             // Add Word (+) Button
             Button {
-                isAddWordSheetPresented = true
+                if let addWord, !canCreateFromResults {
+                    addWord()
+                } else {
+                    isAddWordSheetPresented = true
+                }
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "plus")
                         .font(.system(size: 12, weight: .bold))
-                    Text("Add Word")
+                    Text("Thêm từ")
                         .font(.system(size: 12.5, weight: .semibold))
                 }
             }
             .buttonStyle(VocaPrimaryButtonStyle())
-            .keyboardShortcut("n", modifiers: .command)
-            .help("Add a new word with AI (⌘N)")
+            .help("Thêm từ vựng mới bằng AI (⌘N)")
 
             // Refresh Button
             Button {
@@ -622,7 +628,7 @@ struct MacVocabularyView: View {
             }
             .buttonStyle(.plain)
             .disabled(vocabulary.isLoading)
-            .help("Refresh vocabulary from server")
+            .help("Làm mới danh sách từ vựng từ máy chủ")
         }
     }
 
@@ -651,7 +657,7 @@ struct MacVocabularyView: View {
 
     private var searchInputColumn: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("SEARCH")
+            Text("TÌM KIẾM")
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(.secondary)
 
@@ -660,7 +666,7 @@ struct MacVocabularyView: View {
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(isSearchFocused ? VocaDesign.brandGreen : .secondary)
 
-                TextField("word, meaning, topic, tag...", text: $query)
+                TextField("Từ vựng, nghĩa, chủ đề, Pinyin/IPA…", text: $query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .focused($isSearchFocused)
@@ -689,7 +695,7 @@ struct MacVocabularyView: View {
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
                             .fill(Color.primary.opacity(0.06))
                     )
-                    .help("Press Return to create missing word with AI or pronounce matched word")
+                    .help("Nhấn Return để tạo từ bằng AI (nếu chưa có) hoặc phát âm từ tìm được")
             }
             .padding(.horizontal, 10)
             .frame(minWidth: 190, maxWidth: .infinity, minHeight: 32, maxHeight: 32)
@@ -713,11 +719,11 @@ struct MacVocabularyView: View {
     private var filterDropdownsGroup: some View {
         // TOPIC FILTER
         filterMenuColumn(
-            label: "TOPIC",
-            activeTitle: selectedTopic.isEmpty ? "All topics" : selectedTopic,
+            label: "CHỦ ĐỀ",
+            activeTitle: selectedTopic.isEmpty ? "Mọi chủ đề" : selectedTopic,
             isActive: !selectedTopic.isEmpty
         ) {
-            Button("All topics") {
+            Button("Mọi chủ đề") {
                 selectedTopic = ""
             }
             if !availableTopics.isEmpty {
@@ -732,13 +738,13 @@ struct MacVocabularyView: View {
 
         // PART OF SPEECH FILTER
         filterMenuColumn(
-            label: "PART OF SPEECH",
+            label: "TỪ LOẠI",
             activeTitle: selectedPartOfSpeech.isEmpty
-                ? "All types"
+                ? "Mọi từ loại"
                 : formatPartOfSpeechLabel(selectedPartOfSpeech),
             isActive: !selectedPartOfSpeech.isEmpty
         ) {
-            Button("All types") {
+            Button("Mọi từ loại") {
                 selectedPartOfSpeech = ""
             }
             if !availablePartsOfSpeech.isEmpty {
@@ -753,7 +759,7 @@ struct MacVocabularyView: View {
 
         // CREATED DATE FILTER
         filterMenuColumn(
-            label: "CREATED DATE",
+            label: "NGÀY TẠO",
             activeTitle: selectedCreatedDate.title,
             isActive: selectedCreatedDate != .all
         ) {
@@ -766,7 +772,7 @@ struct MacVocabularyView: View {
 
         // LEVEL FILTER
         filterMenuColumn(
-            label: "LEVEL",
+            label: "CẤP ĐỘ",
             activeTitle: selectedLevel.title,
             isActive: selectedLevel != .all
         ) {
@@ -788,7 +794,7 @@ struct MacVocabularyView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "xmark")
                             .font(.system(size: 10, weight: .bold))
-                        Text("Clear")
+                        Text("Xóa lọc")
                             .font(.system(size: 12, weight: .semibold))
                     }
                     .foregroundStyle(.secondary)
@@ -990,6 +996,12 @@ struct MacVocabularyView: View {
                                         withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
                                             focusedHanziCharacter = character
                                         }
+                                    },
+                                    onAskAgent: {
+                                        withAnimation(.spring(response: 0.26, dampingFraction: 0.88)) {
+                                            selectedItemID = item.id
+                                            isAgentChatOpen = true
+                                        }
                                     }
                                 )
                                 .equatable()
@@ -1022,7 +1034,7 @@ struct MacVocabularyView: View {
 
                     Spacer()
 
-                    Button("Retry") {
+                    Button("Thử lại") {
                         Task {
                             await vocabulary.retry()
                         }
@@ -1046,9 +1058,9 @@ struct MacVocabularyView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 if isCreatingInline {
-                    Text("Generating “\(trimmedQuery)” with AI…")
+                    Text("Đang tạo thẻ “\(trimmedQuery)” bằng AI…")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Building phonetics, Vietnamese/English meanings, examples, and memory tips.")
+                    Text("Tự động biên soạn phiên âm, nghĩa Việt/Anh, ví dụ ngữ cảnh và mẹo nhớ.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(.secondary)
                 } else if let inlineCreateFeedback {
@@ -1058,12 +1070,12 @@ struct MacVocabularyView: View {
                 } else {
                     Text(
                         visibleItems.isEmpty
-                            ? "No exact card for “\(trimmedQuery)” in your dictionary."
-                            : "Found related vocabulary, but no exact card for “\(trimmedQuery)”."
+                            ? "Chưa có thẻ từ chính xác cho “\(trimmedQuery)” trong kho."
+                            : "Tìm thấy từ liên quan, nhưng chưa có thẻ chính xác cho “\(trimmedQuery)”."
                     )
                     .font(.system(size: 13, weight: .semibold))
 
-                    Text("Create a rich AI vocabulary card (\(targetLanguageForInlineCreate.webLabel)) in one click or press ⌘↩.")
+                    Text("Tạo nhanh thẻ từ AI (\(targetLanguageForInlineCreate.webLabel)) chỉ với 1 cú nhấp hoặc nhấn ⌘↩.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(.secondary)
                 }
@@ -1081,7 +1093,7 @@ struct MacVocabularyView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles")
                             .font(.system(size: 11.5, weight: .bold))
-                        Text("Create “\(trimmedQuery)”")
+                        Text("Tạo “\(trimmedQuery)”")
                             .font(.system(size: 12.5, weight: .semibold))
                     }
                 }
@@ -1108,13 +1120,13 @@ struct MacVocabularyView: View {
                 size: 52
             )
 
-            Text(query.isEmpty ? "No matching cards" : "No card for “\(trimmedQuery)”")
+            Text(query.isEmpty ? "Không có thẻ từ phù hợp" : "Chưa có thẻ cho “\(trimmedQuery)”")
                 .font(.system(size: 18, weight: .bold, design: .rounded))
 
             Text(
                 query.isEmpty
-                    ? "Try adjusting your filters or add a new English / Chinese word with AI."
-                    : "Create “\(trimmedQuery)” right now with AI to generate meanings, IPA/Pinyin, and examples."
+                    ? "Thử điều chỉnh bộ lọc hoặc thêm từ Tiếng Anh / Hán ngữ mới bằng AI."
+                    : "Tạo ngay thẻ “\(trimmedQuery)” bằng AI với đầy đủ phiên âm IPA/Pinyin, nghĩa và câu ví dụ."
             )
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -1133,22 +1145,26 @@ struct MacVocabularyView: View {
                             } else {
                                 Image(systemName: "sparkles")
                             }
-                            Text(isCreatingInline ? "Creating “\(trimmedQuery)”…" : "Create “\(trimmedQuery)”")
+                            Text(isCreatingInline ? "Đang tạo “\(trimmedQuery)”…" : "Tạo “\(trimmedQuery)”")
                         }
                     }
                     .buttonStyle(VocaPrimaryButtonStyle())
                     .disabled(isCreatingInline)
                 } else {
                     Button {
-                        isAddWordSheetPresented = true
+                        if let addWord {
+                            addWord()
+                        } else {
+                            isAddWordSheetPresented = true
+                        }
                     } label: {
-                        Label("Add Word with AI", systemImage: "plus")
+                        Label("Thêm từ mới bằng AI", systemImage: "plus")
                     }
                     .buttonStyle(VocaPrimaryButtonStyle())
                 }
 
                 if hasActiveFilters {
-                    Button("Clear Filters") {
+                    Button("Xóa bộ lọc") {
                         clearAllFilters()
                     }
                     .buttonStyle(VocaSecondaryButtonStyle())
@@ -1697,13 +1713,13 @@ struct MacVocabularyView: View {
     }
 
     private var languageFilteredItems: [MacVocabularyItem] {
-        vocabulary.items.filter { item in
-            switch languageFilter {
-            case .english:
-                return item.language == .english
-            case .chinese:
-                return item.language == .chinese
-            }
+        switch languageFilter {
+        case .all:
+            return vocabulary.items
+        case .english:
+            return vocabulary.items.filter { $0.language == .english }
+        case .chinese:
+            return vocabulary.items.filter { $0.language == .chinese }
         }
     }
 
@@ -2093,7 +2109,9 @@ struct MacVocabularyView: View {
     private func applyRequestedSelection() {
         if let requestedItemID,
            let matched = vocabulary.items.first(where: { $0.id == requestedItemID }) {
-            languageFilter = matched.language == .chinese ? .chinese : .english
+            if languageFilter != .all {
+                languageFilter = matched.language == .chinese ? .chinese : .english
+            }
             selectedItemID = requestedItemID
         } else if let selectedItemID,
                   !vocabulary.items.contains(where: { $0.id == selectedItemID }) {
@@ -2204,6 +2222,7 @@ private struct MacWebVocabularyCard: View, Equatable {
     let onDelete: () -> Void
     let onSelectLevel: (String) -> Void
     var onFocusHanzi: ((String) -> Void)?
+    var onAskAgent: (() -> Void)?
 
     static func == (lhs: MacWebVocabularyCard, rhs: MacWebVocabularyCard) -> Bool {
         lhs.item == rhs.item
@@ -2356,16 +2375,21 @@ private struct MacWebVocabularyCard: View, Equatable {
             onSelect()
         }
         .contextMenu {
-            Button("Copy Word & Meaning") {
-                onCopy()
-            }
-            Button(item.isFavorite ? "Remove from Favorites" : "Add to Favorites") {
-                onToggleFavorite()
-            }
-            Button("Pronounce") {
+            Button("Phát âm (⌘P)") {
                 onSpeak()
             }
-            Menu("Set Level") {
+            Button("Sao chép từ & nghĩa (⌘C)") {
+                onCopy()
+            }
+            Button(item.isFavorite ? "Bỏ Yêu thích (⌘D)" : "Đánh dấu Yêu thích ★ (⌘D)") {
+                onToggleFavorite()
+            }
+            if let onAskAgent {
+                Button("Hỏi Gia sư AI về từ này (⌘I)") {
+                    onAskAgent()
+                }
+            }
+            Menu("Đặt cấp độ thành thạo") {
                 ForEach(["new", "learning", "known", "mastered"], id: \.self) { level in
                     Button(level.capitalized) {
                         onSelectLevel(level)
@@ -2373,7 +2397,7 @@ private struct MacWebVocabularyCard: View, Equatable {
                 }
             }
             Divider()
-            Button("Delete Word", role: .destructive) {
+            Button("Xóa thẻ từ", role: .destructive) {
                 onDelete()
             }
         }

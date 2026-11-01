@@ -58,9 +58,65 @@ final class MacPreferencesStore {
         }
     }
 
+    enum MenuBarBadgeStyle: String, CaseIterable, Identifiable, Sendable {
+        case dueCount
+        case dotOnly
+        case iconOnly
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .dueCount:
+                "Biểu tượng & Số thẻ đến hạn"
+            case .dotOnly:
+                "Biểu tượng & Chấm trạng thái"
+            case .iconOnly:
+                "Chỉ biểu tượng Voca"
+            }
+        }
+    }
+
+    enum QuickLookupHotkey: String, CaseIterable, Identifiable, Sendable {
+        case optionSpace
+        case commandShiftSpace
+        case controlOptionSpace
+        case disabled
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .optionSpace:
+                "Option + Space (⌥Space)"
+            case .commandShiftSpace:
+                "Shift + Command + Space (⇧⌘Space)"
+            case .controlOptionSpace:
+                "Control + Option + Space (⌃⌥Space)"
+            case .disabled:
+                "Tắt phím tắt toàn hệ thống"
+            }
+        }
+
+        var badgeLabel: String {
+            switch self {
+            case .optionSpace:
+                "⌥Space"
+            case .commandShiftSpace:
+                "⇧⌘Space"
+            case .controlOptionSpace:
+                "⌃⌥Space"
+            case .disabled:
+                "⇧⌘K"
+            }
+        }
+    }
+
     private(set) var appearance: Appearance
     private(set) var defaultDestination: DefaultDestination
     private(set) var showInMenuBar: Bool
+    private(set) var menuBarBadgeStyle: MenuBarBadgeStyle
+    private(set) var quickLookupHotkey: QuickLookupHotkey
     private(set) var launchAtLogin: Bool
     private(set) var launchAtLoginError: String?
     private(set) var hideDockIcon: Bool
@@ -79,6 +135,8 @@ final class MacPreferencesStore {
         appearance = preferences.appearance
         defaultDestination = preferences.defaultDestination
         showInMenuBar = preferences.showInMenuBar
+        menuBarBadgeStyle = preferences.menuBarBadgeStyle
+        quickLookupHotkey = preferences.quickLookupHotkey
         launchAtLogin = preferences.launchAtLogin
         hideDockIcon = preferences.hideDockIcon
         dailyGoal = preferences.dailyGoal
@@ -88,6 +146,7 @@ final class MacPreferencesStore {
         let result = MacSystemIntegrations.updateLaunchAtLogin(enabled: launchAtLogin)
         launchAtLoginError = result.success ? nil : result.error
         MacSystemIntegrations.updateDockIconVisibility(hideDockIcon: hideDockIcon)
+        MacQuickLookupPanelController.shared.applyHotKeyPreference(quickLookupHotkey)
     }
 
     convenience init() {
@@ -114,6 +173,17 @@ final class MacPreferencesStore {
             hideDockIcon = false
             MacSystemIntegrations.updateDockIconVisibility(hideDockIcon: false)
         }
+        save()
+    }
+
+    func setMenuBarBadgeStyle(_ style: MenuBarBadgeStyle) {
+        menuBarBadgeStyle = style
+        save()
+    }
+
+    func setQuickLookupHotkey(_ hotkey: QuickLookupHotkey) {
+        quickLookupHotkey = hotkey
+        MacQuickLookupPanelController.shared.applyHotKeyPreference(hotkey)
         save()
     }
 
@@ -155,14 +225,18 @@ final class MacPreferencesStore {
         appearance = defaults.appearance
         defaultDestination = defaults.defaultDestination
         showInMenuBar = defaults.showInMenuBar
+        menuBarBadgeStyle = defaults.menuBarBadgeStyle
+        quickLookupHotkey = defaults.quickLookupHotkey
         launchAtLogin = defaults.launchAtLogin
         hideDockIcon = defaults.hideDockIcon
         dailyGoal = defaults.dailyGoal
         playAudioAutomatically = defaults.playAudioAutomatically
         enableAssistantFeatures = defaults.enableAssistantFeatures
 
-        MacSystemIntegrations.updateLaunchAtLogin(enabled: launchAtLogin)
+        let result = MacSystemIntegrations.updateLaunchAtLogin(enabled: launchAtLogin)
+        launchAtLoginError = result.success ? nil : result.error
         MacSystemIntegrations.updateDockIconVisibility(hideDockIcon: hideDockIcon)
+        MacQuickLookupPanelController.shared.applyHotKeyPreference(quickLookupHotkey)
         save()
     }
 
@@ -172,6 +246,8 @@ final class MacPreferencesStore {
                 appearance: appearance,
                 defaultDestination: defaultDestination,
                 showInMenuBar: showInMenuBar,
+                menuBarBadgeStyle: menuBarBadgeStyle,
+                quickLookupHotkey: quickLookupHotkey,
                 launchAtLogin: launchAtLogin,
                 hideDockIcon: hideDockIcon,
                 dailyGoal: dailyGoal,
@@ -186,22 +262,39 @@ struct MacPreferences: Equatable, Sendable {
     let appearance: MacPreferencesStore.Appearance
     let defaultDestination: MacPreferencesStore.DefaultDestination
     let showInMenuBar: Bool
+    let menuBarBadgeStyle: MacPreferencesStore.MenuBarBadgeStyle
+    let quickLookupHotkey: MacPreferencesStore.QuickLookupHotkey
     let launchAtLogin: Bool
     let hideDockIcon: Bool
     let dailyGoal: Int
     let playAudioAutomatically: Bool
     let enableAssistantFeatures: Bool
 
-    static let `default` = MacPreferences(
-        appearance: .system,
-        defaultDestination: .today,
-        showInMenuBar: true,
-        launchAtLogin: true,
-        hideDockIcon: true,
-        dailyGoal: 20,
-        playAudioAutomatically: false,
-        enableAssistantFeatures: true
-    )
+    init(
+        appearance: MacPreferencesStore.Appearance = .system,
+        defaultDestination: MacPreferencesStore.DefaultDestination = .today,
+        showInMenuBar: Bool = true,
+        menuBarBadgeStyle: MacPreferencesStore.MenuBarBadgeStyle = .dueCount,
+        quickLookupHotkey: MacPreferencesStore.QuickLookupHotkey = .optionSpace,
+        launchAtLogin: Bool = true,
+        hideDockIcon: Bool = true,
+        dailyGoal: Int = 20,
+        playAudioAutomatically: Bool = false,
+        enableAssistantFeatures: Bool = true
+    ) {
+        self.appearance = appearance
+        self.defaultDestination = defaultDestination
+        self.showInMenuBar = showInMenuBar
+        self.menuBarBadgeStyle = menuBarBadgeStyle
+        self.quickLookupHotkey = quickLookupHotkey
+        self.launchAtLogin = launchAtLogin
+        self.hideDockIcon = hideDockIcon
+        self.dailyGoal = dailyGoal
+        self.playAudioAutomatically = playAudioAutomatically
+        self.enableAssistantFeatures = enableAssistantFeatures
+    }
+
+    static let `default` = MacPreferences()
 }
 
 @MainActor
@@ -220,6 +313,8 @@ struct UserDefaultsMacPreferencesPersistence:
         static let defaultDestination =
             "mac.preferences.defaultDestination"
         static let showInMenuBar = "mac.preferences.showInMenuBar.v2"
+        static let menuBarBadgeStyle = "mac.preferences.menuBarBadgeStyle"
+        static let quickLookupHotkey = "mac.preferences.quickLookupHotkey"
         static let launchAtLogin = "mac.preferences.launchAtLogin.v2"
         static let hideDockIcon = "mac.preferences.hideDockIcon.v2"
         static let dailyGoal = "mac.preferences.dailyGoal"
@@ -250,6 +345,20 @@ struct UserDefaultsMacPreferencesPersistence:
             )
             ?? fallback.defaultDestination
 
+        let menuBarBadgeStyle = defaults
+            .string(forKey: Key.menuBarBadgeStyle)
+            .flatMap(
+                MacPreferencesStore.MenuBarBadgeStyle.init(rawValue:)
+            )
+            ?? fallback.menuBarBadgeStyle
+
+        let quickLookupHotkey = defaults
+            .string(forKey: Key.quickLookupHotkey)
+            .flatMap(
+                MacPreferencesStore.QuickLookupHotkey.init(rawValue:)
+            )
+            ?? fallback.quickLookupHotkey
+
         let dailyGoal: Int
         if defaults.object(forKey: Key.dailyGoal) == nil {
             dailyGoal = fallback.dailyGoal
@@ -267,6 +376,8 @@ struct UserDefaultsMacPreferencesPersistence:
                 forKey: Key.showInMenuBar,
                 fallback: fallback.showInMenuBar
             ),
+            menuBarBadgeStyle: menuBarBadgeStyle,
+            quickLookupHotkey: quickLookupHotkey,
             launchAtLogin: bool(
                 forKey: Key.launchAtLogin,
                 fallback: fallback.launchAtLogin
@@ -301,6 +412,14 @@ struct UserDefaultsMacPreferencesPersistence:
             forKey: Key.showInMenuBar
         )
         defaults.set(
+            preferences.menuBarBadgeStyle.rawValue,
+            forKey: Key.menuBarBadgeStyle
+        )
+        defaults.set(
+            preferences.quickLookupHotkey.rawValue,
+            forKey: Key.quickLookupHotkey
+        )
+        defaults.set(
             preferences.launchAtLogin,
             forKey: Key.launchAtLogin
         )
@@ -326,6 +445,8 @@ struct UserDefaultsMacPreferencesPersistence:
         defaults.removeObject(forKey: Key.appearance)
         defaults.removeObject(forKey: Key.defaultDestination)
         defaults.removeObject(forKey: Key.showInMenuBar)
+        defaults.removeObject(forKey: Key.menuBarBadgeStyle)
+        defaults.removeObject(forKey: Key.quickLookupHotkey)
         defaults.removeObject(forKey: Key.launchAtLogin)
         defaults.removeObject(forKey: Key.hideDockIcon)
         defaults.removeObject(forKey: Key.dailyGoal)

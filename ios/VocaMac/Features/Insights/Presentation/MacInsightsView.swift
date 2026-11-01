@@ -136,16 +136,16 @@ struct MacInsightsView: View {
             .frame(maxWidth: .infinity)
             .padding(24)
         }
-        .navigationTitle("Insights")
+        .navigationTitle("Thống kê")
         .background(VocaDesign.subtleWindowBackground)
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Insights")
+            Text("Thống kê học tập")
                 .font(.system(size: 32, weight: .bold, design: .rounded))
 
-            Text("Understand your learning rhythm and choose what to do next.")
+            Text("Theo dõi nhịp độ ghi nhớ, chuỗi ngày học và lựa chọn bước tiếp theo hiệu quả nhất.")
                 .font(.body)
                 .foregroundStyle(.secondary)
         }
@@ -160,33 +160,33 @@ struct MacInsightsView: View {
             spacing: 16
         ) {
             metricCard(
-                title: "Reviewed",
+                title: "Đã ôn tập",
                 value: "\(snapshot.reviewedThisWeek)",
-                detail: "cards this week",
+                detail: "thẻ trong tuần",
                 systemImage: "rectangle.stack.fill",
                 tint: VocaDesign.brandGreen
             )
 
             metricCard(
-                title: "Practiced",
+                title: "Đã luyện tập",
                 value: "\(snapshot.practicedThisWeek)",
-                detail: "activities",
+                detail: "lượt trả lời",
                 systemImage: "sparkles",
                 tint: VocaDesign.accentIndigo
             )
 
             metricCard(
-                title: "Accuracy",
+                title: "Độ chính xác",
                 value: "\(snapshot.accuracyPercent)%",
-                detail: "recent answers",
+                detail: "các câu gần đây",
                 systemImage: "scope",
                 tint: VocaDesign.accentSky
             )
 
             metricCard(
-                title: "Streak",
+                title: "Chuỗi ngày học",
                 value: "\(snapshot.streakDays)",
-                detail: snapshot.streakDays == 1 ? "day" : "days",
+                detail: "ngày liên tiếp",
                 systemImage: "flame.fill",
                 tint: VocaDesign.accentAmber
             )
@@ -198,10 +198,10 @@ struct MacInsightsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Weekly Activity")
+                        Text("Hoạt động trong tuần")
                             .font(.system(size: 20, weight: .bold, design: .rounded))
 
-                        Text("\(snapshot.totalActivityCount) learning actions in the last 7 days")
+                        Text("\(snapshot.totalActivityCount) hoạt động học tập trong 7 ngày qua")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -211,7 +211,7 @@ struct MacInsightsView: View {
                     if let mostActiveDay = snapshot.mostActiveDay,
                        (mostActiveDay.reviewedCount + mostActiveDay.practicedCount) > 0 {
                         VocaPillBadge(
-                            text: "Most active: \(mostActiveDay.day)",
+                            text: "Sôi nổi nhất: \(localizedDayLabel(mostActiveDay.day))",
                             icon: "chart.bar.fill",
                             tint: VocaDesign.brandGreen
                         )
@@ -227,12 +227,12 @@ struct MacInsightsView: View {
 
                 HStack(spacing: 18) {
                     legend(
-                        title: "Review",
+                        title: "Ôn tập FSRS",
                         color: VocaDesign.brandGreen
                     )
 
                     legend(
-                        title: "Practice",
+                        title: "Luyện tập",
                         color: VocaDesign.accentIndigo
                     )
                 }
@@ -258,9 +258,9 @@ struct MacInsightsView: View {
                             iconSize: 18
                         )
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Library Breakdown")
+                            Text("Phân bổ kho từ")
                                 .font(.headline)
-                            Text("\(vocabulary.items.count) total saved words")
+                            Text("Tổng cộng \(vocabulary.items.count) thẻ từ đã lưu")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -268,10 +268,10 @@ struct MacInsightsView: View {
 
                     Spacer()
 
-                    statPill(label: "English", value: "\(englishCount)", tint: VocaDesign.accentSky)
-                    statPill(label: "Chinese", value: "\(chineseCount)", tint: VocaDesign.accentAmber)
-                    statPill(label: "Favorites", value: "\(favoriteCount)", tint: VocaDesign.accentRose)
-                    statPill(label: "Due Now", value: "\(dueCount)", tint: VocaDesign.brandGreen)
+                    statPill(label: "Tiếng Anh", value: "\(englishCount)", tint: VocaDesign.accentSky)
+                    statPill(label: "Hán ngữ", value: "\(chineseCount)", tint: VocaDesign.accentAmber)
+                    statPill(label: "Yêu thích", value: "\(favoriteCount)", tint: VocaDesign.accentRose)
+                    statPill(label: "Đến hạn", value: "\(dueCount)", tint: VocaDesign.brandGreen)
                 }
 
                 VStack(alignment: .leading, spacing: 14) {
@@ -283,9 +283,9 @@ struct MacInsightsView: View {
                             iconSize: 18
                         )
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Library Breakdown")
+                            Text("Phân bổ kho từ")
                                 .font(.headline)
-                            Text("\(vocabulary.items.count) total saved words")
+                            Text("Tổng cộng \(vocabulary.items.count) thẻ từ đã lưu")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -297,10 +297,10 @@ struct MacInsightsView: View {
                         ],
                         spacing: 10
                     ) {
-                        statPill(label: "English", value: "\(englishCount)", tint: VocaDesign.accentSky)
-                        statPill(label: "Chinese", value: "\(chineseCount)", tint: VocaDesign.accentAmber)
-                        statPill(label: "Favorites", value: "\(favoriteCount)", tint: VocaDesign.accentRose)
-                        statPill(label: "Due Now", value: "\(dueCount)", tint: VocaDesign.brandGreen)
+                        statPill(label: "Tiếng Anh", value: "\(englishCount)", tint: VocaDesign.accentSky)
+                        statPill(label: "Hán ngữ", value: "\(chineseCount)", tint: VocaDesign.accentAmber)
+                        statPill(label: "Yêu thích", value: "\(favoriteCount)", tint: VocaDesign.accentRose)
+                        statPill(label: "Đến hạn", value: "\(dueCount)", tint: VocaDesign.brandGreen)
                     }
                 }
             }
@@ -324,7 +324,7 @@ struct MacInsightsView: View {
 
     private var recommendations: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Recommended Next")
+            Text("Đề xuất tiếp theo")
                 .font(.system(size: 20, weight: .bold, design: .rounded))
 
             LazyVGrid(
@@ -334,20 +334,20 @@ struct MacInsightsView: View {
                 spacing: 16
             ) {
                 recommendationCard(
-                    title: "Review Difficult Words",
-                    detail: "\(snapshot.difficultWordCount) words need more attention.",
+                    title: "Ôn tập từ khó nhớ",
+                    detail: "\(snapshot.difficultWordCount) thẻ từ cần củng cố thêm.",
                     systemImage: "bolt.heart.fill",
                     tint: VocaDesign.accentRose,
-                    buttonTitle: "Start Review",
+                    buttonTitle: "Bắt đầu ôn",
                     action: reviewDifficultWords
                 )
 
                 recommendationCard(
-                    title: "Practice for Accuracy",
-                    detail: "A short session can reinforce recent vocabulary.",
+                    title: "Luyện tập tăng phản xạ",
+                    detail: "Một phiên luyện ngắn giúp khắc sâu từ vựng mới học.",
                     systemImage: "target",
                     tint: VocaDesign.brandGreen,
-                    buttonTitle: "Practice",
+                    buttonTitle: "Luyện tập",
                     action: startPractice
                 )
             }
@@ -426,17 +426,38 @@ struct MacInsightsView: View {
             }
             .frame(maxWidth: 46)
 
-            Text(metric.day)
+            Text(localizedDayLabel(metric.day))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(metric.day)
+        .accessibilityLabel(localizedDayLabel(metric.day))
         .accessibilityValue(
-            "\(metric.reviewedCount) reviewed, "
-            + "\(metric.practicedCount) practiced"
+            "\(metric.reviewedCount) ôn tập, "
+            + "\(metric.practicedCount) luyện tập"
         )
+    }
+
+    private func localizedDayLabel(_ rawDay: String) -> String {
+        switch rawDay {
+        case "Mon":
+            "T2"
+        case "Tue":
+            "T3"
+        case "Wed":
+            "T4"
+        case "Thu":
+            "T5"
+        case "Fri":
+            "T6"
+        case "Sat":
+            "T7"
+        case "Sun":
+            "CN"
+        default:
+            rawDay
+        }
     }
 
     private func legend(

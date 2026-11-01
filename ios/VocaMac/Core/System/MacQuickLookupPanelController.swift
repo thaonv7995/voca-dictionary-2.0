@@ -12,13 +12,16 @@ final class MacQuickLookupPanelController: NSObject {
     private var panel: MacFloatingLookupPanel?
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
+    private var currentHotKeyPreset: MacPreferencesStore.QuickLookupHotkey = .optionSpace
     private var previousApp: NSRunningApplication?
     private var outsideClickGlobalMonitor: Any?
     private var outsideClickLocalMonitor: Any?
+    private var openMainWorkspaceHandler: (() -> Void)?
 
     private weak var router: MacAppRouter?
     private weak var vocabulary: MacVocabularyStore?
     private weak var speech: MacSpeechService?
+    private weak var preferences: MacPreferencesStore?
 
     private override init() {
         super.init()
@@ -27,14 +30,31 @@ final class MacQuickLookupPanelController: NSObject {
     func configure(
         router: MacAppRouter,
         vocabulary: MacVocabularyStore,
-        speech: MacSpeechService
+        speech: MacSpeechService,
+        preferences: MacPreferencesStore? = nil,
+        openMainWorkspace: (() -> Void)? = nil
     ) {
         self.router = router
         self.vocabulary = vocabulary
         self.speech = speech
+        if let preferences {
+            self.preferences = preferences
+            self.currentHotKeyPreset = preferences.quickLookupHotkey
+        }
+        if let openMainWorkspace {
+            self.openMainWorkspaceHandler = openMainWorkspace
+        }
 
-        NSApp.servicesProvider = self
-        registerGlobalHotKey()
+        NSApp?.servicesProvider = self
+        registerGlobalHotKey(preset: currentHotKeyPreset)
+    }
+
+    func applyHotKeyPreference(
+        _ preset: MacPreferencesStore.QuickLookupHotkey
+    ) {
+        currentHotKeyPreset = preset
+        guard router != nil else { return }
+        registerGlobalHotKey(preset: preset)
     }
 
     func toggleFloatingPanel(initialQuery: String? = nil) {
@@ -52,6 +72,8 @@ final class MacQuickLookupPanelController: NSObject {
     func showFloatingPanel(initialQuery: String? = nil) {
         guard let router, let vocabulary, let speech else { return }
 
+        MacSystemIntegrations.dismissMenuBarPopoverIfNeeded()
+
         if panel?.isVisible != true {
             previousApp = NSWorkspace.shared.frontmostApplication
         }
@@ -61,19 +83,27 @@ final class MacQuickLookupPanelController: NSObject {
             targetPanel = existing
         } else {
             let created = MacFloatingLookupPanel(
-                contentRect: NSRect(x: 0, y: 0, width: 600, height: 420),
-                styleMask: [.titled, .closable, .fullSizeContentView],
+                contentRect: NSRect(x: 0, y: 0, width: 680, height: 440),
+                styleMask: [
+                    .titled,
+                    .closable,
+                    .fullSizeContentView,
+                    .nonactivatingPanel
+                ],
                 backing: .buffered,
                 defer: false
             )
             created.titleVisibility = .hidden
             created.titlebarAppearsTransparent = true
             created.isFloatingPanel = true
-            created.level = .floating
+            created.hidesOnDeactivate = false
+            created.becomesKeyOnlyIfNeeded = false
+            created.level = .statusBar
             created.collectionBehavior = [
                 .canJoinAllSpaces,
                 .fullScreenAuxiliary,
-                .transient
+                .transient,
+                .ignoresCycle
             ]
             created.isMovableByWindowBackground = true
             created.standardWindowButton(.closeButton)?.isHidden = true
@@ -87,25 +117,44 @@ final class MacQuickLookupPanelController: NSObject {
             targetPanel = created
         }
 
+        let colorScheme: ColorScheme? = {
+            switch preferences?.appearance {
+            case .light:
+                return .light
+            case .dark:
+                return .dark
+            default:
+                return nil
+            }
+        }()
+
         let rootView = MacQuickLookupPanelRootView(
             initialQuery: initialQuery,
             onDismiss: { [weak self] in
                 self?.dismissFloatingPanel()
             },
             onOpenWordDetail: { [weak self] wordID in
-                self?.dismissFloatingPanel(restorePreviousApp: false)
-                self?.router?.open(.vocabularyWord(id: wordID))
-                NSApp.activate(ignoringOtherApps: true)
+                guard let self else { return }
+                self.dismissFloatingPanel(restorePreviousApp: false)
+                self.router?.open(.vocabularyWord(id: wordID))
+                self.openMainWorkspaceHandler?()
+                if self.findActiveVocaMainWindow() == nil,
+                   let encoded = wordID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                   let url = URL(string: "voca://vocabulary/word/\(encoded)") {
+                    NSWorkspace.shared.open(url)
+                }
+                MacSystemIntegrations.bringMainWindowsToFront()
             }
         )
         .environment(router)
         .environment(vocabulary)
         .environment(speech)
+        .tint(VocaDesign.brandGreen)
+        .preferredColorScheme(colorScheme)
 
         targetPanel.contentView = NSHostingView(rootView: rootView)
         positionPanel(targetPanel)
         installOutsideClickMonitors()
-        NSApp.activate(ignoringOtherApps: true)
         targetPanel.makeKeyAndOrderFront(nil)
         targetPanel.orderFrontRegardless()
 
@@ -190,44 +239,67 @@ final class MacQuickLookupPanelController: NSObject {
         }
         router?.select(.vocabulary)
         router?.requestAddWord(initialTerm: String(text.prefix(80)))
-        NSApp.activate(ignoringOtherApps: true)
+        openMainWorkspaceHandler?()
+        MacSystemIntegrations.bringMainWindowsToFront()
     }
 
-    // MARK: - Global Hotkey (`Option + Space`)
+    // MARK: - Configurable Global Hotkey
 
-    private func registerGlobalHotKey() {
-        guard hotKeyRef == nil else { return }
+    private func registerGlobalHotKey(
+        preset: MacPreferencesStore.QuickLookupHotkey
+    ) {
+        if let existingHotKey = hotKeyRef {
+            UnregisterEventHotKey(existingHotKey)
+            hotKeyRef = nil
+        }
 
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
+        guard preset != .disabled else {
+            return
+        }
 
-        let status = InstallEventHandler(
-            GetApplicationEventTarget(),
-            { _, _, _ -> OSStatus in
-                Task { @MainActor in
-                    MacQuickLookupPanelController.shared.toggleFloatingPanel()
-                }
-                return noErr
-            },
-            1,
-            &eventType,
-            nil,
-            &eventHandlerRef
-        )
+        if eventHandlerRef == nil {
+            var eventType = EventTypeSpec(
+                eventClass: OSType(kEventClassKeyboard),
+                eventKind: UInt32(kEventHotKeyPressed)
+            )
 
-        guard status == noErr else { return }
+            let status = InstallEventHandler(
+                GetApplicationEventTarget(),
+                { _, _, _ -> OSStatus in
+                    Task { @MainActor in
+                        MacQuickLookupPanelController.shared.toggleFloatingPanel()
+                    }
+                    return noErr
+                },
+                1,
+                &eventType,
+                nil,
+                &eventHandlerRef
+            )
+
+            guard status == noErr else { return }
+        }
+
+        let modifiers: UInt32
+        switch preset {
+        case .optionSpace:
+            modifiers = UInt32(optionKey)
+        case .commandShiftSpace:
+            modifiers = UInt32(cmdKey | shiftKey)
+        case .controlOptionSpace:
+            modifiers = UInt32(controlKey | optionKey)
+        case .disabled:
+            return
+        }
 
         let hotKeyID = EventHotKeyID(
             signature: OSType(0x564F_4341), // 'VOCA'
             id: 1
         )
 
-        // Keycode 49 = Space, optionKey = Option (Alt)
         RegisterEventHotKey(
             UInt32(kVK_Space),
-            UInt32(optionKey),
+            modifiers,
             hotKeyID,
             GetApplicationEventTarget(),
             0,
@@ -236,8 +308,9 @@ final class MacQuickLookupPanelController: NSObject {
     }
 
     private func positionPanel(_ window: NSPanel) {
-        // If Voca main app window is open and visible on screen, center over it
-        if let mainWindow = findActiveVocaMainWindow() {
+        if NSApp.isActive,
+           let mainWindow = findActiveVocaMainWindow(),
+           mainWindow.isOnActiveSpace {
             let mainFrame = mainWindow.frame
             let size = window.frame.size
             let x = mainFrame.midX - (size.width / 2)

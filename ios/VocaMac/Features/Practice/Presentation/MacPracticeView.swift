@@ -10,13 +10,13 @@ struct MacPracticeActivity: Identifiable, Hashable, Sendable {
         var title: String {
             switch self {
             case .multipleChoice:
-                "Multiple Choice"
+                "Trắc nghiệm"
             case .reading:
-                "Reading"
+                "Đọc hiểu ngữ cảnh"
             case .listening:
-                "Listening"
+                "Nghe hiểu phát âm"
             case .writing:
-                "Writing"
+                "Gõ từ chuẩn xác"
             }
         }
 
@@ -36,13 +36,13 @@ struct MacPracticeActivity: Identifiable, Hashable, Sendable {
         var description: String {
             switch self {
             case .multipleChoice:
-                "Choose the best meaning for each word."
+                "Chọn nghĩa phù hợp nhất cho mỗi thẻ từ vựng."
             case .reading:
-                "Read short passages using saved vocabulary."
+                "Điền từ còn thiếu vào câu ví dụ ngữ cảnh thực tế."
             case .listening:
-                "Recognize vocabulary from pronunciation."
+                "Nghe phát âm bản xứ và nhận diện nghĩa chính xác."
             case .writing:
-                "Recall and type the correct word."
+                "Nhớ lại và gõ chính xác từ vựng từ gợi ý nghĩa."
             }
         }
     }
@@ -221,7 +221,7 @@ struct MacPracticeQuestion: Identifiable, Equatable, Sendable {
                 )
                 return MacPracticeQuestion(
                     id: item.id,
-                    prompt: "Listen and choose the meaning",
+                    prompt: "Nghe phát âm và chọn nghĩa đúng",
                     detail: item.pronunciation ?? item.language.title,
                     options: options,
                     correctAnswer: item.meaning,
@@ -231,7 +231,7 @@ struct MacPracticeQuestion: Identifiable, Equatable, Sendable {
 
             case .reading:
                 let exampleSentence = item.examples.first
-                    ?? "Context: Understanding “\(item.term)” is essential in this passage."
+                    ?? "Ngữ cảnh: Hiểu rõ “\(item.term)” là chìa khóa trong đoạn văn này."
                 let masked = exampleSentence.replacingOccurrences(
                     of: item.term,
                     with: "____",
@@ -250,9 +250,9 @@ struct MacPracticeQuestion: Identifiable, Equatable, Sendable {
                 return MacPracticeQuestion(
                     id: item.id,
                     prompt: masked == exampleSentence
-                        ? "\(exampleSentence)\n\nWhich word matches “\(item.meaning)”?"
+                        ? "\(exampleSentence)\n\nTừ nào tương ứng với “\(item.displayMeaningVi)”?"
                         : masked,
-                    detail: item.meaning,
+                    detail: item.displayMeaningVi,
                     options: options,
                     correctAnswer: item.term,
                     language: item.language,
@@ -364,7 +364,7 @@ struct MacPracticeView: View {
                 completion
             }
         }
-        .navigationTitle("Practice")
+        .navigationTitle("Luyện tập")
         .background(VocaDesign.subtleWindowBackground)
         .toolbar {
             if phase == .question || phase == .answerFeedback {
@@ -372,7 +372,7 @@ struct MacPracticeView: View {
                     Button {
                         phase = .activitySelection
                     } label: {
-                        Label("End Practice", systemImage: "xmark")
+                        Label("Kết thúc", systemImage: "xmark")
                     }
                     .keyboardShortcut(".", modifiers: .command)
                 }
@@ -398,11 +398,11 @@ struct MacPracticeView: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .center, spacing: 16) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Practice")
+                            Text("Luyện tập chủ động")
                                 .font(.largeTitle.weight(.bold))
 
                             Text(
-                                "Strengthen vocabulary without changing your review schedule."
+                                "Củng cố phản xạ từ vựng mà không làm xáo trộn lịch ôn tập FSRS."
                             )
                             .font(.title3)
                             .foregroundStyle(.secondary)
@@ -415,11 +415,11 @@ struct MacPracticeView: View {
 
                     VStack(alignment: .leading, spacing: 12) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Practice")
+                            Text("Luyện tập chủ động")
                                 .font(.largeTitle.weight(.bold))
 
                             Text(
-                                "Strengthen vocabulary without changing your review schedule."
+                                "Củng cố phản xạ từ vựng mà không làm xáo trộn lịch ôn tập FSRS."
                             )
                             .font(.title3)
                             .foregroundStyle(.secondary)
@@ -450,8 +450,7 @@ struct MacPracticeView: View {
                         )
 
                         Text(
-                            "Practice answers are tracked separately from "
-                            + "FSRS Review grades and do not change due dates."
+                            "Kết quả luyện tập được thống kê riêng và không làm thay đổi ngày đến hạn ôn tập FSRS."
                         )
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -496,7 +495,7 @@ struct MacPracticeView: View {
                     Spacer()
 
                     VocaPillBadge(
-                        text: "\(activity.estimatedMinutes) min",
+                        text: "\(activity.estimatedMinutes) phút",
                         icon: "clock",
                         tint: tint
                     )
@@ -516,7 +515,7 @@ struct MacPracticeView: View {
 
                 HStack {
                     Label(
-                        "\(min(max(vocabulary.items.count, 3), activity.itemCount)) questions",
+                        "\(min(max(vocabulary.items.count, 3), activity.itemCount)) câu hỏi",
                         systemImage: "list.number"
                     )
                     .font(.caption.weight(.medium))
@@ -524,7 +523,7 @@ struct MacPracticeView: View {
 
                     Spacer()
 
-                    Button("Start Session") {
+                    Button("Bắt đầu") {
                         start(activity)
                     }
                     .buttonStyle(VocaPrimaryButtonStyle(tint: tint))
@@ -573,8 +572,8 @@ struct MacPracticeView: View {
                                             Text(
                                                 speech.isSpeaking
                                                     && speech.speakingText == audioText
-                                                    ? "Stop"
-                                                    : "Listen"
+                                                    ? "Dừng"
+                                                    : "Nghe"
                                             )
                                             .font(.caption.weight(.semibold))
                                         }
@@ -663,7 +662,7 @@ struct MacPracticeView: View {
         VStack(spacing: 14) {
             VocaInputField(
                 icon: "pencil.line",
-                placeholder: "Type the matching word…",
+                placeholder: "Nhập từ vựng tương ứng…",
                 text: $typedAnswer,
                 isFocused: isWritingFieldFocused,
                 onSubmit: {
@@ -674,7 +673,7 @@ struct MacPracticeView: View {
             .disabled(phase == .answerFeedback)
 
             if phase == .question {
-                Button("Check Answer") {
+                Button("Kiểm tra đáp án") {
                     submitTypedAnswer()
                 }
                 .buttonStyle(VocaPrimaryButtonStyle(isFullWidth: true))
@@ -690,7 +689,7 @@ struct MacPracticeView: View {
     private var sessionHeader: some View {
         HStack(spacing: 16) {
             VocaPillBadge(
-                text: selectedActivity?.kind.title ?? "Practice",
+                text: selectedActivity?.kind.title ?? "Luyện tập",
                 icon: selectedActivity?.kind.systemImage ?? "sparkles",
                 tint: selectedActivity.map { activityTint($0.kind) } ?? VocaDesign.brandGreen
             )
@@ -710,7 +709,7 @@ struct MacPracticeView: View {
             .frame(height: 8)
 
             Text(
-                "\(currentQuestionIndex + 1) of \(questions.count)"
+                "Câu \(currentQuestionIndex + 1) / \(questions.count)"
             )
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.secondary)
@@ -795,8 +794,8 @@ struct MacPracticeView: View {
 
             Text(
                 isCorrect
-                    ? "Correct! Great recall."
-                    : "Correct answer: \(currentQuestion.correctAnswer)"
+                    ? "Chính xác! Phản xạ rất tốt."
+                    : "Đáp án đúng: \(currentQuestion.correctAnswer)"
             )
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(tint)
@@ -818,7 +817,7 @@ struct MacPracticeView: View {
     private var sessionFooter: some View {
         HStack {
             VocaPillBadge(
-                text: "\(correctAnswerCount) correct",
+                text: "\(correctAnswerCount) câu đúng",
                 icon: "checkmark.circle.fill",
                 tint: VocaDesign.brandGreen
             )
@@ -830,7 +829,7 @@ struct MacPracticeView: View {
                     advance()
                 } label: {
                     HStack(spacing: 6) {
-                        Text(isLastQuestion ? "Finish Session" : "Next Question")
+                        Text(isLastQuestion ? "Hoàn thành" : "Câu tiếp theo")
                         Image(
                             systemName: isLastQuestion
                                 ? "checkmark.circle.fill"
@@ -841,11 +840,11 @@ struct MacPracticeView: View {
                 .buttonStyle(VocaPrimaryButtonStyle())
                 .keyboardShortcut(.return, modifiers: [])
             } else if selectedActivity?.kind == .writing {
-                Text("Type the matching word and press Return")
+                Text("Gõ từ vựng tương ứng và nhấn Return")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Choose an answer or press 1–4")
+                Text("Chọn đáp án hoặc nhấn phím 1–4")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -868,7 +867,7 @@ struct MacPracticeView: View {
                 VStack(spacing: 2) {
                     Text("\(Int(round(scoreRatio * 100)))%")
                         .font(.system(size: 26, weight: .bold, design: .rounded))
-                    Text("Accuracy")
+                    Text("Độ chính xác")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -876,24 +875,23 @@ struct MacPracticeView: View {
             .frame(width: 112, height: 112)
 
             VStack(spacing: 8) {
-                Text("Practice Complete")
+                Text("Hoàn thành luyện tập")
                     .font(.system(size: 32, weight: .bold, design: .rounded))
 
                 Text(
-                    "You answered \(correctAnswerCount) of "
-                    + "\(questions.count) correctly."
+                    "Bạn đã trả lời đúng \(correctAnswerCount) / \(questions.count) câu."
                 )
                 .font(.title3)
                 .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 14) {
-                Button("Practice Again") {
+                Button("Luyện tập lại") {
                     restart()
                 }
                 .buttonStyle(VocaSecondaryButtonStyle())
 
-                Button("Back to Today", action: closePractice)
+                Button("Quay lại Hôm nay", action: closePractice)
                     .buttonStyle(VocaPrimaryButtonStyle())
                     .keyboardShortcut(.return, modifiers: [])
             }
@@ -916,7 +914,8 @@ struct MacPracticeView: View {
     }
 
     private var practiceLanguageSwitcher: some View {
-        let options: [(label: String, lang: MacVocabularyItem.Language)] = [
+        let options: [(label: String, lang: MacVocabularyItem.Language?)] = [
+            ("Tất cả", nil),
             ("English", .english),
             ("中文", .chinese)
         ]
@@ -924,7 +923,9 @@ struct MacPracticeView: View {
         return HStack(spacing: 3) {
             ForEach(options, id: \.label) { opt in
                 let isSelected = practiceLanguageFilter == opt.lang
-                let count = vocabulary.items.filter { $0.language == opt.lang }.count
+                let count = opt.lang == nil
+                    ? vocabulary.items.count
+                    : vocabulary.items.filter { $0.language == opt.lang }.count
 
                 Button {
                     withAnimation(.snappy(duration: 0.18)) {

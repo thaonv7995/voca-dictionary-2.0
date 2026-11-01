@@ -406,8 +406,11 @@ final class MacFeatureModelTests: XCTestCase {
             preferences: MacPreferences(
                 appearance: .dark,
                 defaultDestination: .review,
-                showInMenuBar: true,
-                launchAtLogin: true,
+                showInMenuBar: false,
+                menuBarBadgeStyle: .iconOnly,
+                quickLookupHotkey: .disabled,
+                launchAtLogin: false,
+                hideDockIcon: false,
                 dailyGoal: 50,
                 playAudioAutomatically: true,
                 enableAssistantFeatures: false
@@ -421,12 +424,59 @@ final class MacFeatureModelTests: XCTestCase {
 
         XCTAssertEqual(preferences.appearance, .system)
         XCTAssertEqual(preferences.defaultDestination, .today)
-        XCTAssertFalse(preferences.showInMenuBar)
-        XCTAssertFalse(preferences.launchAtLogin)
+        XCTAssertTrue(preferences.showInMenuBar)
+        XCTAssertEqual(preferences.menuBarBadgeStyle, .dueCount)
+        XCTAssertEqual(preferences.quickLookupHotkey, .optionSpace)
+        XCTAssertTrue(preferences.launchAtLogin)
+        XCTAssertTrue(preferences.hideDockIcon)
         XCTAssertEqual(preferences.dailyGoal, 20)
         XCTAssertFalse(preferences.playAudioAutomatically)
         XCTAssertTrue(preferences.enableAssistantFeatures)
         XCTAssertEqual(persistence.load(), .default)
+    }
+
+    @MainActor
+    func testPreferencesPersistMenuBarBadgeAndQuickLookupHotkey() {
+        let persistence = InMemoryMacPreferencesPersistence()
+        let preferences = MacPreferencesStore(
+            persistence: persistence
+        )
+
+        preferences.setMenuBarBadgeStyle(.dotOnly)
+        preferences.setQuickLookupHotkey(.commandShiftSpace)
+
+        XCTAssertEqual(preferences.menuBarBadgeStyle, .dotOnly)
+        XCTAssertEqual(preferences.quickLookupHotkey, .commandShiftSpace)
+        XCTAssertEqual(persistence.load().menuBarBadgeStyle, .dotOnly)
+        XCTAssertEqual(persistence.load().quickLookupHotkey, .commandShiftSpace)
+        XCTAssertEqual(
+            MacPreferencesStore.QuickLookupHotkey.commandShiftSpace.badgeLabel,
+            "⇧⌘Space"
+        )
+    }
+
+    @MainActor
+    func testReviewStoreRestoresCardForUndo() async {
+        let store = MacReviewStore(
+            repository: PreviewMacReviewRepository(),
+            ledger: MacActivityLedger(
+                persistence: InMemoryMacActivityLedgerPersistence()
+            )
+        )
+        await store.load()
+        let initialCount = store.cards.count
+        guard let firstCard = store.cards.first else {
+            XCTFail("Expected preview review cards")
+            return
+        }
+
+        let submitted = await store.submit(cardID: firstCard.id, grade: .good)
+        XCTAssertTrue(submitted)
+        XCTAssertEqual(store.cards.count, initialCount - 1)
+
+        store.restoreCard(firstCard, at: 0)
+        XCTAssertEqual(store.cards.count, initialCount)
+        XCTAssertEqual(store.cards.first, firstCard)
     }
 
     func testDefaultDestinationMapsToAppDestination() {
