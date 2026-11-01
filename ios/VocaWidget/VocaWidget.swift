@@ -237,7 +237,11 @@ struct VocaWidgetEntryView: View {
                 .widgetURL(URL(string: "voca://today"))
             }
         }
+        #if os(macOS)
+        .containerBackground(for: .widget) { Color(nsColor: .windowBackgroundColor) }
+        #else
         .containerBackground(for: .widget) { Color(.systemBackground) }
+        #endif
     }
 
     @ViewBuilder private func content(_ card: WidgetCard) -> some View {

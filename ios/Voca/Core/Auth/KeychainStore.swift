@@ -8,9 +8,19 @@ enum KeychainStore {
 
     static let accessTokenKey = "accessToken"
     static let refreshTokenKey = "refreshToken"
+    static let savedEmailKey = "savedEmail"
+    static let savedPasswordKey = "savedPassword"
 
     /// Stores `value` for `key`, or removes the item when `value` is nil.
     static func set(_ value: String?, for key: String) {
+        #if os(macOS)
+        let fallbackKey = "\(service).\(key)"
+        if let value {
+            UserDefaults.standard.set(value, forKey: fallbackKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: fallbackKey)
+        }
+        #else
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -22,9 +32,14 @@ enum KeychainStore {
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         SecItemAdd(insert as CFDictionary, nil)
+        #endif
     }
 
     static func get(_ key: String) -> String? {
+        #if os(macOS)
+        let fallbackKey = "\(service).\(key)"
+        return UserDefaults.standard.string(forKey: fallbackKey)
+        #else
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -38,5 +53,6 @@ enum KeychainStore {
               let string = String(data: data, encoding: .utf8)
         else { return nil }
         return string
+        #endif
     }
 }

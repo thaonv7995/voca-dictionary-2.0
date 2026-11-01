@@ -52,6 +52,10 @@ final class ApiClient {
         await tokens.clear()
     }
 
+    func clearTokens() async {
+        await tokens.clear()
+    }
+
     // MARK: - JSON verbs (envelope-unwrapped)
 
     func get<T: Decodable>(_ path: String, authorized: Bool = true) async throws -> T {

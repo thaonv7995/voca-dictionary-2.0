@@ -40,13 +40,24 @@ enum WidgetSharedStore {
     private static let pendingCardSlugKey = "voca.widget.pendingCardSlug"
 
     private static var fileURL: URL? {
-        FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: appGroup)?
-            .appendingPathComponent(fileName)
+        if let container = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
+            return container.appendingPathComponent(fileName)
+        }
+        let fallback = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Voca")
+        if let fallback {
+            try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+            return fallback.appendingPathComponent(fileName)
+        }
+        return nil
     }
 
     static func save(_ cards: [WidgetCard]) {
-        guard let url = fileURL, let data = try? JSONEncoder().encode(cards) else { return }
+        guard let url = fileURL else { return }
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard let data = try? JSONEncoder().encode(cards) else { return }
         try? data.write(to: url, options: .atomic)
     }
 
@@ -55,8 +66,11 @@ enum WidgetSharedStore {
               let data = try? Data(contentsOf: url),
               let cards = try? JSONDecoder().decode([WidgetCard].self, from: data)
         else { return [] }
-        let language = UserDefaults(suiteName: appGroup)?.string(forKey: languageKey) ?? "en"
-        return cards.filter { ($0.language ?? "en") == language }
+        if let language = UserDefaults(suiteName: appGroup)?.string(forKey: languageKey) {
+            let matched = cards.filter { ($0.language ?? "en") == language }
+            if !matched.isEmpty { return matched }
+        }
+        return cards
     }
 
     static func setSelectedLanguage(_ language: String) {

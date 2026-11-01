@@ -4,6 +4,7 @@ options:
   createIntermediateGroups: true
   deploymentTarget:
     iOS: "17.0"
+    macOS: "14.0"
 
 settings:
   base:
@@ -103,6 +104,78 @@ targets:
         GENERATE_INFOPLIST_FILE: "YES"
         CODE_SIGNING_ALLOWED: "NO"
 
+  VocaMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: VocaMac
+      # Shared product infrastructure extracted from the iOS application.
+      # Keep this list explicit so platform-specific SwiftUI, WidgetKit,
+      # camera, and photo-import code cannot leak into the macOS target.
+      - path: Voca/Core/Auth
+      - path: Voca/Core/Cache/AppCache.swift
+      - path: Voca/Core/Models/Card.swift
+      - path: Voca/Core/Models/StudyModels.swift
+      - path: Voca/Core/Models/User.swift
+      - path: Voca/Core/Networking
+      - path: Voca/Core/Services/AssistantService.swift
+      - path: Voca/Core/Services/ClientPrompts.swift
+      - path: Voca/Core/Services/CardsService.swift
+      - path: Voca/Core/Services/StudyService.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: site.thaonv.voca.macos
+        PRODUCT_NAME: Voca
+        PRODUCT_MODULE_NAME: VocaMac
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_APP_SANDBOX: "YES"
+        ENABLE_HARDENED_RUNTIME: "YES"
+    info:
+      path: VocaMac/SupportingFiles/Info.plist
+      properties:
+        CFBundleDisplayName: Voca
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.education
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - voca
+        NSServices:
+          - NSMenuItem:
+              default: Look Up in Voca
+            NSMessage: lookUpInVoca
+            NSPortName: Voca
+            NSSendTypes:
+              - NSStringPboardType
+          - NSMenuItem:
+              default: Add to Voca
+            NSMessage: addToVoca
+            NSPortName: Voca
+            NSSendTypes:
+              - NSStringPboardType
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            localhost:
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: true
+
+  VocaMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: VocaMacTests
+    dependencies:
+      - target: VocaMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: site.thaonv.voca.macos.tests
+        PRODUCT_NAME: VocaMacTests
+        GENERATE_INFOPLIST_FILE: "YES"
+        CODE_SIGNING_ALLOWED: "NO"
+
 schemes:
   Voca:
     build:
@@ -115,3 +188,17 @@ schemes:
       config: Debug
       targets:
         - VocaUITests
+
+  VocaMac:
+    build:
+      targets:
+        VocaMac: all
+        VocaMacTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - VocaMacTests
+    archive:
+      config: Release
