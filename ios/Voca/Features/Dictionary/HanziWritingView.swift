@@ -47,6 +47,13 @@ struct HanziWritingView: View {
         }
     }
 
+    private var compactStripWidth: CGFloat {
+        let count = characters.count
+        guard count > 0 else { return 0 }
+        let full = CGFloat(count) * 48 + CGFloat(max(0, count - 1)) * 6
+        return min(full, 156)
+    }
+
     var body: some View {
         if displayOnly, let character = characters.first {
             HanziCharacterPractice(character: character, compact: false, displayOnly: true)
@@ -63,28 +70,36 @@ struct HanziWritingView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: compact ? 6 : 14) {
-                        ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
-                            if compact, let onCharacterFocus {
-                                HanziCharacterPractice(character: character, compact: true,
-                                                       displayOnly: displayOnly)
-                                .contentShape(Rectangle())
-                                .highPriorityGesture(
-                                    TapGesture().onEnded { onCharacterFocus(character) })
-                                .accessibilityLabel("Phóng lớn chữ \(character)")
-                                .accessibilityAddTraits(.isButton)
-                                .accessibilityAction { onCharacterFocus(character) }
-                            } else {
-                                HanziCharacterPractice(character: character, compact: compact,
-                                                       displayOnly: displayOnly)
-                            }
-                        }
+                if compact && characters.count <= 3 {
+                    characterStrip
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        characterStrip
+                            .padding(.vertical, 1)
                     }
-                    .frame(minWidth: compact ? 114 : 0, alignment: .trailing)
-                    .padding(.horizontal, 1)
+                    .frame(width: compact ? compactStripWidth : nil, alignment: .trailing)
                 }
-                .frame(width: compact ? 114 : nil, alignment: .trailing)
+            }
+        }
+    }
+
+    private var characterStrip: some View {
+        HStack(spacing: compact ? 6 : 14) {
+            ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
+                if compact, let onCharacterFocus {
+                    HanziCharacterPractice(character: character, compact: true,
+                                           displayOnly: displayOnly)
+                        .contentShape(Rectangle())
+                        .highPriorityGesture(
+                            TapGesture().onEnded { onCharacterFocus(character) }
+                        )
+                        .accessibilityLabel("Phóng lớn chữ \(character)")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { onCharacterFocus(character) }
+                } else {
+                    HanziCharacterPractice(character: character, compact: compact,
+                                           displayOnly: displayOnly)
+                }
             }
         }
     }
@@ -101,23 +116,33 @@ private struct HanziCharacterPractice: View {
     @State private var status = ""
 
     private var canvasSize: CGFloat { compact ? 48 : displayOnly ? 240 : 176 }
+    private var canvasRadius: CGFloat { compact ? 9 : displayOnly ? 16 : 12 }
 
     private var canvasSurfaceColor: Color {
         colorScheme == .dark ? Color(red: 0.086, green: 0.114, blue: 0.184) : .white
     }
 
+    private var gridBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.12)
+    }
+
     var body: some View {
-        VStack(spacing: 8) {
-            Group {
+        let content = VStack(spacing: 10) {
+            ZStack {
+                canvasSurfaceColor
+
                 if let strokeJSON {
                     HanziWriterWebView(
                         character: character,
                         strokeJSON: strokeJSON,
                         size: Int(canvasSize),
+                        borderWidth: compact ? 1 : (displayOnly ? 2 : 1.5),
+                        cornerRadius: Int(canvasRadius),
                         isDark: colorScheme == .dark,
                         command: command,
                         onStatus: { status = $0 }
                     )
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 } else if errorMessage != nil {
                     VStack(spacing: 8) {
                         Text(character)
@@ -126,13 +151,33 @@ private struct HanziCharacterPractice: View {
                             Button("Tải lại") { load() }.font(.caption)
                         }
                     }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: canvasRadius, style: .continuous)
+                            .strokeBorder(gridBorderColor, lineWidth: compact ? 1 : 1.5)
+                    )
                 } else {
-                    ProgressView()
+                    Text(character)
+                        .font(VocaTypography.hanziFont(size: compact ? 26 : (displayOnly ? 120 : 86), weight: .regular))
+                        .foregroundStyle(.secondary.opacity(0.32))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: canvasRadius, style: .continuous)
+                                .strokeBorder(gridBorderColor, lineWidth: compact ? 1 : 1.5)
+                        )
                 }
             }
             .frame(width: canvasSize, height: canvasSize)
-            .background(canvasSurfaceColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: canvasRadius, style: .continuous))
+            .shadow(
+                color: displayOnly ? .black.opacity(colorScheme == .dark ? 0.3 : 0.1) : .clear,
+                radius: displayOnly ? 16 : 0,
+                y: displayOnly ? 6 : 0
+            )
+            .animation(.easeOut(duration: 0.22), value: strokeJSON != nil)
+            .onTapGesture {
+                guard displayOnly, strokeJSON != nil else { return }
+                Haptics.selection()
+                command = HanziCommand(kind: .animate)
+            }
 
             if !compact && !displayOnly {
                 HStack(spacing: 10) {
@@ -149,19 +194,26 @@ private struct HanziCharacterPractice: View {
                     Text(status)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Brand.green)
+                        .transition(.opacity)
                 }
             }
         }
-        .padding(compact ? 4 : 12)
-        .background(
-            Brand.cardFill(for: colorScheme),
-            in: RoundedRectangle(cornerRadius: compact ? 10 : 18, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: compact ? 10 : 18, style: .continuous)
-                .strokeBorder(Brand.hairlineBorder(for: colorScheme), lineWidth: 1)
-        )
         .task(id: character) { await loadData() }
+
+        if compact || displayOnly {
+            content
+        } else {
+            content
+                .padding(12)
+                .background(
+                    Brand.cardFill(for: colorScheme),
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Brand.hairlineBorder(for: colorScheme), lineWidth: 1)
+                )
+        }
     }
 
     private func iconButton(_ icon: String, title: String, label: String, action: @escaping () -> Void) -> some View {
@@ -203,6 +255,8 @@ private struct HanziWriterWebView: UIViewRepresentable {
     let character: String
     let strokeJSON: String
     let size: Int
+    let borderWidth: Double
+    let cornerRadius: Int
     let isDark: Bool
     let command: HanziCommand?
     let onStatus: (String) -> Void
@@ -244,17 +298,19 @@ private struct HanziWriterWebView: UIViewRepresentable {
 
     private var html: String {
         let encodedCharacter = (try? String(data: JSONEncoder().encode(character), encoding: .utf8)) ?? "\"\""
-        let targetSize = size - 6
+        let inset = Int(ceil(borderWidth * 2))
+        let targetSize = max(size - inset, 16)
+        let writerPadding = size <= 64 ? 4 : 8
         let bgColor = isDark ? "#161d2f" : "#ffffff"
-        let borderColor = isDark ? "#2d3852" : "#e5e7eb"
-        let crossColor = isDark ? "#3f4e70" : "#a9bad3"
+        let borderColor = isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.10)"
+        let crossColor = isDark ? "rgba(148,163,184,0.34)" : "#a9bad3"
         let strokeColor = isDark ? "#f1f5f9" : "#111827"
         let outlineColor = isDark ? "#475569" : "#d1d5db"
         return """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
         <style>
         *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:\(bgColor)}
-        #grid{position:relative;width:\(size)px;height:\(size)px;border:3px solid \(borderColor);border-radius:10px;overflow:hidden}
+        #grid{position:relative;width:\(size)px;height:\(size)px;border:\(borderWidth)px solid \(borderColor);border-radius:\(cornerRadius)px;overflow:hidden}
         #grid:before,#grid:after{content:"";position:absolute;z-index:0;opacity:.65}
         #grid:before{left:50%;top:0;height:100%;border-left:1px dashed \(crossColor)}
         #grid:after{top:50%;left:0;width:100%;border-top:1px dashed \(crossColor)}
@@ -262,7 +318,7 @@ private struct HanziWriterWebView: UIViewRepresentable {
         </style></head><body><div id="grid"><div id="target"></div></div>
         <script src="hanzi-writer.min.js"></script><script>
         const character=\(encodedCharacter), characterData=\(strokeJSON);
-        const writer=HanziWriter.create('target',character,{width:\(targetSize),height:\(targetSize),padding:8,
+        const writer=HanziWriter.create('target',character,{width:\(targetSize),height:\(targetSize),padding:\(writerPadding),
           showOutline:true,strokeColor:'\(strokeColor)',outlineColor:'\(outlineColor)',strokeAnimationSpeed:1,
           delayBetweenStrokes:180,charDataLoader:()=>Promise.resolve(characterData)});
         window.vocaAnimate=async()=>{writer.cancelQuiz();await writer.hideCharacter({duration:80});
@@ -299,8 +355,11 @@ private struct HanziWriterWebView: UIViewRepresentable {
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let body = message.body as? String else { return }
-            if body == "quizComplete" { onStatus("Hoàn thành!") }
-            else if body == "animationComplete" { onStatus("") }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if body == "quizComplete" { self.onStatus("Hoàn thành!") }
+                else if body == "animationComplete" { self.onStatus("") }
+            }
         }
     }
 }

@@ -250,7 +250,7 @@ struct StudyRootView: View {
             }
             .brandCard()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableScaleStyle(scale: 0.985))
     }
 
     @ViewBuilder private func errorBanner(_ message: String) -> some View {

@@ -33,6 +33,7 @@ struct AssistantRootView: View {
     @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
 
     @State private var mode: AssistantMode = .chat
+    @Namespace private var modeNamespace
     @State private var chatVM = ChatViewModel()
     @State private var drillsVM = DrillsViewModel()
     @State private var readingVM = ReadingViewModel()
@@ -87,14 +88,19 @@ struct AssistantRootView: View {
     }
 
     @ViewBuilder private var modeContent: some View {
-        switch mode {
-        case .chat: ChatView(vm: chatVM)
-        case .drills: DrillsView(vm: drillsVM)
-        case .reading: ReadingView(vm: readingVM)
-        case .article: ArticleView(vm: articleVM)
-        case .speaking: SpeakingView(vm: speakingVM)
-        case .conversation: ConversationView(vm: conversationVM)
+        Group {
+            switch mode {
+            case .chat: ChatView(vm: chatVM)
+            case .drills: DrillsView(vm: drillsVM)
+            case .reading: ReadingView(vm: readingVM)
+            case .article: ArticleView(vm: articleVM)
+            case .speaking: SpeakingView(vm: speakingVM)
+            case .conversation: ConversationView(vm: conversationVM)
+            }
         }
+        .id(mode)
+        .transition(.opacity.combined(with: .offset(y: 6)))
+        .animation(.spring(response: 0.3, dampingFraction: 0.86), value: mode)
     }
 
     private var modeSidebar: some View {
@@ -105,7 +111,7 @@ struct AssistantRootView: View {
                 let selected = mode == item
                 Button {
                     Haptics.selection()
-                    withAnimation(.easeInOut(duration: 0.15)) { mode = item }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { mode = item }
                 } label: {
                     Label(item.title, systemImage: item.icon)
                         .font(.subheadline.weight(.semibold))
@@ -117,6 +123,7 @@ struct AssistantRootView: View {
                             if selected {
                                 RoundedRectangle(cornerRadius: 11, style: .continuous)
                                     .fill(Brand.gradient)
+                                    .matchedGeometryEffect(id: "sidebar-mode", in: modeNamespace)
                             }
                         }
                 }
@@ -130,14 +137,22 @@ struct AssistantRootView: View {
     }
 
     private var modePicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(AssistantMode.allCases) { item in
-                    modePill(item)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(AssistantMode.allCases) { item in
+                        modePill(item)
+                            .id(item)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 10)
+            }
+            .onChange(of: mode) { _, newMode in
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                    proxy.scrollTo(newMode, anchor: .center)
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
         }
     }
 
@@ -145,7 +160,7 @@ struct AssistantRootView: View {
         let selected = mode == item
         return Button {
             Haptics.selection()
-            withAnimation(.easeInOut(duration: 0.15)) { mode = item }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { mode = item }
         } label: {
             Label(item.title, systemImage: item.icon)
                 .font(.subheadline.weight(.semibold))
@@ -155,7 +170,10 @@ struct AssistantRootView: View {
                 .foregroundStyle(selected ? .white : Brand.green)
                 .background {
                     if selected {
-                        Capsule().fill(Brand.gradient)
+                        Capsule()
+                            .fill(Brand.gradient)
+                            .matchedGeometryEffect(id: "phone-mode", in: modeNamespace)
+                            .shadow(color: Brand.green.opacity(0.24), radius: 5, y: 2)
                     } else {
                         Capsule().fill(Brand.greenSoft)
                     }

@@ -76,6 +76,7 @@ struct CardDetailView: View {
                 } label: {
                     Image(systemName: learner.isFavorite(card.slug) ? "star.fill" : "star")
                         .foregroundStyle(learner.isFavorite(card.slug) ? .orange : Brand.green)
+                        .symbolEffect(.bounce, value: learner.isFavorite(card.slug))
                 }
                 .accessibilityLabel(learner.isFavorite(card.slug) ? "Bỏ yêu thích" : "Yêu thích")
 

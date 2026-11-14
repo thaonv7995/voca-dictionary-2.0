@@ -65,6 +65,9 @@ struct FlashcardDeckView: View {
         let depth = entry.offset
         let isTop = depth == 0
         let currentOffset = flyAway ?? drag
+        let dragProgress = min(1, abs(currentOffset.width) / swipeThreshold)
+        let depthLift = (depth == 1) ? dragProgress * 0.035 : 0
+        let yLift = (depth == 1) ? dragProgress * 8 : 0
         let previewGrade = isTop ? grade(for: currentOffset.width) : nil
 
         let base = FlashcardCardView(
@@ -82,8 +85,8 @@ struct FlashcardDeckView: View {
             }
         }
         .overlay { if isTop { swipeSticker(for: currentOffset.width) } }
-        .scaleEffect(1 - CGFloat(depth) * 0.045)
-        .offset(y: CGFloat(depth) * 12)
+        .scaleEffect((1 - CGFloat(depth) * 0.045) + depthLift)
+        .offset(y: CGFloat(depth) * 12 - yLift)
         .offset(isTop ? currentOffset : .zero)
         .rotationEffect(.degrees(isTop ? angle(for: currentOffset.width) : 0))
         .zIndex(Double(-depth))
@@ -312,6 +315,9 @@ struct FreeFlashcardDeckView: View {
             ZStack {
                 ForEach(visibleCards, id: \.offset) { depth, card in
                     let isTop = depth == 0
+                    let dragProgress = min(1, abs(dragOffset) / 70)
+                    let depthLift = (depth == 1) ? dragProgress * 0.035 : 0
+                    let yLift = (depth == 1) ? dragProgress * 8 : 0
                     FlashcardCardView(
                         card: card,
                         flipped: isTop && flipped,
@@ -319,8 +325,8 @@ struct FreeFlashcardDeckView: View {
                         reverseMode: reverseMode
                     )
                     .frame(maxWidth: 520)
-                    .scaleEffect(1 - CGFloat(depth) * 0.045)
-                    .offset(y: CGFloat(depth) * 12)
+                    .scaleEffect((1 - CGFloat(depth) * 0.045) + depthLift)
+                    .offset(y: CGFloat(depth) * 12 - yLift)
                     .offset(x: isTop ? dragOffset : 0)
                     .rotationEffect(.degrees(isTop ? Double(dragOffset / 22) : 0))
                     .zIndex(Double(-depth))

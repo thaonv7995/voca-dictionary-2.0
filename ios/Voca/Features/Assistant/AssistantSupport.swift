@@ -261,20 +261,6 @@ struct ChatSendButton: View {
     }
 }
 
-// MARK: - Button styles
-
-/// Subtle press feedback for primary CTAs: scales down slightly and dims while pressed.
-struct PressableScaleStyle: ButtonStyle {
-    var scale: CGFloat = 0.94
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? scale : 1)
-            .opacity(configuration.isPressed ? 0.9 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
-    }
-}
-
 // MARK: - Chips
 
 /// A word + IPA capsule used by the speaking view.

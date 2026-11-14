@@ -375,7 +375,7 @@ struct TodayView: View {
                             RecentCardRow(card: card)
                                 .padding(.vertical, 11)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressableScaleStyle(scale: 0.985))
 
                         if index < recent.count - 1 {
                             Divider().opacity(0.6)

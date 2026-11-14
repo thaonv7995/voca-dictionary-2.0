@@ -6,19 +6,24 @@ struct RootView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(ThemeStore.self) private var theme
     @Environment(LocalLearnerStore.self) private var learner
+    @State private var splashBreathing = false
 
     var body: some View {
         Group {
             switch auth.phase {
             case .loading:
                 splashView
+                    .transition(.opacity)
                     .task { await auth.bootstrap() }
             case .signedOut:
                 LoginView()
+                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
             case .signedIn:
                 HomeView()
+                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
             }
         }
+        .animation(.spring(response: 0.45, dampingFraction: 0.88), value: auth.phase)
         .tint(theme.accent)
         .preferredColorScheme(theme.colorScheme)
         .onChange(of: auth.phase) { _, phase in
@@ -33,6 +38,9 @@ struct RootView: View {
             VocaThemeBackground()
             VStack(spacing: 18) {
                 VocaBrandMark(size: 86)
+                    .scaleEffect(splashBreathing ? 1.04 : 0.97)
+                    .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: splashBreathing)
+                    .onAppear { splashBreathing = true }
                 VStack(spacing: 4) {
                     Text("Voca")
                         .font(.system(size: 32, weight: .bold, design: .rounded))

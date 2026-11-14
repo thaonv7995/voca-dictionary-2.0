@@ -213,8 +213,8 @@ struct DictionaryView: View {
                 ScanWordsView(language: language) { Task { await store.load() } }
             }
             .sheet(item: $focusedHanzi) { focus in
-                HanziFocusSheet(card: focus.card)
-                    .presentationDetents([.medium, .large])
+                HanziFocusSheet(word: focus.word)
+                    .presentationDetents([.height(320), .medium])
                     .presentationDragIndicator(.visible)
             }
             .sheet(item: $a4Card) { card in
@@ -302,33 +302,48 @@ struct DictionaryView: View {
                         spacing: 14
                     ) {
                         ForEach(filteredCards) { card in
-                            CardRow(card: card, onWritingFocus: {
-                                focusedHanzi = FocusedHanzi(card: card)
+                            CardRow(card: card, onWritingFocus: { tapped in
+                                Haptics.impact(.light)
+                                focusedHanzi = FocusedHanzi(word: tapped)
                             }, onA4Tap: { tapped in
+                                Haptics.impact(.light)
                                 a4Card = tapped
                             })
                             .brandCard(padding: 15, cornerRadius: 18)
                             .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .onTapGesture { navigationPath.append(card) }
+                            .onTapGesture {
+                                Haptics.impact(.light)
+                                navigationPath.append(card)
+                            }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { navigationPath.append(card) }
                             .contextMenu { cardContextMenu(card) }
                         }
                     }
                     .padding(20)
                     .frame(maxWidth: 1100)
                     .frame(maxWidth: .infinity)
+                    .animation(.spring(response: 0.34, dampingFraction: 0.84), value: filteredCards.map(\.id))
                 }
                 .refreshable { await store.refresh() }
             } else {
                 List {
                     ForEach(filteredCards) { card in
-                        NavigationLink(value: card) {
-                            CardRow(card: card, onWritingFocus: {
-                                focusedHanzi = FocusedHanzi(card: card)
-                            }, onA4Tap: { tapped in
-                                a4Card = tapped
-                            })
-                            .brandCard(padding: 14, cornerRadius: 16)
+                        CardRow(card: card, onWritingFocus: { tapped in
+                            Haptics.impact(.light)
+                            focusedHanzi = FocusedHanzi(word: tapped)
+                        }, onA4Tap: { tapped in
+                            Haptics.impact(.light)
+                            a4Card = tapped
+                        })
+                        .brandCard(padding: 14, cornerRadius: 16)
+                        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .onTapGesture {
+                            Haptics.impact(.light)
+                            navigationPath.append(card)
                         }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { navigationPath.append(card) }
                         .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
@@ -349,6 +364,7 @@ struct DictionaryView: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .animation(.spring(response: 0.34, dampingFraction: 0.84), value: filteredCards.map(\.id))
                 .refreshable { await store.refresh() }
             }
         }
@@ -357,10 +373,22 @@ struct DictionaryView: View {
                 if !searchText.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                 } else {
-                    ContentUnavailableView(
-                        "Không có thẻ phù hợp",
-                        systemImage: "line.3.horizontal.decrease.circle",
-                        description: Text("Thử đổi hoặc xóa bộ lọc."))
+                    ContentUnavailableView {
+                        Label("Không có thẻ phù hợp", systemImage: "line.3.horizontal.decrease.circle")
+                    } description: {
+                        Text("Thử đổi hoặc xóa bộ lọc.")
+                    } actions: {
+                        if hasActiveFilters {
+                            Button("Xóa bộ lọc") {
+                                Haptics.selection()
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                                    resetFilters()
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(Brand.green)
+                        }
+                    }
                 }
             }
         }
@@ -431,6 +459,7 @@ struct DictionaryView: View {
                 Text("\(filteredCards.count)/\(languageCards.count)")
                     .font(.caption.weight(.bold))
                     .monospacedDigit()
+                    .contentTransition(.numericText())
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -438,11 +467,12 @@ struct DictionaryView: View {
 
                 Button {
                     Haptics.selection()
-                    withAnimation(.easeInOut(duration: 0.18)) { favoritesOnly.toggle() }
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) { favoritesOnly.toggle() }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: favoritesOnly ? "star.fill" : "star")
                             .font(.caption2)
+                            .symbolEffect(.bounce, value: favoritesOnly)
                         Text("Yêu thích")
                     }
                     .font(.subheadline.weight(.medium))
@@ -451,7 +481,7 @@ struct DictionaryView: View {
                     .foregroundStyle(favoritesOnly ? Color.white : .orange)
                     .background(favoritesOnly ? Color.orange : Color.orange.opacity(0.14), in: Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableScaleStyle(scale: 0.94))
 
                 levelPill
                 if !topics.isEmpty { topicPill }
@@ -459,7 +489,8 @@ struct DictionaryView: View {
 
                 if hasActiveFilters {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { resetFilters() }
+                        Haptics.selection()
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { resetFilters() }
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "xmark.circle.fill")
@@ -471,6 +502,7 @@ struct DictionaryView: View {
                         .foregroundStyle(.secondary)
                         .background(Color(.tertiarySystemFill), in: Capsule())
                     }
+                    .buttonStyle(PressableScaleStyle(scale: 0.94))
                     .transition(.opacity.combined(with: .scale))
                 }
             }
@@ -531,34 +563,119 @@ struct DictionaryView: View {
     }
 }
 
-/// A single row in the dictionary list.
+/// A single row in the dictionary list. Every control and chevron lives strictly inside the card container.
 private struct CardRow: View {
     @Environment(LocalLearnerStore.self) private var learner
     let card: Card
-    let onWritingFocus: () -> Void
+    let onWritingFocus: (String) -> Void
     var onA4Tap: ((Card) -> Void)? = nil
 
     var body: some View {
-        HStack(alignment: card.isChinese ? .top : .center, spacing: 10) {
+        if card.isChinese {
+            chineseBody
+        } else {
+            englishBody
+        }
+    }
+
+    private var chineseBody: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(card.word)
+                            .font(VocaTypography.hanziFont(size: 25, weight: .bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        if learner.isFavorite(card.slug) {
+                            Image(systemName: "star.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    if let pinyin = card.phonetic, !pinyin.isEmpty {
+                        Text(pinyin)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Brand.green)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 6) {
+                    if let level = CardLevel(card.level) {
+                        LevelBadge(level: level)
+                    }
+                    PronounceButton(
+                        text: card.word,
+                        language: card.cardLanguage,
+                        size: 30,
+                        font: .footnote,
+                        tintedCapsule: true
+                    )
+                    if let onA4Tap {
+                        Button {
+                            onA4Tap(card)
+                        } label: {
+                            Image(systemName: "doc.text")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Brand.green)
+                                .frame(width: 30, height: 30)
+                                .background(Brand.greenSoft, in: Circle())
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Phiếu học A4")
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .fixedSize()
+            }
+
+            HStack(alignment: .bottom, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let meaningVi = card.meaningVi, !meaningVi.isEmpty {
+                        Text(meaningVi)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    if let topic = card.topic, !topic.isEmpty {
+                        Badge(text: topic)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HanziWritingView(
+                    word: card.word,
+                    compact: true,
+                    onCharacterFocus: onWritingFocus
+                )
+            }
+        }
+    }
+
+    private var englishBody: some View {
+        HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
                     Text(card.word)
-                        .font(card.isChinese ? VocaTypography.hanziFont(size: 24, weight: .bold) : .headline)
-                    if !card.isChinese, let phonetic = card.phonetic {
+                        .font(.headline)
+                        .layoutPriority(1)
+                    if let phonetic = card.phonetic, !phonetic.isEmpty {
                         Text(phonetic)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                     if learner.isFavorite(card.slug) {
                         Image(systemName: "star.fill")
                             .font(.caption2)
                             .foregroundStyle(.orange)
+                            .transition(.scale.combined(with: .opacity))
                     }
-                }
-                if card.isChinese, let pinyin = card.phonetic {
-                    Text(pinyin)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Brand.green)
                 }
                 if let meaningVi = card.meaningVi, !meaningVi.isEmpty {
                     Text(meaningVi)
@@ -572,92 +689,42 @@ private struct CardRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if card.isChinese {
-                HanziWritingView(word: card.word, compact: true,
-                                 onCharacterFocus: { _ in onWritingFocus() })
-                VStack(spacing: 6) {
-                    HStack(spacing: 4) {
-                        PronounceButton(text: card.word, language: card.cardLanguage)
-                        if let onA4Tap {
-                            Button {
-                                onA4Tap(card)
-                            } label: {
-                                Image(systemName: "doc.text")
-                                    .font(.body)
-                                    .foregroundStyle(Brand.green)
-                                    .frame(width: 30, height: 30)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Phiếu học A4")
-                        }
-                    }
-                    if let level = CardLevel(card.level) { LevelBadge(level: level) }
+            HStack(spacing: 6) {
+                if let level = CardLevel(card.level) {
+                    LevelBadge(level: level)
                 }
-            } else {
-                PronounceButton(text: card.word, language: card.cardLanguage)
-                if let level = CardLevel(card.level) { LevelBadge(level: level) }
+                PronounceButton(
+                    text: card.word,
+                    language: card.cardLanguage,
+                    size: 30,
+                    font: .footnote,
+                    tintedCapsule: true
+                )
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
+            .fixedSize()
         }
     }
 }
 
 private struct FocusedHanzi: Identifiable {
     let id = UUID()
-    let card: Card
+    let word: String
 }
 
-/// Interactive Hanzi handwriting + stroke order + pronunciation modal.
+/// Focused single-character Hanzi zoom popup (tap the character to replay stroke order).
 private struct HanziFocusSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let card: Card
+    let word: String
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                VocaThemeBackground()
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(card.word)
-                                    .font(VocaTypography.hanziFont(size: 38, weight: .bold))
-                                if let phonetic = card.phonetic {
-                                    Text(phonetic)
-                                        .font(.headline)
-                                        .foregroundStyle(Brand.green)
-                                }
-                                if let meaning = card.meaningVi, !meaning.isEmpty {
-                                    Text(meaning)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            Spacer()
-                            PronounceButton(
-                                text: card.word,
-                                language: .chinese,
-                                size: 46,
-                                font: .title2,
-                                tintedCapsule: true
-                            )
-                        }
-                        .brandHeroCard(padding: 16, cornerRadius: 18)
-
-                        HanziWritingView(word: card.word)
-                    }
-                    .padding()
-                }
-            }
-            .navigationTitle("Tập viết Hán tự")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Đóng") { dismiss() }
-                }
-            }
+        ZStack {
+            VocaThemeBackground()
+            HanziWritingView(word: word, displayOnly: true)
+                .padding(20)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

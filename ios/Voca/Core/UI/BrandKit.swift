@@ -331,18 +331,22 @@ struct PronounceButton: View {
             }
         } label: {
             ZStack {
-                ProgressView().controlSize(.small).opacity(speaking ? 1 : 0)
+                if tintedCapsule {
+                    Circle()
+                        .fill(Brand.greenSoft)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(Brand.green.opacity(speaking ? 0.55 : 0), lineWidth: 1.5)
+                        )
+                        .scaleEffect(speaking ? 1.08 : 1)
+                }
                 Image(systemName: speaking ? "waveform" : "speaker.wave.2.fill")
                     .font(font)
-                    .opacity(speaking ? 0 : 1)
+                    .symbolEffect(.variableColor.iterative, isActive: speaking)
             }
             .frame(width: size, height: size)
             .foregroundStyle(Brand.green)
-            .background {
-                if tintedCapsule {
-                    Circle().fill(Brand.greenSoft)
-                }
-            }
+            .animation(.spring(response: 0.28, dampingFraction: 0.72), value: speaking)
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
@@ -488,7 +492,19 @@ struct VocaToastBanner: View {
     }
 }
 
-// MARK: - CTA Button Style
+// MARK: - Button Styles
+
+/// Subtle press feedback for interactive cards and CTAs: scales down gently on touch.
+struct PressableScaleStyle: ButtonStyle {
+    var scale: CGFloat = 0.96
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .opacity(configuration.isPressed ? 0.92 : 1)
+            .animation(.spring(response: 0.24, dampingFraction: 0.72), value: configuration.isPressed)
+    }
+}
 
 /// Primary themed gradient CTA with gentle press scale, soft elevation, and disabled fade.
 struct BrandCTAButtonStyle: ButtonStyle {
