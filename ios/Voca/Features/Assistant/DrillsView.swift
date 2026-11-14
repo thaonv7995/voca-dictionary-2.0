@@ -1,28 +1,43 @@
 import SwiftUI
 import Observation
 
-/// Generates and holds a batch of multiple-choice vocabulary drills.
+/// Generates and holds a batch of multiple-choice vocabulary drills with live score tracking.
 @MainActor
 @Observable
 final class DrillsViewModel {
     var language: CardLanguage = .english
     var drills: [Drill] = []
+    var resultsById: [UUID: Bool] = [:]
     var isGenerating = false
     var errorMessage: String?
     var hasGenerated = false
-    /// Index of the drill currently shown (one-at-a-time paging).
     var currentIndex = 0
 
     private let service = AssistantService()
+
+    var correctCount: Int {
+        resultsById.values.filter { $0 }.count
+    }
+
+    var answeredCount: Int {
+        resultsById.count
+    }
 
     func setLanguage(_ newLanguage: CardLanguage) {
         guard language != newLanguage else { return }
         language = newLanguage
         if !isGenerating {
             drills = []
+            resultsById = [:]
             errorMessage = nil
             hasGenerated = false
             currentIndex = 0
+        }
+    }
+
+    func recordAnswer(for drillId: UUID, isCorrect: Bool) {
+        if resultsById[drillId] == nil {
+            resultsById[drillId] = isCorrect
         }
     }
 
@@ -31,6 +46,7 @@ final class DrillsViewModel {
         isGenerating = true
         errorMessage = nil
         drills = []
+        resultsById = [:]
         currentIndex = 0
         let lang = language
 
@@ -43,9 +59,13 @@ final class DrillsViewModel {
                 drills = PracticeParsing.drills(from: acc)
                 if drills.isEmpty {
                     errorMessage = "Không tạo được nội dung, thử lại"
+                    Haptics.notify(.error)
+                } else {
+                    Haptics.notify(.success)
                 }
             } catch {
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+                Haptics.notify(.error)
             }
             hasGenerated = true
             isGenerating = false
@@ -61,17 +81,16 @@ final class DrillsViewModel {
     }
 }
 
-/// Color for a drill difficulty label (easy → green, medium → orange, hard → red).
 func drillDifficultyColor(_ difficulty: String?) -> Color {
     switch difficulty?.lowercased() {
-    case "easy", "dễ", "beginner": return Brand.green
+    case "easy", "dễ", "beginner": return Brand.semanticSuccess
     case "medium", "trung bình", "intermediate": return .orange
     case "hard", "khó", "advanced": return .red
     default: return .secondary
     }
 }
 
-/// Generates a batch of drills and shows them one at a time with Previous/Next paging.
+/// Generates a batch of drills with step dots, score indicator, and Previous/Next paging.
 struct DrillsView: View {
     @Bindable var vm: DrillsViewModel
 
@@ -79,6 +98,7 @@ struct DrillsView: View {
         ScrollView {
             VStack(spacing: 16) {
                 Button {
+                    Haptics.impact(.light)
                     vm.generate()
                 } label: {
                     Label(vm.drills.isEmpty ? "Tạo 5 câu hỏi" : "Tạo lại 5 câu hỏi",
@@ -100,30 +120,87 @@ struct DrillsView: View {
                 }
 
                 if !vm.drills.isEmpty {
+                    progressBarRow
                     let index = min(vm.currentIndex, vm.drills.count - 1)
-                    DrillCardView(drill: vm.drills[index], number: index + 1, language: vm.language)
-                        .id(vm.drills[index].id)
+                    let drill = vm.drills[index]
+                    DrillCardView(
+                        drill: drill,
+                        number: index + 1,
+                        language: vm.language,
+                        onAnswered: { isCorrect in
+                            vm.recordAnswer(for: drill.id, isCorrect: isCorrect)
+                        }
+                    )
+                    .id(drill.id)
                     pager(index: index)
                 }
 
                 if !vm.isGenerating && vm.drills.isEmpty && vm.errorMessage == nil && !vm.hasGenerated {
-                    Text(vm.language == .chinese
-                         ? "Nhấn nút để tạo 5 câu trắc nghiệm Hán ngữ luyện tập."
-                         : "Nhấn nút để tạo 5 câu trắc nghiệm luyện tập.")
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 40)
+                    VStack(spacing: 12) {
+                        VocaIconBadge(systemImage: "checklist", size: 54, iconSize: 24)
+                        Text(vm.language == .chinese
+                             ? "Nhấn nút để tạo 5 câu trắc nghiệm Hán ngữ luyện tập."
+                             : "Nhấn nút để tạo 5 câu trắc nghiệm luyện tập.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 36)
                 }
             }
             .padding()
+            .frame(maxWidth: 760)
+            .frame(maxWidth: .infinity)
         }
     }
 
-    /// Previous / Next controls with an "i/N" counter.
+    private var progressBarRow: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(vm.drills.enumerated()), id: \.element.id) { idx, drill in
+                let result = vm.resultsById[drill.id]
+                let isCurrent = idx == vm.currentIndex
+
+                Button {
+                    Haptics.selection()
+                    vm.currentIndex = idx
+                } label: {
+                    Text("\(idx + 1)")
+                        .font(.caption.weight(.bold))
+                        .frame(width: 30, height: 30)
+                        .foregroundStyle(stepForeground(isCurrent: isCurrent, result: result))
+                        .background(stepBackground(isCurrent: isCurrent, result: result), in: Circle())
+                        .overlay(
+                            Circle().strokeBorder(isCurrent ? Brand.green : Color.clear, lineWidth: 2)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+
+            VocaPillBadge(
+                text: "\(vm.correctCount)/\(vm.drills.count) đúng",
+                icon: "checkmark.circle.fill",
+                tint: vm.answeredCount > 0 ? Brand.green : .secondary
+            )
+        }
+    }
+
+    private func stepForeground(isCurrent: Bool, result: Bool?) -> Color {
+        if result != nil { return .white }
+        return isCurrent ? Brand.green : .secondary
+    }
+
+    private func stepBackground(isCurrent: Bool, result: Bool?) -> Color {
+        if let result { return result ? Brand.semanticSuccess : .red }
+        return isCurrent ? Brand.greenSoft : Color(.tertiarySystemFill)
+    }
+
     private func pager(index: Int) -> some View {
         HStack {
             Button {
+                Haptics.selection()
                 vm.goPrevious()
             } label: {
                 Label("Trước", systemImage: "chevron.left")
@@ -140,6 +217,7 @@ struct DrillsView: View {
             Spacer()
 
             Button {
+                Haptics.selection()
                 vm.goNext()
             } label: {
                 Label("Sau", systemImage: "chevron.right")
@@ -152,7 +230,6 @@ struct DrillsView: View {
     }
 }
 
-/// Puts the icon after the title (for a "Next >" button).
 private struct TrailingIconLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 4) {
@@ -162,12 +239,11 @@ private struct TrailingIconLabelStyle: LabelStyle {
     }
 }
 
-/// A single drill: kind/difficulty badges, question (with TTS), tappable choices with per-choice TTS,
-/// revealed explanation and whyWrong.
 private struct DrillCardView: View {
     let drill: Drill
     let number: Int
     let language: CardLanguage
+    let onAnswered: (Bool) -> Void
 
     private var questionText: String {
         drill.scenario ?? drill.instruction ?? drill.title ?? ""
@@ -178,10 +254,10 @@ private struct DrillCardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 if let kind = drill.kind, !kind.isEmpty {
-                    Badge(text: kind, color: Brand.green)
+                    Badge(text: kind)
                 }
                 Spacer()
                 if let difficulty = drill.difficulty, !difficulty.isEmpty {
@@ -210,13 +286,14 @@ private struct DrillCardView: View {
             if let scenario = drill.scenario, !scenario.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
                     Text(scenario)
+                        .font(effectiveLanguage == .chinese ? VocaTypography.hanziFont(size: 19, weight: .medium) : .body)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    PronounceButton(text: questionText, language: effectiveLanguage)
+                    PronounceButton(text: questionText, language: effectiveLanguage, tintedCapsule: true)
                 }
             } else if !questionText.isEmpty {
                 HStack {
                     Spacer()
-                    PronounceButton(text: questionText, language: effectiveLanguage)
+                    PronounceButton(text: questionText, language: effectiveLanguage, tintedCapsule: true)
                 }
             }
 
@@ -226,7 +303,8 @@ private struct DrillCardView: View {
                 explanation: drill.explanation,
                 whyWrong: drill.whyWrong,
                 speakChoices: true,
-                language: effectiveLanguage)
+                language: effectiveLanguage,
+                onAnswered: onAnswered)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .brandCard()

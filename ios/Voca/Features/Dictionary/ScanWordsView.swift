@@ -335,7 +335,7 @@ struct ScanWordsView: View {
                 .disabled(model.isCreating)
             }
 
-            FlowLayout(spacing: 8) {
+            VocaFlowLayout(spacing: 8) {
                 ForEach(model.words, id: \.self) { word in
                     chip(word)
                 }
@@ -475,54 +475,6 @@ private struct CameraPicker: UIViewControllerRepresentable {
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             parent.dismiss()
-        }
-    }
-}
-
-// MARK: - Flow layout
-
-/// A simple wrapping layout (left-to-right, top-to-bottom) for the word chips.
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var widestRow: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth, x > 0 {
-                widestRow = max(widestRow, x - spacing)
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-        widestRow = max(widestRow, x - spacing)
-        let width = maxWidth.isFinite ? maxWidth : max(widestRow, 0)
-        return CGSize(width: width, height: y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX
-        var y = bounds.minY
-        var rowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > bounds.maxX, x > bounds.minX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
         }
     }
 }

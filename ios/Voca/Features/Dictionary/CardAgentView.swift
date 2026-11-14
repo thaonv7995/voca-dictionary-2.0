@@ -1,15 +1,17 @@
 import SwiftUI
+import UIKit
 
-/// A lightweight, card-scoped tutor chat. Every question is grounded on `card.word`
-/// via `AssistantService.cardChat`, streaming the reply live into the assistant bubble.
+/// A lightweight, card-scoped tutor chat grounded on `card.word`.
 struct CardAgentView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     let card: Card
 
     @State private var messages: [CardChatMessage] = []
     @State private var input = ""
     @State private var isStreaming = false
+    @State private var copiedId: UUID?
     @FocusState private var inputFocused: Bool
 
     private let assistant = AssistantService()
@@ -30,10 +32,14 @@ struct CardAgentView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                messagesScroll
-                Divider()
-                inputBar
+            ZStack {
+                VocaThemeBackground()
+
+                VStack(spacing: 0) {
+                    messagesScroll
+                    Divider().opacity(0.6)
+                    inputBar
+                }
             }
             .navigationTitle("Hỏi AI: \(card.word)")
             .navigationBarTitleDisplayMode(.inline)
@@ -53,34 +59,49 @@ struct CardAgentView: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if messages.isEmpty { emptyState }
                     ForEach(messages) { message in
-                        CardChatBubble(message: message)
-                            .id(message.id)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: message.role == .user ? .trailing : .leading)
-                                    .combined(with: .opacity),
-                                removal: .opacity))
+                        CardChatBubble(
+                            message: message,
+                            language: card.cardLanguage,
+                            isStreaming: isStreaming && message.id == messages.last?.id,
+                            isCopied: copiedId == message.id,
+                            onCopy: { copyMessage(message) }
+                        )
+                        .id(message.id)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: message.role == .user ? .trailing : .leading)
+                                .combined(with: .opacity),
+                            removal: .opacity))
                     }
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: messages.count) { _, _ in scrollToBottom(proxy) }
             .onChange(of: messages.last?.text) { _, _ in scrollToBottom(proxy) }
         }
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles").foregroundStyle(Brand.green)
-                Text("Hỏi gia sư AI về “\(card.word)”")
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                VocaIconBadge(systemImage: "sparkles", size: 36, iconSize: 16)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Hỏi gia sư AI về “\(card.word)”")
+                        .font(.headline)
+                    if let meaning = card.meaningVi, !meaning.isEmpty {
+                        Text(meaning)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             Text("Chọn một gợi ý bên dưới hoặc nhập câu hỏi của bạn.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 24)
+        .brandHeroCard(padding: 16, cornerRadius: 18)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Input
@@ -104,11 +125,11 @@ struct CardAgentView: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color(.secondarySystemBackground))
+                    .fill(Brand.cardFill(for: colorScheme))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(Color(.separator).opacity(0.5), lineWidth: 1)
+                    .strokeBorder(Brand.hairlineBorder(for: colorScheme), lineWidth: 1)
             )
             .padding(.horizontal, 12)
             .padding(.bottom, 10)
@@ -121,6 +142,7 @@ struct CardAgentView: View {
             HStack(spacing: 8) {
                 ForEach(starters, id: \.self) { starter in
                     Button {
+                        Haptics.selection()
                         send(starter)
                     } label: {
                         Text(starter)
@@ -141,8 +163,6 @@ struct CardAgentView: View {
     private var canSend: Bool {
         !isStreaming && !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-
-    // MARK: - Actions
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         guard let last = messages.last else { return }
@@ -193,14 +213,22 @@ struct CardAgentView: View {
         messages[idx].text = text
         messages[idx].isError = isError
     }
+
+    private func copyMessage(_ message: CardChatMessage) {
+        UIPasteboard.general.string = message.text
+        Haptics.impact(.light)
+        copiedId = message.id
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await MainActor.run {
+                if copiedId == message.id { copiedId = nil }
+            }
+        }
+    }
 }
 
-// MARK: - Model
-
-/// One line of the card chat.
 private struct CardChatMessage: Identifiable {
     enum Role { case user, assistant }
-
     let id: UUID
     let role: Role
     var text: String
@@ -214,11 +242,14 @@ private struct CardChatMessage: Identifiable {
     }
 }
 
-// MARK: - Bubble
-
-/// A single chat bubble: user on the right, assistant on the left, errors in red.
 private struct CardChatBubble: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let message: CardChatMessage
+    let language: CardLanguage
+    let isStreaming: Bool
+    let isCopied: Bool
+    let onCopy: () -> Void
 
     private var isUser: Bool { message.role == .user }
 
@@ -226,8 +257,8 @@ private struct CardChatBubble: View {
         HStack(spacing: 0) {
             if isUser { Spacer(minLength: 40) }
             bubble
-                .layoutPriority(1)   // beat the Spacer — otherwise the bubble collapses to one-word-per-line
-            if !isUser { Spacer(minLength: 40) }
+                .layoutPriority(1)
+            if !isUser { Spacer(minLength: 32) }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
     }
@@ -235,34 +266,66 @@ private struct CardChatBubble: View {
     @ViewBuilder private var bubble: some View {
         Group {
             if message.text.isEmpty {
-                // Assistant is "thinking" before the first chunk arrives.
                 TypingIndicator().padding(.vertical, 4)
-            } else if isUser || message.isError {
-                Text(message.text)
-                    .textSelection(.enabled)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                // Assistant replies are Markdown — render headings/bold/lists/tables properly.
-                MarkdownText(text: message.text)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    if isUser || message.isError {
+                        Text(message.text)
+                            .textSelection(.enabled)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        MarkdownText(text: message.text)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        if !isStreaming {
+                            Divider().opacity(0.45)
+                            HStack(spacing: 12) {
+                                Button(action: onCopy) {
+                                    Label(isCopied ? "Đã chép" : "Sao chép", systemImage: isCopied ? "checkmark" : "doc.on.doc")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(isCopied ? Brand.semanticSuccess : .secondary)
+                                }
+                                .buttonStyle(.plain)
+
+                                PronounceButton(
+                                    text: message.text,
+                                    language: message.text.hasChineseCharacters ? .chinese : language,
+                                    size: 24,
+                                    font: .caption
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
-        .font(.body)
-        .foregroundStyle(foreground)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .foregroundStyle(isError ? .red : (isUser ? .white : .primary))
+        .background {
+            if isError {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.red.opacity(0.12))
+            } else if isUser {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Brand.gradient)
+            } else {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Brand.cardFill(for: colorScheme))
+            }
+        }
+        .overlay {
+            if !isUser {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(
+                        isError ? Color.red.opacity(0.35) : Brand.hairlineBorder(for: colorScheme),
+                        lineWidth: 1
+                    )
+            }
+        }
     }
 
-    private var foreground: Color {
-        if message.isError { return .red }
-        return isUser ? .white : .primary
-    }
-
-    private var background: Color {
-        if message.isError { return Color.red.opacity(0.12) }
-        return isUser ? Brand.green : Color(.secondarySystemBackground)
-    }
+    private var isError: Bool { message.isError }
 }

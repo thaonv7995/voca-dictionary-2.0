@@ -54,8 +54,14 @@ struct HanziWritingView: View {
         } else if !characters.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 if !compact && !displayOnly {
-                    Label("Tập viết", systemImage: "pencil.and.outline")
-                        .font(.headline)
+                    HStack(spacing: 8) {
+                        Label("Tập viết Hán tự", systemImage: "pencil.and.outline")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(characters.count) chữ")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: compact ? 6 : 14) {
@@ -75,16 +81,17 @@ struct HanziWritingView: View {
                             }
                         }
                     }
-                    .frame(minWidth: compact ? 118 : 0, alignment: .trailing)
+                    .frame(minWidth: compact ? 114 : 0, alignment: .trailing)
                     .padding(.horizontal, 1)
                 }
-                .frame(width: compact ? 118 : nil, alignment: .trailing)
+                .frame(width: compact ? 114 : nil, alignment: .trailing)
             }
         }
     }
 }
 
 private struct HanziCharacterPractice: View {
+    @Environment(\.colorScheme) private var colorScheme
     let character: String
     let compact: Bool
     let displayOnly: Bool
@@ -95,49 +102,74 @@ private struct HanziCharacterPractice: View {
 
     private var canvasSize: CGFloat { compact ? 48 : displayOnly ? 240 : 176 }
 
+    private var canvasSurfaceColor: Color {
+        colorScheme == .dark ? Color(red: 0.086, green: 0.114, blue: 0.184) : .white
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             Group {
                 if let strokeJSON {
-                    HanziWriterWebView(character: character, strokeJSON: strokeJSON,
-                                       size: Int(canvasSize), command: command,
-                                       onStatus: { status = $0 })
+                    HanziWriterWebView(
+                        character: character,
+                        strokeJSON: strokeJSON,
+                        size: Int(canvasSize),
+                        isDark: colorScheme == .dark,
+                        command: command,
+                        onStatus: { status = $0 }
+                    )
                 } else if errorMessage != nil {
                     VStack(spacing: 8) {
-                        Text(character).font(.system(size: 84, weight: .semibold))
-                        Button("Tải lại") { load() }.font(.caption)
+                        Text(character)
+                            .font(VocaTypography.hanziFont(size: compact ? 28 : 84, weight: .semibold))
+                        if !compact {
+                            Button("Tải lại") { load() }.font(.caption)
+                        }
                     }
                 } else {
                     ProgressView()
                 }
             }
             .frame(width: canvasSize, height: canvasSize)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .background(canvasSurfaceColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             if !compact && !displayOnly {
-                HStack(spacing: 12) {
-                    iconButton("play.fill", label: "Xem thứ tự nét") {
+                HStack(spacing: 10) {
+                    iconButton("play.fill", title: "Xem nét", label: "Xem thứ tự nét") {
+                        Haptics.selection()
                         command = HanziCommand(kind: .animate)
                     }
-                    iconButton("pencil.and.scribble", label: "Luyện viết") {
+                    iconButton("pencil.and.scribble", title: "Tự viết", label: "Luyện viết") {
+                        Haptics.selection()
                         command = HanziCommand(kind: .quiz)
                     }
                 }
                 if !status.isEmpty {
-                    Text(status).font(.caption).foregroundStyle(Brand.green)
+                    Text(status)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Brand.green)
                 }
             }
         }
-        .padding(compact ? 4 : 10)
-        .background(Color(.secondarySystemBackground),
-                    in: RoundedRectangle(cornerRadius: compact ? 8 : 16))
+        .padding(compact ? 4 : 12)
+        .background(
+            Brand.cardFill(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: compact ? 10 : 18, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: compact ? 10 : 18, style: .continuous)
+                .strokeBorder(Brand.hairlineBorder(for: colorScheme), lineWidth: 1)
+        )
         .task(id: character) { await loadData() }
     }
 
-    private func iconButton(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
+    private func iconButton(_ icon: String, title: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: icon).font(.title3).frame(width: 44, height: 36)
+            Label(title, systemImage: icon)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
         }
         .buttonStyle(.bordered)
         .tint(Brand.green)
@@ -171,6 +203,7 @@ private struct HanziWriterWebView: UIViewRepresentable {
     let character: String
     let strokeJSON: String
     let size: Int
+    let isDark: Bool
     let command: HanziCommand?
     let onStatus: (String) -> Void
 
@@ -186,12 +219,19 @@ private struct HanziWriterWebView: UIViewRepresentable {
         view.scrollView.isScrollEnabled = false
         view.isOpaque = false
         view.backgroundColor = .clear
+        context.coordinator.lastIsDark = isDark
         view.loadHTMLString(html, baseURL: scriptURL?.deletingLastPathComponent())
         return view
     }
 
     func updateUIView(_ view: WKWebView, context: Context) {
         context.coordinator.onStatus = onStatus
+        if context.coordinator.lastIsDark != isDark {
+            context.coordinator.lastIsDark = isDark
+            context.coordinator.resetReady()
+            view.loadHTMLString(html, baseURL: scriptURL?.deletingLastPathComponent())
+            return
+        }
         guard let command, command.id != context.coordinator.lastCommandID else { return }
         context.coordinator.lastCommandID = command.id
         context.coordinator.run(command, in: view)
@@ -205,20 +245,25 @@ private struct HanziWriterWebView: UIViewRepresentable {
     private var html: String {
         let encodedCharacter = (try? String(data: JSONEncoder().encode(character), encoding: .utf8)) ?? "\"\""
         let targetSize = size - 6
+        let bgColor = isDark ? "#161d2f" : "#ffffff"
+        let borderColor = isDark ? "#2d3852" : "#e5e7eb"
+        let crossColor = isDark ? "#3f4e70" : "#a9bad3"
+        let strokeColor = isDark ? "#f1f5f9" : "#111827"
+        let outlineColor = isDark ? "#475569" : "#d1d5db"
         return """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
         <style>
-        *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff}
-        #grid{position:relative;width:\(size)px;height:\(size)px;border:3px solid #e5e7eb}
+        *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:\(bgColor)}
+        #grid{position:relative;width:\(size)px;height:\(size)px;border:3px solid \(borderColor);border-radius:10px;overflow:hidden}
         #grid:before,#grid:after{content:"";position:absolute;z-index:0;opacity:.65}
-        #grid:before{left:50%;top:0;height:100%;border-left:1px dashed #a9bad3}
-        #grid:after{top:50%;left:0;width:100%;border-top:1px dashed #a9bad3}
+        #grid:before{left:50%;top:0;height:100%;border-left:1px dashed \(crossColor)}
+        #grid:after{top:50%;left:0;width:100%;border-top:1px dashed \(crossColor)}
         #target{position:relative;z-index:1;width:\(targetSize)px;height:\(targetSize)px}
         </style></head><body><div id="grid"><div id="target"></div></div>
         <script src="hanzi-writer.min.js"></script><script>
         const character=\(encodedCharacter), characterData=\(strokeJSON);
         const writer=HanziWriter.create('target',character,{width:\(targetSize),height:\(targetSize),padding:8,
-          showOutline:true,strokeColor:'#111827',outlineColor:'#d1d5db',strokeAnimationSpeed:1,
+          showOutline:true,strokeColor:'\(strokeColor)',outlineColor:'\(outlineColor)',strokeAnimationSpeed:1,
           delayBetweenStrokes:180,charDataLoader:()=>Promise.resolve(characterData)});
         window.vocaAnimate=async()=>{writer.cancelQuiz();await writer.hideCharacter({duration:80});
           writer.animateCharacter({onComplete:()=>webkit.messageHandlers.hanzi.postMessage('animationComplete')});};
@@ -231,10 +276,15 @@ private struct HanziWriterWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onStatus: (String) -> Void
         var lastCommandID: UUID?
+        var lastIsDark: Bool?
         private var isReady = false
         private var pending: HanziCommand?
 
         init(onStatus: @escaping (String) -> Void) { self.onStatus = onStatus }
+
+        func resetReady() {
+            isReady = false
+        }
 
         func run(_ command: HanziCommand, in view: WKWebView) {
             guard isReady else { pending = command; return }
@@ -247,12 +297,10 @@ private struct HanziWriterWebView: UIViewRepresentable {
             if let pending { self.pending = nil; run(pending, in: webView) }
         }
 
-        func userContentController(_ userContentController: WKUserContentController,
-                                   didReceive message: WKScriptMessage) {
-            guard let value = message.body as? String else { return }
-            DispatchQueue.main.async {
-                self.onStatus(value == "quizComplete" ? "Hoàn thành" : "Đã xem xong")
-            }
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard let body = message.body as? String else { return }
+            if body == "quizComplete" { onStatus("Hoàn thành!") }
+            else if body == "animationComplete" { onStatus("") }
         }
     }
 }

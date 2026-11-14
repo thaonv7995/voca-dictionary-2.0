@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Study progress overview: overall totals plus a per-level breakdown drawn as proportional bars.
-/// Pushed from `StudyRootView`, so it relies on the enclosing `NavigationStack`.
+/// Visual study progress overview with mastery ring, KPI summary cards, and level breakdown bars.
 struct StatsView: View {
+    @Environment(LocalLearnerStore.self) private var learner
     @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
+
     @State private var stats: StudyStats?
     @State private var cards: [Card] = []
     @State private var due: DueResponse?
@@ -11,35 +12,6 @@ struct StatsView: View {
     @State private var errorMessage: String?
 
     private let service = StudyService()
-
-    var body: some View {
-        Group {
-            if isLoading && stats == nil {
-                ProgressView("Đang tải…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage, stats == nil {
-                ContentUnavailableView {
-                    Label("Không tải được thống kê", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(errorMessage).foregroundStyle(.red)
-                } actions: {
-                    Button("Thử lại") { Task { await load() } }
-                }
-            } else if stats != nil {
-                content
-            } else {
-                ContentUnavailableView(
-                    "Chưa có dữ liệu",
-                    systemImage: "chart.bar",
-                    description: Text("Chưa có thống kê nào để hiển thị."))
-            }
-        }
-        .navigationTitle("Thống kê")
-        .navigationBarTitleDisplayMode(.inline)
-        .tint(Brand.green)
-        .task { await load() }
-        .refreshable { await load() }
-    }
 
     private var language: CardLanguage {
         CardLanguage(rawValue: languageRaw) ?? .english
@@ -49,33 +21,109 @@ struct StatsView: View {
         cards.filter { $0.cardLanguage == language }
     }
 
+    private var dueCount: Int {
+        (due?.cards ?? []).filter { $0.card.cardLanguage == language }.count
+    }
+
+    private var masteredCount: Int {
+        languageCards.filter { CardLevel($0.level) == .mastered }.count
+    }
+
+    private var masteryFraction: Double {
+        guard !languageCards.isEmpty else { return 0 }
+        return Double(masteredCount) / Double(languageCards.count)
+    }
+
+    var body: some View {
+        ZStack {
+            VocaThemeBackground()
+
+            Group {
+                if isLoading && stats == nil && cards.isEmpty {
+                    ProgressView("Đang tải…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let errorMessage, stats == nil && cards.isEmpty {
+                    ContentUnavailableView {
+                        Label("Không tải được thống kê", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(errorMessage).foregroundStyle(.red)
+                    } actions: {
+                        Button("Thử lại") { Task { await load() } }
+                            .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    content
+                }
+            }
+        }
+        .navigationTitle("Thống kê")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
     private var content: some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(spacing: 16) {
                 CardLanguagePicker(selection: $languageRaw)
-            }
 
-            Section("Tổng quan") {
-                LabeledContent("Tổng số thẻ", value: "\(languageCards.count)")
-                LabeledContent("Cần ôn hiện tại") {
-                    Text("\((due?.cards ?? []).filter { $0.card.cardLanguage == language }.count)")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Brand.green)
-                }
-            }
+                HStack(spacing: 20) {
+                    MasteryRing(fraction: masteryFraction, size: 96)
 
-            Section("Phân bố theo cấp độ") {
-                let counts = Dictionary(grouping: languageCards) { CardLevel($0.level) ?? .new }
-                    .mapValues(\.count)
-                let maxCount = max(counts.values.max() ?? 0, 1)
-                ForEach(CardLevel.allCases) { level in
-                    LevelBarRow(
-                        label: level.label,
-                        count: counts[level] ?? 0,
-                        maxCount: maxCount,
-                        color: Brand.levelColor(level.rawValue))
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Mức độ thành thạo")
+                            .font(.headline)
+                        Text("\(masteredCount)/\(languageCards.count) thẻ đã thành thạo")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            if learner.streakDays > 0 {
+                                VocaPillBadge(text: "\(learner.streakDays) ngày liên tục", icon: "flame.fill", tint: .orange)
+                            }
+                            if let totalReviews = stats?.totalReviews {
+                                VocaPillBadge(text: "\(totalReviews) lượt ôn", icon: "checkmark.circle.fill")
+                            }
+                        }
+                    }
+                    Spacer(minLength: 0)
                 }
+                .brandHeroCard(padding: 18, cornerRadius: 20)
+
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                    spacing: 12
+                ) {
+                    StatTile(title: "Tổng thẻ", value: languageCards.count, color: Brand.green, systemImage: "rectangle.stack.fill")
+                    StatTile(title: "Cần ôn ngay", value: dueCount, color: .orange, systemImage: "clock.badge.exclamationmark.fill")
+                    StatTile(title: "Hôm nay đã ôn", value: learner.reviewedTodayCount, color: .blue, systemImage: "checkmark.seal.fill")
+                    StatTile(title: "Yêu thích", value: languageCards.filter { learner.isFavorite($0.slug) }.count, color: .pink, systemImage: "star.fill")
+                }
+
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Phân bố theo cấp độ")
+                        .font(.headline)
+
+                    let counts = Dictionary(grouping: languageCards) { CardLevel($0.level) ?? .new }
+                        .mapValues(\.count)
+                    let maxCount = max(counts.values.max() ?? 0, 1)
+
+                    ForEach(CardLevel.allCases) { level in
+                        let count = counts[level] ?? 0
+                        let pct = languageCards.isEmpty ? 0 : Int((Double(count) / Double(languageCards.count) * 100).rounded())
+                        LevelBarRow(
+                            label: level.label,
+                            count: count,
+                            percentage: pct,
+                            maxCount: maxCount,
+                            color: Brand.levelColor(level.rawValue)
+                        )
+                    }
+                }
+                .brandCard()
             }
+            .padding()
+            .frame(maxWidth: 760)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -97,35 +145,41 @@ struct StatsView: View {
     }
 }
 
-/// A single level row: label, count and a proportional bar (width relative to the largest count).
 private struct LevelBarRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let label: String
     let count: Int
+    let percentage: Int
     let maxCount: Int
     let color: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(label)
-                    .font(.subheadline.weight(.medium))
+                HStack(spacing: 6) {
+                    Circle().fill(color).frame(width: 8, height: 8)
+                    Text(label).font(.subheadline.weight(.medium))
+                }
                 Spacer()
-                Text("\(count)")
+                Text("\(count) (\(percentage)%)")
                     .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color(.systemGray5))
+                        .fill(Brand.elevatedFill(for: colorScheme))
                     Capsule()
                         .fill(color)
-                        .frame(width: max(geo.size.width * fraction, count > 0 ? 6 : 0))
+                        .frame(width: max(geo.size.width * fraction, count > 0 ? 8 : 0))
+                        .animation(.spring(response: 0.45, dampingFraction: 0.8), value: fraction)
                 }
             }
             .frame(height: 10)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 
     private var fraction: CGFloat {

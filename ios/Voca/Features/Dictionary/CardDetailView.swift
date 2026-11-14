@@ -1,12 +1,13 @@
 import SwiftUI
+import UIKit
 
-/// Full detail of a single card: meanings, examples, tips, pronunciation,
-/// level control and delete. Keeps a local copy of the card so edits reflect immediately.
+/// Full detail of a single vocabulary card with themed surfaces, complete Chinese & English sections,
+/// favorite bookmarking, clipboard copy, A4 study sheet, and card-scoped AI tutor.
 struct CardDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(LocalLearnerStore.self) private var learner
 
-    /// Called after the card is deleted (so the list can refresh).
     var onDeleted: () -> Void = {}
 
     @State private var card: Card
@@ -16,6 +17,7 @@ struct CardDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var showAgent = false
     @State private var showA4Sheet = false
+    @State private var toastMessage: String?
     @State private var errorMessage: String?
 
     private let cards = CardsService()
@@ -27,32 +29,64 @@ struct CardDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                if card.isChinese {
-                    chineseContent
-                } else {
-                    levelSection
-                    englishContent
-                }
+        ZStack(alignment: .bottom) {
+            VocaThemeBackground()
 
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    headerCard
 
-                deleteButton
+                    if card.isChinese {
+                        chineseContent
+                    } else {
+                        levelCard
+                        englishContent
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .brandCard(padding: 12, cornerRadius: 14)
+                    }
+
+                    deleteButton
+                }
+                .padding()
+                .frame(
+                    maxWidth: horizontalSizeClass == .regular ? (card.isChinese ? 1080 : 760) : .infinity,
+                    alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
-            .padding()
-            .frame(
-                maxWidth: horizontalSizeClass == .regular ? (card.isChinese ? 1080 : 760) : .infinity,
-                alignment: .leading)
-            .frame(maxWidth: .infinity)
+
+            if let toastMessage {
+                VocaToastBanner(icon: "checkmark.circle.fill", message: toastMessage)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .navigationTitle(card.word)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    Haptics.selection()
+                    let isFav = learner.toggleFavorite(card.slug)
+                    showToast(isFav ? "Đã thêm vào Yêu thích" : "Đã bỏ khỏi Yêu thích")
+                } label: {
+                    Image(systemName: learner.isFavorite(card.slug) ? "star.fill" : "star")
+                        .foregroundStyle(learner.isFavorite(card.slug) ? .orange : Brand.green)
+                }
+                .accessibilityLabel(learner.isFavorite(card.slug) ? "Bỏ yêu thích" : "Yêu thích")
+
+                Button {
+                    copyCardSummary()
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .accessibilityLabel("Sao chép từ")
+            }
+        }
         .sheet(isPresented: $showAgent) {
             CardAgentView(card: card)
         }
@@ -63,55 +97,68 @@ struct CardDetailView: View {
 
     // MARK: - Header
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private var headerCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text(card.word)
-                    .font(card.isChinese ? .system(size: 52, weight: .bold) : .largeTitle.bold())
+                    .font(card.isChinese
+                          ? VocaTypography.hanziFont(size: 52, weight: .bold)
+                          : .system(size: 36, weight: .bold, design: .rounded))
+                    .textSelection(.enabled)
                 Spacer(minLength: 8)
-                if !card.isChinese { LevelBadge(level: selectedLevel) }
+                LevelBadge(level: selectedLevel)
             }
+
             if let phonetic = card.phonetic {
                 Text(phonetic)
-                    .font(.title3)
+                    .font(card.isChinese ? .title3.weight(.medium) : .system(.title3, design: .monospaced))
                     .foregroundStyle(card.isChinese ? Brand.green : .secondary)
+                    .textSelection(.enabled)
             }
-            // `pronunciation` often mirrors `ipa` (same transcription, maybe wrapped in slashes) —
-            // only show it when it actually differs, otherwise the header reads twice.
+
             if !card.isChinese, let pronunciation = card.pronunciation, !pronunciation.isEmpty,
                normalizedTranscription(pronunciation) != normalizedTranscription(card.ipa ?? "") {
                 Text(pronunciation)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+
             if !card.isChinese && hasMeta {
                 HStack(spacing: 8) {
                     if let pos = card.partOfSpeech, !pos.isEmpty { metaChip(pos) }
                     if let topic = card.topic, !topic.isEmpty { Badge(text: topic) }
                 }
             }
+
             actionRow
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .brandHeroCard(padding: 18, cornerRadius: 22)
     }
 
     private var actionRow: some View {
-        HStack(spacing: 12) {
-            PronounceButton(text: card.word, language: card.cardLanguage, size: 40, font: .title3)
+        HStack(spacing: 10) {
+            PronounceButton(
+                text: card.word,
+                language: card.cardLanguage,
+                size: 40,
+                font: .title3,
+                tintedCapsule: true
+            )
             askAIButton
             if card.isChinese {
                 a4SheetButton
             }
         }
+        .padding(.top, 2)
     }
 
     private var a4SheetButton: some View {
         Button {
             showA4Sheet = true
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "doc.text")
-                Text("Phiếu A4")
-            }
+            Label("Phiếu A4", systemImage: "doc.text")
+                .font(.subheadline.weight(.semibold))
         }
         .buttonStyle(.bordered)
         .tint(Brand.green)
@@ -121,10 +168,8 @@ struct CardDetailView: View {
         Button {
             showAgent = true
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                Text("Hỏi AI")
-            }
+            Label("Hỏi AI", systemImage: "sparkles")
+                .font(.subheadline.weight(.semibold))
         }
         .buttonStyle(.borderedProminent)
         .tint(Brand.green)
@@ -136,27 +181,28 @@ struct CardDetailView: View {
 
     // MARK: - Level
 
-    private var levelSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Cấp độ").font(.headline)
-                Spacer()
-                if isUpdatingLevel { ProgressView() }
-                Picker("Cấp độ", selection: $selectedLevel) {
-                    ForEach(CardLevel.allCases) { level in
-                        Text(level.label).tag(level)
-                    }
-                }
-                .pickerStyle(.menu)
-                .disabled(isUpdatingLevel)
-                .onChange(of: selectedLevel) { _, newValue in
-                    updateLevel(to: newValue)
+    private var levelCard: some View {
+        HStack {
+            Label("Cấp độ ghi nhớ", systemImage: "chart.bar.fill")
+                .font(.headline)
+            Spacer()
+            if isUpdatingLevel { ProgressView().controlSize(.small) }
+            Picker("Cấp độ", selection: $selectedLevel) {
+                ForEach(CardLevel.allCases) { level in
+                    Text(level.label).tag(level)
                 }
             }
+            .pickerStyle(.menu)
+            .disabled(isUpdatingLevel)
+            .onChange(of: selectedLevel) { _, newValue in
+                updateLevel(to: newValue)
+            }
+            .tint(selectedLevel.tint)
         }
+        .brandCard()
     }
 
-    // MARK: - Lists
+    // MARK: - English Content
 
     @ViewBuilder private var englishContent: some View {
         if let text = card.meaningEn, !text.isEmpty {
@@ -168,56 +214,65 @@ struct CardDetailView: View {
         examplesSection
         useCasesSection
         if let text = card.memoryTip, !text.isEmpty {
-            section("Mẹo ghi nhớ", text: text, icon: "lightbulb")
+            section("Mẹo ghi nhớ", text: text, icon: "lightbulb.fill", iconTint: .orange)
         }
         if let text = card.toeicTrap, !text.isEmpty {
-            section("Bẫy IELTS", text: text, icon: "exclamationmark.triangle")
+            section("Bẫy IELTS", text: text, icon: "exclamationmark.triangle.fill", iconTint: .red)
         }
         tagsSection
     }
 
+    // MARK: - Chinese Content (complete: stroke writing, info, ALL examples, tips, use cases & tags)
+
     @ViewBuilder private var chineseContent: some View {
         if horizontalSizeClass == .regular {
             ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 24) {
+                HStack(alignment: .top, spacing: 20) {
                     HanziWritingView(word: card.word)
                         .frame(minWidth: 360, maxWidth: .infinity, alignment: .topLeading)
 
                     VStack(spacing: 16) {
                         chineseInfoCard
-                        chineseExampleCard
+                        chineseExamplesCard
                     }
-                    .frame(width: 380)
+                    .frame(width: 400)
                 }
 
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     HanziWritingView(word: card.word)
                     chineseInfoCard
-                    chineseExampleCard
+                    chineseExamplesCard
                 }
             }
         } else {
             HanziWritingView(word: card.word)
             chineseInfoCard
-            chineseExampleCard
+            chineseExamplesCard
         }
+
+        useCasesSection
+        if let text = card.memoryTip, !text.isEmpty {
+            section("Mẹo ghi nhớ", text: text, icon: "lightbulb.fill", iconTint: .orange)
+        }
+        tagsSection
     }
 
     private var chineseInfoCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let meaning = card.meaningVi, !meaning.isEmpty {
                 HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "character.book.closed.fill")
-                        .foregroundStyle(Brand.green)
-                        .frame(width: 24)
+                    VocaIconBadge(systemImage: "character.book.closed.fill", size: 34, iconSize: 15)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Nghĩa").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        Text(meaning).font(.title3.weight(.semibold))
+                        Text("Nghĩa tiếng Việt")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(meaning)
+                            .font(.title3.weight(.semibold))
                     }
                 }
             }
 
-            Divider()
+            Divider().opacity(0.6)
 
             HStack(spacing: 8) {
                 if let pos = card.partOfSpeech, !pos.isEmpty { metaChip(pos) }
@@ -235,54 +290,70 @@ struct CardDetailView: View {
                 .tint(selectedLevel.tint)
             }
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .brandCard()
     }
 
-    @ViewBuilder private var chineseExampleCard: some View {
-        if let raw = card.examples?.first(where: { !$0.isEmpty }) {
-            let example = ChineseExample(raw)
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
-                    Label("Ví dụ", systemImage: "text.quote")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    PronounceButton(text: example.hanzi, language: .chinese, size: 28, font: .subheadline)
-                }
-                Text(example.hanzi).font(.title3.weight(.semibold))
-                if let pinyin = example.pinyin {
-                    Text(pinyin).foregroundStyle(Brand.green)
-                }
-                if let meaning = example.meaningVi {
-                    Text(meaning).foregroundStyle(.secondary)
+    @ViewBuilder private var chineseExamplesCard: some View {
+        let examples = (card.examples ?? []).filter { !$0.isEmpty }
+        if !examples.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader("Ví dụ", icon: "text.quote")
+
+                ForEach(Array(examples.enumerated()), id: \.offset) { index, raw in
+                    let example = ChineseExample(raw)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(example.hanzi)
+                                .font(.title3.weight(.semibold))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                            PronounceButton(text: example.hanzi, language: .chinese, size: 30, font: .subheadline, tintedCapsule: true)
+                        }
+                        if let pinyin = example.pinyin {
+                            Text(pinyin)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(Brand.green)
+                                .textSelection(.enabled)
+                        }
+                        if let meaning = example.meaningVi {
+                            Text(meaning)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if index < examples.count - 1 {
+                        Divider().opacity(0.6)
+                    }
                 }
             }
-            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground),
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .brandCard()
         }
     }
 
     @ViewBuilder private var examplesSection: some View {
         let examples = (card.examples ?? []).filter { !$0.isEmpty }
         if !examples.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 sectionHeader("Ví dụ", icon: "text.quote")
-                ForEach(examples, id: \.self) { example in
+                ForEach(Array(examples.enumerated()), id: \.offset) { index, example in
                     let spoken = card.isChinese ? ChineseExample(example).hanzi : example
                     HStack(alignment: .top, spacing: 8) {
-                        Text("•").foregroundStyle(.secondary)
+                        Text("•").foregroundStyle(Brand.green)
                         Text(example)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        PronounceButton(text: spoken, language: card.cardLanguage, size: 26, font: .footnote)
+                            .textSelection(.enabled)
+                        PronounceButton(text: spoken, language: card.cardLanguage, size: 28, font: .footnote, tintedCapsule: true)
+                    }
+                    if index < examples.count - 1 {
+                        Divider().opacity(0.4)
                     }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .brandCard()
         }
     }
 
@@ -293,27 +364,28 @@ struct CardDetailView: View {
                 sectionHeader("Cách dùng", icon: "list.bullet")
                 ForEach(useCases, id: \.self) { useCase in
                     HStack(alignment: .top, spacing: 8) {
-                        Text("•").foregroundStyle(.secondary)
+                        Text("•").foregroundStyle(Brand.green)
                         Text(useCase)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .brandCard()
         }
     }
 
     @ViewBuilder private var tagsSection: some View {
         let tags = (card.tags ?? []).filter { !$0.isEmpty }
         if !tags.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 sectionHeader("Thẻ", icon: "tag")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(tags, id: \.self) { metaChip($0) }
-                    }
+                VocaFlowLayout(spacing: 8) {
+                    ForEach(tags, id: \.self) { metaChip($0) }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .brandCard()
         }
     }
 
@@ -324,8 +396,8 @@ struct CardDetailView: View {
             showDeleteConfirm = true
         } label: {
             HStack(spacing: 6) {
-                if isDeleting { ProgressView() }
-                Text("Xóa thẻ")
+                if isDeleting { ProgressView().controlSize(.small) }
+                Label("Xóa thẻ", systemImage: "trash")
             }
             .frame(maxWidth: .infinity)
         }
@@ -344,36 +416,65 @@ struct CardDetailView: View {
 
     // MARK: - Reusable bits
 
-    private func sectionHeader(_ title: String, icon: String? = nil) -> some View {
-        HStack(spacing: 6) {
-            if let icon { Image(systemName: icon) }
+    private func sectionHeader(_ title: String, icon: String? = nil, tint: Color? = nil) -> some View {
+        HStack(spacing: 7) {
+            if let icon {
+                Image(systemName: icon)
+                    .foregroundStyle(tint ?? Brand.green)
+            }
             Text(title)
         }
         .font(.headline)
     }
 
-    private func section(_ title: String, text: String, icon: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionHeader(title, icon: icon)
+    private func section(_ title: String, text: String, icon: String? = nil, iconTint: Color? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader(title, icon: icon, tint: iconTint)
             Text(text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .brandCard()
     }
 
     private func metaChip(_ text: String) -> some View {
         Text(text)
             .font(.caption.weight(.medium))
             .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.vertical, 5)
             .background(.thinMaterial, in: Capsule())
     }
 
     // MARK: - Actions
 
+    private func copyCardSummary() {
+        var parts = [card.word]
+        if let phonetic = card.phonetic { parts.append(phonetic) }
+        if let meaning = card.meaningVi, !meaning.isEmpty { parts.append("— \(meaning)") }
+        UIPasteboard.general.string = parts.joined(separator: " ")
+        Haptics.impact(.light)
+        showToast("Đã sao chép “\(card.word)”")
+    }
+
+    private func showToast(_ text: String) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            toastMessage = text
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    if toastMessage == text { toastMessage = nil }
+                }
+            }
+        }
+    }
+
     private func updateLevel(to newValue: CardLevel) {
         guard CardLevel(card.level) != newValue else { return }
         isUpdatingLevel = true
         errorMessage = nil
+        Haptics.selection()
         Task {
             do {
                 card = try await cards.setLevel(slug: card.slug, level: newValue.rawValue)
@@ -391,6 +492,7 @@ struct CardDetailView: View {
         Task {
             do {
                 try await cards.delete(slug: card.slug)
+                Haptics.notify(.warning)
                 onDeleted()
                 dismiss()
             } catch {
@@ -401,8 +503,6 @@ struct CardDetailView: View {
     }
 }
 
-/// Normalises an IPA/pronunciation string for duplicate detection: strips slashes,
-/// brackets and whitespace, lowercased — so "/rɪˈteɪn/" == "rɪˈteɪn".
 fileprivate func normalizedTranscription(_ raw: String) -> String {
     raw.lowercased().filter { !"/[]() \t\n".contains($0) }
 }

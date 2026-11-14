@@ -1,17 +1,18 @@
 import SwiftUI
 
-/// Sheet that creates a new card from a single word via the server-side LLM.
+/// Sheet that creates a new card from a single word via the server-side LLM, plus quick photo OCR launch.
 struct CardCreateView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
 
-    /// Called after a card is created successfully (so the list can refresh).
     var onCreated: () -> Void = {}
 
     @State private var word = ""
     @State private var isCreating = false
     @State private var errorMessage: String?
     @State private var showScan = false
+    @FocusState private var fieldFocused: Bool
 
     private let cards = CardsService()
 
@@ -25,50 +26,86 @@ struct CardCreateView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Ngôn ngữ của thẻ") {
-                    CardLanguagePicker(selection: $languageRaw)
-                }
+            ZStack {
+                VocaThemeBackground()
 
-                Section {
-                    TextField(language == .chinese ? "Nhập Hán tự" : "Nhập từ vựng", text: $word)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .disabled(isCreating)
-                        .onSubmit { if canSubmit { create() } }
-                } footer: {
-                    Text(language == .chinese
-                         ? "AI sẽ tạo pinyin, nghĩa Việt và một ví dụ ngắn."
-                         : "AI sẽ tự tạo nghĩa, phát âm, ví dụ và mẹo ghi nhớ cho từ này.")
-                }
+                ScrollView {
+                    VStack(spacing: 18) {
+                        CardLanguagePicker(selection: $languageRaw)
 
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage).foregroundStyle(.red)
-                    }
-                }
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(spacing: 10) {
+                                VocaIconBadge(systemImage: "wand.and.stars", size: 38, iconSize: 17)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Tạo thẻ bằng AI")
+                                        .font(.headline)
+                                    Text(language == .chinese
+                                         ? "Tự tạo Pinyin, nghĩa Việt và ví dụ song ngữ"
+                                         : "Tự tạo IPA, nghĩa Anh/Việt, ví dụ & mẹo ghi nhớ")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
 
-                Section {
-                    Button(action: create) {
-                        HStack {
-                            if isCreating { ProgressView().padding(.trailing, 4) }
-                            Text(isCreating ? "Đang tạo…" : "Tạo thẻ bằng AI")
+                            TextField(
+                                language == .chinese ? "Nhập Hán tự (ví dụ: 坚持)" : "Nhập từ vựng (ví dụ: resilient)",
+                                text: $word
+                            )
+                            .font(language == .chinese ? .title3.weight(.semibold) : .body)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($fieldFocused)
+                            .disabled(isCreating)
+                            .onSubmit { if canSubmit { create() } }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(Brand.elevatedFill(for: colorScheme), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(fieldFocused ? Brand.green : Brand.hairlineBorder(for: colorScheme), lineWidth: fieldFocused ? 1.5 : 1)
+                            )
+
+                            if let errorMessage {
+                                Text(errorMessage)
+                                    .font(.footnote)
+                                    .foregroundStyle(.red)
+                            }
+
+                            Button(action: create) {
+                                HStack(spacing: 8) {
+                                    if isCreating { ProgressView().tint(.white) }
+                                    Text(isCreating ? "Đang tạo…" : "Tạo thẻ bằng AI")
+                                }
+                            }
+                            .buttonStyle(BrandCTAButtonStyle())
+                            .disabled(!canSubmit)
                         }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .disabled(!canSubmit)
-                }
+                        .brandCard()
 
-                Section {
-                    Button {
-                        showScan = true
-                    } label: {
-                        Label("Quét ảnh tạo thẻ", systemImage: "camera.viewfinder")
-                            .frame(maxWidth: .infinity)
+                        Button {
+                            showScan = true
+                        } label: {
+                            HStack(spacing: 12) {
+                                VocaIconBadge(systemImage: "camera.viewfinder", tint: .indigo, size: 42, iconSize: 19)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Quét ảnh tạo nhiều thẻ")
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+                                    Text("Chụp hoặc chọn ảnh sách/bảng để nhận diện từ")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .brandCard()
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isCreating)
                     }
-                    .disabled(isCreating)
-                } footer: {
-                    Text("Chụp hoặc chọn ảnh, nhận diện chữ và tạo nhiều thẻ cùng lúc.")
+                    .padding()
                 }
             }
             .navigationTitle("Tạo thẻ mới")
@@ -79,6 +116,7 @@ struct CardCreateView: View {
                 }
             }
             .interactiveDismissDisabled(isCreating)
+            .onAppear { fieldFocused = true }
             .sheet(isPresented: $showScan) {
                 ScanWordsView(language: language, onCreated: onCreated)
             }
@@ -88,15 +126,18 @@ struct CardCreateView: View {
     private func create() {
         isCreating = true
         errorMessage = nil
+        Haptics.impact(.light)
         Task {
             do {
                 _ = try await cards.createWithAI(
                     word: word.trimmingCharacters(in: .whitespacesAndNewlines),
                     language: language)
+                Haptics.notify(.success)
                 onCreated()
                 dismiss()
             } catch {
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+                Haptics.notify(.error)
                 isCreating = false
             }
         }

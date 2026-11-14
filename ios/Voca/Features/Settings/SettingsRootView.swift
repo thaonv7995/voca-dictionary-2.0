@@ -1,14 +1,20 @@
 import SwiftUI
 
-/// Root of the Settings tab: AI (LLM) + TTS connection config and API-key management.
-/// Self-contained (owns its `NavigationStack`) so it can be dropped straight into a `TabView`.
+/// Root of the Settings screen: appearance/theme, study UX, AI (LLM) + TTS connection config, and API-key management.
+/// Set `embeddedInNavigation = true` when pushing from `ProfileView`'s `NavigationStack`.
 struct SettingsRootView: View {
+    var embeddedInNavigation: Bool = false
+
+    @Environment(ThemeStore.self) private var theme
+    @Environment(LocalLearnerStore.self) private var learner
     private let service = SettingsService()
 
     private enum SaveStatus {
         case success(String)
         case failure(String)
     }
+
+    @State private var showServerConfig = false
 
     // LLM
     @State private var llmBaseUrl = ""
@@ -40,40 +46,204 @@ struct SettingsRootView: View {
     @State private var loadError: String?
 
     var body: some View {
-        NavigationStack {
-            Form {
-                if isLoading {
-                    Section {
-                        HStack {
-                            ProgressView().padding(.trailing, 4)
-                            Text("Đang tải cài đặt…").foregroundStyle(.secondary)
-                        }
+        if embeddedInNavigation {
+            settingsForm
+        } else {
+            NavigationStack {
+                settingsForm
+            }
+        }
+    }
+
+    private var settingsForm: some View {
+        Form {
+            if isLoading {
+                Section {
+                    HStack {
+                        ProgressView().padding(.trailing, 4)
+                        Text("Đang tải cài đặt…").foregroundStyle(.secondary)
                     }
                 }
+            }
 
-                if let loadError {
-                    Section { Text(loadError).foregroundStyle(.red) }
-                }
+            if let loadError {
+                Section { Text(loadError).foregroundStyle(.red) }
+            }
 
-                llmSection
+            appearanceSection
 
-                ttsSection
+            studyUxSection
 
-                Section("API keys") {
-                    NavigationLink("Quản lý API keys") { ApiKeysView() }
-                }
+            llmSection
 
-                Section("Máy chủ Voca (Backend)") {
-                    LabeledContent("Địa chỉ hiện tại", value: AppConfig.baseURL.absoluteString)
-                    LabeledContent("Loại", value: AppConfig.isCustomBaseURL ? "Tùy chỉnh" : "Mặc định")
+            ttsSection
+
+            Section("API keys") {
+                NavigationLink {
+                    ApiKeysView()
+                } label: {
+                    Label("Quản lý API keys", systemImage: "key.fill")
                 }
             }
-            .navigationTitle("Cài đặt")
-            .task { await load() }
+
+            Section("Máy chủ Voca (Backend)") {
+                LabeledContent("Địa chỉ hiện tại", value: AppConfig.baseURL.absoluteString)
+                LabeledContent("Loại", value: AppConfig.isCustomBaseURL ? "Tùy chỉnh" : "Mặc định")
+                Button {
+                    Haptics.impact(.light)
+                    showServerConfig = true
+                } label: {
+                    Label("Đổi địa chỉ máy chủ", systemImage: "server.rack")
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(VocaThemeBackground())
+        .navigationTitle("Cài đặt")
+        .task { await load() }
+        .sheet(isPresented: $showServerConfig) {
+            ServerConfigSheet {
+                Task { await load() }
+            }
         }
     }
 
     // MARK: - Sections
+
+    private var appearanceSection: some View {
+        @Bindable var theme = theme
+        return Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Chế độ sáng / tối")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Picker("Chế độ hiển thị", selection: $theme.appearance) {
+                    ForEach(VocaAppearance.allCases) { mode in
+                        Label(mode.label, systemImage: mode.icon)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: theme.appearance) { _, _ in
+                    Haptics.selection()
+                }
+            }
+            .padding(.vertical, 4)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Bảng màu chủ đạo")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(theme.palette.title)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.accent)
+                }
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(VocaPalette.allCases) { item in
+                        let selected = theme.palette == item
+                        Button {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+                                theme.palette = item
+                            }
+                            Haptics.selection()
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(item.gradient)
+                                    .frame(width: 26, height: 26)
+                                    .overlay {
+                                        if selected {
+                                            Image(systemName: "checkmark")
+                                                .font(.caption2.weight(.bold))
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
+                                    .shadow(color: item.primary.opacity(selected ? 0.35 : 0), radius: 5, y: 2)
+
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(item.title)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Text(item.subtitle)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(selected ? item.primary.opacity(0.12) : Color.secondary.opacity(0.08))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(selected ? item.primary : .clear, lineWidth: 1.5)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+
+            Toggle(isOn: $theme.hanziCalligraphic) {
+                HStack(spacing: 10) {
+                    Text("学")
+                        .font(VocaTypography.hanziFont(size: 20, weight: .bold))
+                        .foregroundStyle(theme.accent)
+                        .frame(width: 28, height: 28)
+                        .background(theme.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Phông chữ Hán ngữ thư pháp")
+                        Text("Dùng nét Songti thanh đậm cho chữ Hán")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .onChange(of: theme.hanziCalligraphic) { _, _ in
+                Haptics.selection()
+            }
+
+            Toggle(isOn: $theme.hapticsEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Phản hồi rung (Haptics)")
+                    Text("Rung nhẹ khi lật thẻ, chấm điểm và thao tác")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Giao diện & Chủ đề")
+        } footer: {
+            Text("Thay đổi áp dụng ngay lập tức trên toàn bộ ứng dụng iOS.")
+        }
+    }
+
+    private var studyUxSection: some View {
+        @Bindable var theme = theme
+        @Bindable var learner = learner
+        return Section("Trải nghiệm học tập") {
+            Stepper(value: $learner.dailyGoal, in: 5...100, step: 5) {
+                HStack {
+                    Text("Mục tiêu hằng ngày")
+                    Spacer()
+                    Text("\(learner.dailyGoal) thẻ")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(theme.accent)
+                }
+            }
+
+            Toggle("Tự động phát âm khi lật thẻ", isOn: $theme.autoSpeakFlashcard)
+            Toggle("Thẻ ngược (Nghĩa → Từ)", isOn: $theme.reverseFlashcardMode)
+        }
+    }
 
     private var llmSection: some View {
         Section("Kết nối AI (LLM)") {

@@ -1,18 +1,38 @@
 import SwiftUI
 
-/// The signed-in shell: five tabs. Settings now lives inside the Profile tab (see ProfileView).
+/// The signed-in shell: adaptive five-section TabView on iPhone and styled SplitView on iPad.
 struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(AppRouter.self) private var router
+    @Environment(ThemeStore.self) private var theme
     @State private var selectedSection: HomeSection? = .today
 
     var body: some View {
         Group {
             if horizontalSizeClass == .regular {
                 NavigationSplitView {
-                    List(HomeSection.allCases, selection: $selectedSection) { section in
-                        Label(section.title, systemImage: section.icon)
-                            .tag(section)
+                    List(selection: $selectedSection) {
+                        Section {
+                            HStack(spacing: 12) {
+                                VocaBrandMark(size: 34)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("Voca")
+                                        .font(.headline.weight(.bold))
+                                    Text("Anh – Trung AI")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                            .listRowBackground(Color.clear)
+                        }
+
+                        Section("Điều hướng") {
+                            ForEach(HomeSection.allCases) { section in
+                                Label(section.title, systemImage: section.icon)
+                                    .tag(section)
+                            }
+                        }
                     }
                     .navigationTitle("Voca")
                 } detail: {
@@ -23,6 +43,7 @@ struct HomeView: View {
                 phoneTabs
             }
         }
+        .tint(theme.accent)
         .onChange(of: router.pendingCardSlug) { _, slug in
             if slug != nil { selectedSection = .dictionary }
         }
@@ -34,11 +55,11 @@ struct HomeView: View {
     private var phoneTabs: some View {
         TabView(selection: $selectedSection) {
             sectionView(.today)
-                .tabItem { Label("Hôm nay", systemImage: "sun.max") }
+                .tabItem { Label("Hôm nay", systemImage: "sun.max.fill") }
                 .tag(HomeSection.today as HomeSection?)
 
             sectionView(.dictionary)
-                .tabItem { Label("Kho từ", systemImage: "rectangle.grid.2x2") }
+                .tabItem { Label("Kho từ", systemImage: "rectangle.grid.2x2.fill") }
                 .tag(HomeSection.dictionary as HomeSection?)
 
             sectionView(.study)
@@ -50,7 +71,7 @@ struct HomeView: View {
                 .tag(HomeSection.assistant as HomeSection?)
 
             sectionView(.profile)
-                .tabItem { Label("Hồ sơ", systemImage: "person.crop.circle") }
+                .tabItem { Label("Hồ sơ", systemImage: "person.crop.circle.fill") }
                 .tag(HomeSection.profile as HomeSection?)
         }
     }
@@ -83,11 +104,11 @@ private enum HomeSection: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .today: "sun.max"
-        case .dictionary: "rectangle.grid.2x2"
+        case .today: "sun.max.fill"
+        case .dictionary: "rectangle.grid.2x2.fill"
         case .study: "brain.head.profile"
         case .assistant: "sparkles"
-        case .profile: "person.crop.circle"
+        case .profile: "person.crop.circle.fill"
         }
     }
 }

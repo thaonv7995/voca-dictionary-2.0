@@ -1,12 +1,28 @@
 import Observation
 import SwiftUI
 
-/// Landing screen for the Study (spaced-repetition) tab. Loads `stats()` + `due()` on appear,
-/// surfaces how many cards are due and launches a full-screen swipeable review session.
+/// Landing screen for the Study (FSRS + Free Flashcard Browse) tab.
 struct StudyRootView: View {
+    @Environment(ThemeStore.self) private var theme
+    @Environment(LocalLearnerStore.self) private var learner
     @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
+
     @State private var model = StudyModel()
-    @State private var showSession = false
+    @State private var showReviewSession = false
+    @State private var browseScope: BrowseScope = .all
+    @State private var browseSheetCards: [Card]?
+
+    private enum BrowseScope: String, CaseIterable, Identifiable {
+        case all, learning, favorites
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .all: return "Tất cả"
+            case .learning: return "Chưa vững"
+            case .favorites: return "Yêu thích ★"
+            }
+        }
+    }
 
     private var language: CardLanguage {
         CardLanguage(rawValue: languageRaw) ?? .english
@@ -16,124 +32,263 @@ struct StudyRootView: View {
         (model.due?.cards ?? []).filter { $0.card.cardLanguage == language }
     }
 
+    private var languageCards: [Card] {
+        model.cards.filter { $0.cardLanguage == language }
+    }
+
+    private var scopedBrowseCards: [Card] {
+        switch browseScope {
+        case .all:
+            return languageCards
+        case .learning:
+            return languageCards.filter {
+                let lvl = CardLevel($0.level)
+                return lvl == .new || lvl == .learning || lvl == nil
+            }
+        case .favorites:
+            return languageCards.filter { learner.isFavorite($0.slug) }
+        }
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    CardLanguagePicker(selection: $languageRaw)
-                }
+            ZStack {
+                VocaThemeBackground()
 
-                Section {
-                    heroCard
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
+                ScrollView {
+                    VStack(spacing: 18) {
+                        CardLanguagePicker(selection: $languageRaw)
 
-                Section {
-                    startButton
-                }
+                        if let errorMessage = model.errorMessage {
+                            errorBanner(errorMessage)
+                        }
 
-                Section {
-                    NavigationLink {
-                        StatsView()
-                    } label: {
-                        Label("Xem thống kê", systemImage: "chart.bar.xaxis")
-                            .foregroundStyle(Brand.green)
+                        dueHeroCard
+                        freeBrowseCard
+                        preferencesCard
+                        statsCard
                     }
-                }
-
-                if let errorMessage = model.errorMessage {
-                    Section {
-                        Text(errorMessage).foregroundStyle(.red)
-                    }
+                    .padding()
+                    .frame(maxWidth: 760)
+                    .frame(maxWidth: .infinity)
                 }
             }
             .navigationTitle("Học tập")
-            .tint(Brand.green)
             .refreshable { await model.load() }
             .task { await model.load() }
-            .fullScreenCover(isPresented: $showSession, onDismiss: {
+            .fullScreenCover(isPresented: $showReviewSession, onDismiss: {
                 Task { await model.load() }
             }) {
                 ReviewSessionView(items: dueItems)
             }
+            .fullScreenCover(item: Binding(
+                get: { browseSheetCards.map { BrowseWrapper(cards: $0, title: "Thẻ lật · \(browseScope.label)") } },
+                set: { if $0 == nil { browseSheetCards = nil } }
+            )) { wrapper in
+                ReviewSessionView(browseCards: wrapper.cards, title: wrapper.title)
+            }
         }
     }
 
-    // MARK: - Hero
+    // MARK: - Hero FSRS Card
 
-    @ViewBuilder private var heroCard: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "rectangle.stack.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(Brand.green)
+    @ViewBuilder private var dueHeroCard: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 14) {
+                VocaIconBadge(systemImage: "rectangle.stack.fill", size: 52, iconSize: 23)
 
-            if model.isLoading && model.due == nil {
-                ProgressView()
-                    .padding(.vertical, 8)
-            } else {
-                Text("\(dueCount)")
-                    .font(.system(size: 56, weight: .bold, design: .rounded))
-                    .foregroundStyle(Brand.green)
-                    .contentTransition(.numericText())
-                Text(dueCount == 0 ? "Không có thẻ nào cần ôn" : "\(dueCount) thẻ cần ôn")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Ôn tập theo lịch FSRS")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    if model.isLoading && model.due == nil {
+                        ProgressView().padding(.vertical, 4)
+                    } else {
+                        Text(dueCount == 0 ? "Không có thẻ đến hạn" : "\(dueCount) thẻ cần ôn")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.primary)
+                            .contentTransition(.numericText())
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                if learner.streakDays > 0 {
+                    VocaPillBadge(text: "\(learner.streakDays) ngày", icon: "flame.fill", tint: .orange)
+                }
+            }
+
+            if dueCount == 0 && !(model.isLoading && model.due == nil) {
+                Text("Tuyệt vời! Bạn đã ôn hết thẻ đến hạn hôm nay. Có thể luyện thêm bằng Thẻ lật tự do bên dưới.")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if dueCount == 0 {
-                    Text("Tuyệt vời! Quay lại sau nhé.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Vuốt thẻ để ôn thật nhanh 👆")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("Chạm để lật mặt sau và vuốt trái/phải để chấm mức độ nhớ.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Button {
+                Haptics.impact(.medium)
+                showReviewSession = true
+            } label: {
+                HStack(spacing: 8) {
+                    if model.isLoading && model.due != nil {
+                        ProgressView().tint(.white)
+                    }
+                    Label("Bắt đầu ôn tập", systemImage: "play.fill")
                 }
             }
+            .buttonStyle(BrandCTAButtonStyle())
+            .disabled(dueCount == 0 || (model.isLoading && model.due == nil))
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
-        .background(Brand.greenSoft, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .padding(.horizontal)
-        .padding(.top, 8)
+        .brandHeroCard(padding: 18, cornerRadius: 22)
     }
 
-    @ViewBuilder private var startButton: some View {
-        Button {
-            showSession = true
+    // MARK: - Free Browse Deck
+
+    @ViewBuilder private var freeBrowseCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                VocaIconBadge(systemImage: "sparkles.rectangle.stack.fill", tint: .indigo, size: 38, iconSize: 17)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Thẻ lật tự do")
+                        .font(.headline)
+                    Text("Luyện bất kỳ lúc nào mà không ảnh hưởng lịch FSRS")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+
+            Picker("Bộ thẻ", selection: $browseScope) {
+                ForEach(BrowseScope.allCases) { scope in
+                    Text(scope.label).tag(scope)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Button {
+                Haptics.impact(.light)
+                browseSheetCards = scopedBrowseCards
+            } label: {
+                HStack {
+                    Label("Mở bộ thẻ (\(scopedBrowseCards.count))", systemImage: "rectangle.portrait.on.rectangle.portrait.angled.fill")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.bold))
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(scopedBrowseCards.isEmpty ? .secondary : Brand.green)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Brand.greenSoft.opacity(scopedBrowseCards.isEmpty ? 0.35 : 1),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(scopedBrowseCards.isEmpty)
+        }
+        .brandCard()
+    }
+
+    // MARK: - Study UX Settings Card
+
+    @ViewBuilder private var preferencesCard: some View {
+        @Bindable var bindableTheme = theme
+
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Tùy chọn phiên học")
+                .font(.headline)
+
+            Toggle(isOn: $bindableTheme.reverseFlashcardMode) {
+                Label("Đảo mặt thẻ (Nghĩa → Từ)", systemImage: "arrow.left.arrow.right")
+                    .font(.subheadline)
+            }
+            .tint(Brand.green)
+
+            Divider().opacity(0.6)
+
+            Toggle(isOn: $bindableTheme.autoSpeakFlashcard) {
+                Label("Tự động phát âm khi mở thẻ", systemImage: "speaker.wave.2")
+                    .font(.subheadline)
+            }
+            .tint(Brand.green)
+
+            Divider().opacity(0.6)
+
+            Toggle(isOn: $bindableTheme.hapticsEnabled) {
+                Label("Phản hồi rung (Haptics)", systemImage: "iphone.radiowaves.left.and.right")
+                    .font(.subheadline)
+            }
+            .tint(Brand.green)
+        }
+        .brandCard()
+    }
+
+    // MARK: - Stats Link
+
+    @ViewBuilder private var statsCard: some View {
+        NavigationLink {
+            StatsView()
         } label: {
-            HStack {
-                if model.isLoading && model.due != nil {
-                    ProgressView().padding(.trailing, 4)
+            HStack(spacing: 12) {
+                VocaIconBadge(systemImage: "chart.bar.xaxis", size: 38, iconSize: 17)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Xem thống kê chi tiết")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("\(languageCards.count) thẻ · Hôm nay đã ôn \(learner.reviewedTodayCount)/\(learner.dailyGoal)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Label("Bắt đầu ôn tập", systemImage: "play.fill")
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
-            .frame(maxWidth: .infinity)
+            .brandCard()
         }
-        .buttonStyle(.borderedProminent)
-        .tint(Brand.green)
-        .controlSize(.large)
-        .disabled(dueCount == 0 || model.isLoading)
+        .buttonStyle(.plain)
     }
 
-    private var dueCount: Int {
-        dueItems.count
+    @ViewBuilder private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            Text(message).font(.subheadline).foregroundStyle(.secondary)
+            Spacer()
+            Button("Thử lại") { Task { await model.load() } }
+                .font(.subheadline.weight(.semibold))
+        }
+        .brandCard()
+    }
+
+    private var dueCount: Int { dueItems.count }
+
+    private struct BrowseWrapper: Identifiable {
+        let id = UUID()
+        let cards: [Card]
+        let title: String
     }
 }
 
-/// View-model backing the Study landing screen. Loads server state via `StudyService`.
+/// View-model backing the Study landing screen.
 @Observable
 final class StudyModel {
     var stats: StudyStats?
     var due: DueResponse?
+    var cards: [Card] = []
     var isLoading = false
     var errorMessage: String?
 
     private let service = StudyService()
+    private let cardsService = CardsService()
 
     init() {
         stats = service.cachedStats()
         due = service.cachedDue()
+        cards = cardsService.cachedList()
     }
 
     @MainActor
@@ -143,9 +298,11 @@ final class StudyModel {
         do {
             async let statsCall = service.stats()
             async let dueCall = service.due()
-            let (loadedStats, loadedDue) = try await (statsCall, dueCall)
+            async let cardsCall = cardsService.list()
+            let (loadedStats, loadedDue, loadedCards) = try await (statsCall, dueCall, cardsCall)
             stats = loadedStats
             due = loadedDue
+            cards = loadedCards
         } catch {
             errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
         }

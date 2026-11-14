@@ -2,12 +2,11 @@ import SwiftUI
 
 // MARK: - Stat tile
 
-/// A small labelled metric card used in the Today dashboard's stats grid.
-/// Tinted by `color` (e.g. `Brand.levelColor` per learning level).
+/// A compact labelled metric card used in Today and Stats dashboards.
 struct StatTile: View {
     let title: String
     let value: Int
-    var color: Color = Brand.green
+    var color: Color = Brand.semanticSuccess
     var systemImage: String?
 
     var body: some View {
@@ -15,32 +14,32 @@ struct StatTile: View {
             HStack(spacing: 6) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.caption)
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(color)
                 }
                 Text(title)
-                    .font(.subheadline)
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             Text("\(value)")
                 .font(.title2.weight(.bold))
+                .monospacedDigit()
                 .foregroundStyle(color)
                 .contentTransition(.numericText())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .brandCard()
+        .brandCard(padding: 14, cornerRadius: 16)
     }
 }
 
 // MARK: - Mastery ring
 
-/// A circular progress ring (Brand green) showing a 0…1 `fraction` with the percentage
-/// in the centre. Null-safe: clamps out-of-range values so 0 cards → 0%.
+/// A circular themed progress ring showing a 0...1 `fraction` with percentage inside.
 struct MasteryRing: View {
     let fraction: Double
-    var lineWidth: CGFloat = 12
-    var size: CGFloat = 108
+    var lineWidth: CGFloat = 11
+    var size: CGFloat = 100
 
     private var clamped: Double { min(max(fraction, 0), 1) }
     private var percent: Int { Int((clamped * 100).rounded()) }
@@ -52,17 +51,18 @@ struct MasteryRing: View {
             Circle()
                 .trim(from: 0, to: clamped)
                 .stroke(
-                    Brand.green,
+                    Brand.gradient,
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .animation(.easeInOut, value: clamped)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: clamped)
             VStack(spacing: 0) {
                 Text("\(percent)%")
-                    .font(.title2.weight(.bold))
+                    .font(.title3.weight(.bold))
+                    .monospacedDigit()
                     .foregroundStyle(Brand.green)
                     .contentTransition(.numericText())
                 Text("thành thạo")
-                    .font(.caption2)
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
         }
@@ -74,8 +74,9 @@ struct MasteryRing: View {
 
 // MARK: - Recent card row
 
-/// One row in the "Thẻ gần đây" list: word + IPA + meaning, a level badge and a speaker button.
+/// One row in the "Thẻ gần đây" list with Chinese calligraphy support, star indicator, and TTS button.
 struct RecentCardRow: View {
+    @Environment(LocalLearnerStore.self) private var learner
     let card: Card
 
     var body: some View {
@@ -83,11 +84,17 @@ struct RecentCardRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(card.word)
-                        .font(.headline)
+                        .font(card.isChinese ? VocaTypography.hanziFont(size: 20, weight: .bold) : .headline)
                     if let phonetic = card.phonetic {
                         Text(phonetic)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(card.isChinese ? Brand.green : .secondary)
+                            .lineLimit(1)
+                    }
+                    if learner.isFavorite(card.slug) {
+                        Image(systemName: "star.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
                     }
                 }
                 if let meaningVi = card.meaningVi, !meaningVi.isEmpty {
@@ -105,6 +112,10 @@ struct RecentCardRow: View {
             }
 
             PronounceButton(text: card.word, language: card.cardLanguage)
+
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
     }

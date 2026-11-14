@@ -1,8 +1,6 @@
 import SwiftUI
 
 /// Matches a tapped multiple-choice option against the server's `answer` string.
-/// The backend may report the answer either as the full choice text or as a
-/// letter label ("A"/"B"/…), so we tolerate both.
 enum AnswerMatcher {
     static func isCorrect(choice: String, index: Int, answer: String) -> Bool {
         let a = answer.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -16,10 +14,15 @@ enum AnswerMatcher {
     }
 }
 
-/// A→"A.", B→"B.", … used to label choices.
+/// A->"A.", B->"B.", ... used to label choices.
 func choiceLetter(_ index: Int) -> String {
     guard index >= 0, let scalar = UnicodeScalar(65 + index) else { return "\(index + 1)." }
     return "\(Character(scalar))."
+}
+
+private func choiceBadgeChar(_ index: Int) -> String {
+    guard index >= 0, let scalar = UnicodeScalar(65 + index) else { return "\(index + 1)" }
+    return String(Character(scalar))
 }
 
 // MARK: - Shared styling
@@ -27,10 +30,10 @@ func choiceLetter(_ index: Int) -> String {
 private struct ChipStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .font(.caption2)
+            .font(.caption2.weight(.semibold))
             .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
             .background(Color(.tertiarySystemFill), in: Capsule())
             .foregroundStyle(.secondary)
     }
@@ -44,39 +47,37 @@ extension View {
     func practiceCard() -> some View {
         self
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(
-                Color(.secondarySystemBackground),
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .brandCard(padding: 16, cornerRadius: 16)
     }
 }
 
 // MARK: - Shared interactive choices
 
-/// Renders a list of multiple-choice options with single-shot selection.
-/// After a tap it locks in, highlights the correct answer green and a wrong
-/// pick red, then reveals the explanation (and `whyWrong` for the wrong pick).
-/// Owns its own selection state so it can be reused per drill / reading question.
+/// Renders multiple-choice options with circular letter badges, haptic feedback, and explanation reveal.
 struct PracticeChoicesView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let choices: [String]
     let answer: String
     let explanation: String?
     var whyWrong: [String: String]? = nil
-    /// When true, each choice gets a trailing speaker button that reads it aloud (TTS).
     var speakChoices: Bool = false
     var language: CardLanguage = .english
+    var onAnswered: ((Bool) -> Void)? = nil
 
     @State private var selected: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
                 if speakChoices {
                     HStack(alignment: .center, spacing: 8) {
                         choiceButton(index: index, choice: choice)
                         PronounceButton(
                             text: choice,
-                            language: choice.hasChineseCharacters ? .chinese : language
+                            language: choice.hasChineseCharacters ? .chinese : language,
+                            size: 34,
+                            tintedCapsule: true
                         )
                     }
                 } else {
@@ -97,18 +98,30 @@ struct PracticeChoicesView: View {
 
         return Button {
             if selected == nil {
+                if correct {
+                    Haptics.notify(.success)
+                } else {
+                    Haptics.notify(.error)
+                }
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.72)) { selected = choice }
+                onAnswered?(correct)
             }
         } label: {
-            HStack(alignment: .top, spacing: 8) {
-                Text(choiceLetter(index))
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .center, spacing: 10) {
+                Text(choiceBadgeChar(index))
+                    .font(.caption.weight(.bold))
+                    .frame(width: 24, height: 24)
+                    .foregroundStyle(badgeForeground(answered: answered, correct: correct, isPicked: isPicked))
+                    .background(badgeFill(answered: answered, correct: correct, isPicked: isPicked), in: Circle())
+
                 Text(choice)
+                    .font(.subheadline)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+
                 if answered && correct {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Brand.semanticSuccess)
                         .transition(.scale.combined(with: .opacity))
                 } else if answered && isPicked {
                     Image(systemName: "xmark.circle.fill")
@@ -116,17 +129,21 @@ struct PracticeChoicesView: View {
                         .transition(.scale.combined(with: .opacity))
                 }
             }
-            .padding(10)
-            .background(fillColor(answered: answered, correct: correct, isPicked: isPicked),
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(11)
+            .background(
+                fillColor(answered: answered, correct: correct, isPicked: isPicked),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(borderColor(answered: answered, correct: correct, isPicked: isPicked)))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(borderColor(answered: answered, correct: correct, isPicked: isPicked), lineWidth: answered && (correct || isPicked) ? 1.5 : 1)
+            )
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)
         .animation(.easeInOut(duration: 0.22), value: selected)
         .allowsHitTesting(!answered)
+        .accessibilityLabel("\(choiceLetter(index)) \(choice)")
     }
 
     private var reveal: some View {
@@ -135,7 +152,8 @@ struct PracticeChoicesView: View {
                 Label {
                     Text(explanation)
                 } icon: {
-                    Image(systemName: "lightbulb")
+                    Image(systemName: "lightbulb.fill")
+                        .foregroundStyle(.orange)
                 }
                 .font(.footnote)
             }
@@ -149,29 +167,42 @@ struct PracticeChoicesView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.top, 4)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.elevatedFill(for: colorScheme), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func badgeForeground(answered: Bool, correct: Bool, isPicked: Bool) -> Color {
+        guard answered else { return .secondary }
+        if correct || isPicked { return .white }
+        return .secondary
+    }
+
+    private func badgeFill(answered: Bool, correct: Bool, isPicked: Bool) -> Color {
+        guard answered else { return Color.primary.opacity(0.08) }
+        if correct { return Brand.semanticSuccess }
+        if isPicked { return .red }
+        return Color.primary.opacity(0.08)
     }
 
     private func fillColor(answered: Bool, correct: Bool, isPicked: Bool) -> Color {
-        guard answered else { return Color(.tertiarySystemBackground) }
-        if correct { return .green.opacity(0.15) }
-        if isPicked { return .red.opacity(0.15) }
-        return Color(.tertiarySystemBackground)
+        guard answered else { return Brand.elevatedFill(for: colorScheme) }
+        if correct { return Brand.semanticSuccess.opacity(0.14) }
+        if isPicked { return Color.red.opacity(0.14) }
+        return Brand.elevatedFill(for: colorScheme)
     }
 
     private func borderColor(answered: Bool, correct: Bool, isPicked: Bool) -> Color {
-        guard answered else { return Color(.separator) }
-        if correct { return .green }
+        guard answered else { return Brand.hairlineBorder(for: colorScheme) }
+        if correct { return Brand.semanticSuccess }
         if isPicked { return .red }
-        return Color(.separator)
+        return Brand.hairlineBorder(for: colorScheme)
     }
 }
 
 // MARK: - Typing indicator
 
-/// Three green dots that pulse in sequence — shown inside an assistant bubble while
-/// awaiting the first streamed chunk. Replaces a plain spinner for a livelier "typing…" feel.
+/// Three themed dots that pulse in sequence — shown inside an assistant bubble while awaiting chunks.
 struct TypingIndicator: View {
     @State private var animating = false
 
@@ -179,7 +210,7 @@ struct TypingIndicator: View {
         HStack(spacing: 5) {
             ForEach(0..<3, id: \.self) { i in
                 Circle()
-                    .fill(Brand.green.opacity(0.7))
+                    .fill(Brand.green.opacity(0.75))
                     .frame(width: 7, height: 7)
                     .scaleEffect(animating ? 1 : 0.5)
                     .opacity(animating ? 1 : 0.35)
@@ -197,19 +228,20 @@ struct TypingIndicator: View {
 
 // MARK: - Chat send button
 
-/// V1-style circular send button that sits inside the rounded chat composer:
-/// a filled `Brand.green` circle (dimmed when disabled) with a white arrow, or a
-/// white spinner while the reply is streaming. Fixed size so the composer never reflows.
+/// Circular send button sitting inside the rounded chat composer.
 struct ChatSendButton: View {
     var isStreaming: Bool
     var canSend: Bool
     var action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            Haptics.impact(.light)
+            action()
+        } label: {
             ZStack {
                 Circle()
-                    .fill(canSend || isStreaming ? Brand.green : Color.secondary.opacity(0.4))
+                    .fill(canSend || isStreaming ? Brand.green : Color.secondary.opacity(0.35))
                 if isStreaming {
                     ProgressView()
                         .controlSize(.small)
@@ -243,28 +275,9 @@ struct PressableScaleStyle: ButtonStyle {
     }
 }
 
-/// Primary filled-green CTA (generate / "Ôn tập ngay" style) with a gentle press scale
-/// and an animated disabled fade. Replaces `.borderedProminent` where we want that extra polish.
-struct BrandCTAButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(Brand.green, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .opacity(isEnabled ? 1 : 0.5)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
-            .animation(.easeInOut(duration: 0.2), value: isEnabled)
-    }
-}
-
 // MARK: - Chips
 
-/// A word + IPA capsule used by the speaking view (word on top, IPA below).
+/// A word + IPA capsule used by the speaking view.
 struct WordIPAChip: View {
     let word: String
     let ipa: String?
@@ -272,16 +285,17 @@ struct WordIPAChip: View {
     var body: some View {
         VStack(spacing: 1) {
             Text(word)
-                .font(.caption2.weight(.semibold))
+                .font(.caption.weight(.semibold))
             if let ipa, !ipa.isEmpty {
                 Text(ipa)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
         .background(Brand.greenSoft, in: Capsule())
+        .overlay(Capsule().strokeBorder(Brand.green.opacity(0.22), lineWidth: 0.8))
         .foregroundStyle(Brand.green)
     }
 }

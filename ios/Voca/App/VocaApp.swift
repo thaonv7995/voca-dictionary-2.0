@@ -5,6 +5,8 @@ import SwiftUI
 struct VocaApp: App {
     @State private var auth = AuthStore()
     @State private var router = AppRouter()
+    @State private var theme = ThemeStore.shared
+    @State private var learner = LocalLearnerStore.shared
     @Environment(\.scenePhase) private var scenePhase
     private let widgetRouteTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
@@ -13,6 +15,8 @@ struct VocaApp: App {
             RootView()
                 .environment(auth)
                 .environment(router)
+                .environment(theme)
+                .environment(learner)
                 .onOpenURL { router.open($0) }
                 .onAppear { router.openPendingWidgetCard() }
                 .onChange(of: scenePhase) { _, phase in

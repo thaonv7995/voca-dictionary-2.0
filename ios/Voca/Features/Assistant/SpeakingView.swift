@@ -1,7 +1,6 @@
 import SwiftUI
 import Observation
 
-/// Generates and holds a shadowing/speaking passage (per-sentence text + IPA + word timings).
 @MainActor
 @Observable
 final class SpeakingViewModel {
@@ -36,18 +35,21 @@ final class SpeakingViewModel {
                 }
                 if let parsed = PracticeParsing.speaking(from: acc) {
                     practice = parsed
+                    Haptics.notify(.success)
                 } else {
                     errorMessage = "Không tạo được nội dung, thử lại"
+                    Haptics.notify(.error)
                 }
             } catch {
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+                Haptics.notify(.error)
             }
             isGenerating = false
         }
     }
 }
 
-/// Generates a speaking practice and renders it with TTS playback (whole passage + per sentence).
+/// Generates a speaking practice with wrapped word IPA/Pinyin chips and per-sentence TTS.
 struct SpeakingView: View {
     @Bindable var vm: SpeakingViewModel
 
@@ -55,6 +57,7 @@ struct SpeakingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Button {
+                    Haptics.impact(.light)
                     vm.generate()
                 } label: {
                     Label(vm.practice == nil ? "Tạo bài luyện nói" : "Tạo bài luyện nói mới",
@@ -78,21 +81,26 @@ struct SpeakingView: View {
                 if let practice = vm.practice {
                     SpeakingContentView(practice: practice, language: vm.language)
                 } else if !vm.isGenerating && vm.errorMessage == nil {
-                    Text(vm.language == .chinese
-                         ? "Nhấn nút để tạo bài luyện nói tiếng Trung kèm Pinyin và phát âm mẫu."
-                         : "Nhấn nút để tạo một bài luyện nói kèm phiên âm và phát âm mẫu.")
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 40)
+                    VStack(spacing: 12) {
+                        VocaIconBadge(systemImage: "waveform", size: 54, iconSize: 24)
+                        Text(vm.language == .chinese
+                             ? "Nhấn nút để tạo bài luyện nói tiếng Trung kèm Pinyin và phát âm mẫu."
+                             : "Nhấn nút để tạo một bài luyện nói kèm phiên âm và phát âm mẫu.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 36)
                 }
             }
             .padding()
+            .frame(maxWidth: 780)
+            .frame(maxWidth: .infinity)
         }
     }
 }
 
-/// Renders the title/topic, a whole-passage TTS button and each sentence card.
 private struct SpeakingContentView: View {
     let practice: SpeakingPractice
     let language: CardLanguage
@@ -114,7 +122,7 @@ private struct SpeakingContentView: View {
                     Label("Phát âm toàn bài", systemImage: "play.circle.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
                 .tint(Brand.green)
             }
 
@@ -125,6 +133,7 @@ private struct SpeakingContentView: View {
     }
 
     private func play(_ text: String) {
+        Haptics.impact(.light)
         let effectiveLang: CardLanguage = text.hasChineseCharacters ? .chinese : language
         Task { @MainActor in
             try? await TTSService().speak(text, language: effectiveLang)
@@ -132,7 +141,6 @@ private struct SpeakingContentView: View {
     }
 }
 
-/// A single sentence: text + speaker button, IPA, per-word IPA chips and connected-speech hints.
 private struct SpeakingSentenceCard: View {
     let sentence: SpeakingSentence
     let number: Int
@@ -145,11 +153,12 @@ private struct SpeakingSentenceCard: View {
             HStack(alignment: .top, spacing: 8) {
                 Text("\(number).")
                     .font(.subheadline).bold()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Brand.green)
                 Text(sentenceText)
-                    .font(.body)
+                    .font(effectiveLang == .chinese ? VocaTypography.hanziFont(size: 19, weight: .medium) : .body)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                PronounceButton(text: sentenceText, language: effectiveLang)
+                    .textSelection(.enabled)
+                PronounceButton(text: sentenceText, language: effectiveLang, tintedCapsule: true)
             }
 
             if let ipa = sentence.ipa, !ipa.isEmpty {
@@ -175,16 +184,14 @@ private struct SpeakingSentenceCard: View {
             Image(systemName: "link")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(links) { link in
-                        let label = [link.from, link.symbol ?? link.type, link.to]
-                            .compactMap { $0 }
-                            .filter { !$0.isEmpty }
-                            .joined(separator: " ")
-                        if !label.isEmpty {
-                            Text(label).chip()
-                        }
+            VocaFlowLayout(spacing: 6) {
+                ForEach(links) { link in
+                    let label = [link.from, link.symbol ?? link.type, link.to]
+                        .compactMap { $0 }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " ")
+                    if !label.isEmpty {
+                        Text(label).chip()
                     }
                 }
             }
@@ -192,16 +199,13 @@ private struct SpeakingSentenceCard: View {
     }
 }
 
-/// Wraps the per-word IPA chips onto multiple lines.
 private struct FlowChips: View {
     let words: [SpeakingWord]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(words) { word in
-                    WordIPAChip(word: word.word ?? "", ipa: word.ipa)
-                }
+        VocaFlowLayout(spacing: 6) {
+            ForEach(words) { word in
+                WordIPAChip(word: word.word ?? "", ipa: word.ipa)
             }
         }
     }

@@ -1,8 +1,7 @@
 import SwiftUI
 import Observation
 
-/// Generates and holds a listening/conversation passage (`daily_conversation`),
-/// and drives sequential "play all" TTS playback across its lines.
+/// Generates and holds a listening/conversation passage and drives highlighted sequential TTS playback.
 @MainActor
 @Observable
 final class ConversationViewModel {
@@ -12,6 +11,7 @@ final class ConversationViewModel {
     var isGenerating = false
     var errorMessage: String?
     var isPlayingAll = false
+    var activeLineID: UUID?
 
     private let service = AssistantService()
     private let tts = TTSService()
@@ -27,7 +27,6 @@ final class ConversationViewModel {
         }
     }
 
-    /// Streams the conversation JSON, accumulates, then parses it into a `Conversation`.
     func generate() {
         guard !isGenerating else { return }
         stopPlayAll()
@@ -54,11 +53,14 @@ final class ConversationViewModel {
                 }
                 if let parsed = PracticeParsing.conversation(from: acc) {
                     conversation = parsed
+                    Haptics.notify(.success)
                 } else {
                     errorMessage = "Không tạo được nội dung, thử lại"
+                    Haptics.notify(.error)
                 }
             } catch {
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+                Haptics.notify(.error)
             }
             isGenerating = false
         }
@@ -68,7 +70,6 @@ final class ConversationViewModel {
         (line.text?.hasChineseCharacters == true) ? .chinese : language
     }
 
-    /// Resolves a voice model matching the line's language, falling back across configured A/B/C speaker voices.
     func voice(for line: ConversationLine) -> String? {
         let lineLanguage = language(for: line)
         let speaker = (line.speaker ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -107,7 +108,6 @@ final class ConversationViewModel {
         isPlayingAll ? stopPlayAll() : startPlayAll()
     }
 
-    /// Plays every line in order, waiting for each clip to finish before the next.
     private func startPlayAll() {
         guard let lines = conversation?.lines, !lines.isEmpty else { return }
         isPlayingAll = true
@@ -116,6 +116,7 @@ final class ConversationViewModel {
                 if Task.isCancelled { break }
                 let text = (line.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { continue }
+                activeLineID = line.id
                 do {
                     try await tts.speakAndWait(
                         text,
@@ -128,10 +129,9 @@ final class ConversationViewModel {
                 }
                 if Task.isCancelled { break }
             }
-            // A cancelled run is cleaned up by stopPlayAll(); only a natural finish
-            // resets state here to avoid clobbering a freshly started run.
             if !Task.isCancelled {
                 isPlayingAll = false
+                activeLineID = nil
                 playAllTask = nil
             }
         }
@@ -140,50 +140,60 @@ final class ConversationViewModel {
     private func stopPlayAll() {
         playAllTask?.cancel()
         playAllTask = nil
-        AudioPlayer.shared.stop() // resumes any pending speakAndWait continuation
+        AudioPlayer.shared.stop()
         isPlayingAll = false
+        activeLineID = nil
     }
 }
 
-/// Picks a format, generates a listening passage, and renders it as chat bubbles
-/// with vocabulary highlighting, per-line TTS and a sequential "play all".
+/// Interactive listening/dialogue studio with active-line highlight and Pinyin/Translation blind-listening toggles.
 struct ConversationView: View {
     @Bindable var vm: ConversationViewModel
+    @State private var showPinyin = true
+    @State private var showTranslation = true
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                controls
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    controls
 
-                if vm.isGenerating {
-                    ProgressView("Đang tạo…")
-                        .frame(maxWidth: .infinity)
-                        .padding()
+                    if vm.isGenerating {
+                        ProgressView("Đang tạo…")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                    }
+
+                    if let error = vm.errorMessage {
+                        Text(error)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    if let conversation = vm.conversation {
+                        conversationContent(conversation)
+                    } else if !vm.isGenerating && vm.errorMessage == nil {
+                        emptyState
+                    }
                 }
-
-                if let error = vm.errorMessage {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if let conversation = vm.conversation {
-                    conversationContent(conversation)
-                } else if !vm.isGenerating && vm.errorMessage == nil {
-                    emptyState
+                .padding()
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity)
+            }
+            .onChange(of: vm.activeLineID) { _, id in
+                guard let id else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(id, anchor: .center)
                 }
             }
-            .padding()
         }
     }
-
-    // MARK: Controls
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Định dạng")
-                    .font(.subheadline)
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Picker("Định dạng", selection: $vm.format) {
@@ -197,6 +207,7 @@ struct ConversationView: View {
             }
 
             Button {
+                Haptics.impact(.light)
                 vm.generate()
             } label: {
                 Label(vm.conversation == nil ? "Tạo hội thoại" : "Tạo hội thoại mới",
@@ -208,35 +219,38 @@ struct ConversationView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "person.2.wave.2")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
+        VStack(spacing: 12) {
+            VocaIconBadge(systemImage: "person.2.wave.2", size: 54, iconSize: 24)
             Text(vm.language == .chinese
                  ? "Chưa có hội thoại tiếng Trung, nhấn Tạo hội thoại"
                  : "Chưa có hội thoại, nhấn Tạo")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 40)
+        .padding(.top, 36)
     }
 
-    // MARK: Content
-
     private func conversationContent(_ c: Conversation) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let hasAnyPinyin = c.lines.contains { !($0.pinyin ?? "").isEmpty }
+
+        return VStack(alignment: .leading, spacing: 12) {
             headerCard(c)
-            playbackRow
+            playbackRow(hasAnyPinyin: hasAnyPinyin)
 
             let speakers = orderedSpeakers(c)
             ForEach(c.lines) { line in
                 ConversationBubble(
                     line: line,
                     isPrimary: isPrimary(line, speakers: speakers),
+                    isActive: vm.activeLineID == line.id,
+                    showPinyin: showPinyin,
+                    showTranslation: showTranslation,
                     attributed: highlightedVocabulary(line.text ?? "", vocabulary: line.vocabulary),
                     voiceModel: vm.voice(for: line),
                     language: vm.language(for: line))
+                .id(line.id)
             }
         }
     }
@@ -259,36 +273,55 @@ struct ConversationView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .brandCard()
+        .brandHeroCard(padding: 16, cornerRadius: 18)
     }
 
-    private var playbackRow: some View {
-        HStack {
-            Button {
-                vm.togglePlayAll()
-            } label: {
-                Label(vm.isPlayingAll ? "Dừng" : "Phát tất cả",
-                      systemImage: vm.isPlayingAll ? "stop.circle.fill" : "play.circle.fill")
-            }
-            .buttonStyle(.bordered)
-            .tint(Brand.green)
+    private func playbackRow(hasAnyPinyin: Bool) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Button {
+                    Haptics.impact(.light)
+                    vm.togglePlayAll()
+                } label: {
+                    Label(vm.isPlayingAll ? "Dừng" : "Phát tất cả",
+                          systemImage: vm.isPlayingAll ? "stop.circle.fill" : "play.circle.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Brand.green)
 
-            Spacer()
+                if hasAnyPinyin {
+                    visibilityChip(title: "Pinyin", isOn: $showPinyin)
+                }
 
-            Button {
-                vm.generate()
-            } label: {
-                Label("Tạo lại", systemImage: "arrow.clockwise")
+                visibilityChip(title: "Dịch nghĩa", isOn: $showTranslation)
+
+                Button {
+                    vm.generate()
+                } label: {
+                    Label("Tạo lại", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .tint(Brand.green)
+                .disabled(vm.isGenerating)
             }
-            .buttonStyle(.bordered)
-            .tint(Brand.green)
-            .disabled(vm.isGenerating)
         }
     }
 
-    // MARK: Helpers
+    private func visibilityChip(title: String, isOn: Binding<Bool>) -> some View {
+        Button {
+            Haptics.selection()
+            withAnimation(.easeInOut(duration: 0.16)) { isOn.wrappedValue.toggle() }
+        } label: {
+            Label(title, systemImage: isOn.wrappedValue ? "eye.fill" : "eye.slash")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 11)
+                .padding(.vertical, 8)
+                .foregroundStyle(isOn.wrappedValue ? Brand.green : .secondary)
+                .background(isOn.wrappedValue ? Brand.greenSoft : Color(.tertiarySystemFill), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
 
-    /// Human label for the conversation's format, falling back to the selected one.
     private func formatLabel(_ c: Conversation) -> String {
         if let raw = c.format?.lowercased(),
            let known = ConversationFormat(rawValue: raw) {
@@ -298,7 +331,6 @@ struct ConversationView: View {
         return vm.format.label
     }
 
-    /// Speakers in first-appearance order (prefers the declared list).
     private func orderedSpeakers(_ c: Conversation) -> [String] {
         if let declared = c.speakers?.filter({ !$0.isEmpty }), !declared.isEmpty {
             return declared
@@ -310,21 +342,20 @@ struct ConversationView: View {
         return seen
     }
 
-    /// Left-align the primary (first) speaker; right-align everyone else. With 0–1
-    /// distinct speakers (story / announcement) every line stays on the left.
     private func isPrimary(_ line: ConversationLine, speakers: [String]) -> Bool {
         guard speakers.count > 1 else { return true }
         return (line.speaker ?? "") == speakers.first
     }
 }
 
-// MARK: - Bubble
-
-/// One chat bubble: avatar, speaker name + speaker button, the English text with its
-/// vocabulary highlighted, the Vietnamese translation, and any vocabulary glosses.
 private struct ConversationBubble: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let line: ConversationLine
     let isPrimary: Bool
+    let isActive: Bool
+    let showPinyin: Bool
+    let showTranslation: Bool
     let attributed: AttributedString
     let voiceModel: String?
     let language: CardLanguage
@@ -334,9 +365,9 @@ private struct ConversationBubble: View {
             if isPrimary {
                 avatar
                 bubble
-                Spacer(minLength: 24)
+                Spacer(minLength: 20)
             } else {
-                Spacer(minLength: 24)
+                Spacer(minLength: 20)
                 bubble
                 avatar
             }
@@ -351,30 +382,35 @@ private struct ConversationBubble: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
+                if isActive {
+                    VocaPillBadge(text: "Đang phát", icon: "waveform")
+                }
+                Spacer(minLength: 0)
                 PronounceButton(
                     text: line.text ?? "",
                     voiceModel: voiceModel,
                     language: language,
-                    size: 24,
-                    font: .footnote
+                    size: 26,
+                    font: .footnote,
+                    tintedCapsule: true
                 )
             }
 
             if let text = line.text, !text.isEmpty {
                 Text(attributed)
-                    .font(.body)
+                    .font(language == .chinese ? VocaTypography.hanziFont(size: 18, weight: .medium) : .body)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let pinyin = line.pinyin, !pinyin.isEmpty {
+            if showPinyin, let pinyin = line.pinyin, !pinyin.isEmpty {
                 Text(pinyin)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(Brand.green)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let translation = line.translation, !translation.isEmpty {
+            if showTranslation, let translation = line.translation, !translation.isEmpty {
                 Text(translation)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -383,7 +419,7 @@ private struct ConversationBubble: View {
 
             let glosses = vocabularyGlosses
             if !glosses.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     ForEach(glosses) { item in
                         (Text(item.term).foregroundColor(Brand.green).fontWeight(.semibold)
                             + Text(" — \(item.meaning)").foregroundColor(.secondary))
@@ -394,8 +430,17 @@ private struct ConversationBubble: View {
                 .padding(.top, 2)
             }
         }
-        .padding(12)
-        .background(bubbleColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(13)
+        .background(bubbleColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(
+                    isActive ? Brand.green : Brand.hairlineBorder(for: colorScheme),
+                    lineWidth: isActive ? 2 : 1
+                )
+        )
+        .shadow(color: isActive ? Brand.green.opacity(0.20) : .clear, radius: 10, y: 3)
+        .animation(.easeInOut(duration: 0.2), value: isActive)
     }
 
     @ViewBuilder private var avatar: some View {
@@ -408,21 +453,19 @@ private struct ConversationBubble: View {
         }
         .foregroundStyle(.white)
         .frame(width: 32, height: 32)
-        .background(Brand.green, in: Circle())
+        .background(Brand.gradient, in: Circle())
     }
 
     private var bubbleColor: Color {
-        isPrimary ? Color(.secondarySystemBackground) : Brand.greenSoft
+        isPrimary ? Brand.cardFill(for: colorScheme) : Brand.greenSoft
     }
 
-    /// First letter of the speaker name, or nil for narration (no speaker).
     private var initial: String? {
         let s = (line.speaker ?? "").trimmingCharacters(in: .whitespaces)
         guard let first = s.first else { return nil }
         return String(first).uppercased()
     }
 
-    /// Ordered vocabulary terms that have a Vietnamese gloss.
     private var vocabularyGlosses: [Gloss] {
         guard let meanings = line.vocabularyMeanings, !meanings.isEmpty else { return [] }
         let order = line.vocabulary ?? Array(meanings.keys)
@@ -433,17 +476,13 @@ private struct ConversationBubble: View {
     }
 }
 
-/// A single vocabulary term paired with its Vietnamese gloss.
 private struct Gloss: Identifiable {
     let term: String
     let meaning: String
     var id: String { term }
 }
 
-// MARK: - Vocabulary highlighting
-
-/// Builds an `AttributedString` from `text`, styling every (case-insensitive)
-/// occurrence of each vocabulary term in green + semibold.
+@MainActor
 private func highlightedVocabulary(_ text: String, vocabulary: [String]?) -> AttributedString {
     var result = AttributedString(text)
     guard let vocabulary, !vocabulary.isEmpty, !text.isEmpty else { return result }

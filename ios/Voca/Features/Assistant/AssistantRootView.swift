@@ -26,12 +26,12 @@ enum AssistantMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// Root of the AI Assistant feature (chat + practice). A horizontally scrollable
-/// row of pills switches between the modes (a 5-segment control would overflow);
-/// view-models live here so their state survives switching modes.
+/// Root of the AI Assistant feature (chat + 5 practice studios).
 struct AssistantRootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
+
     @State private var mode: AssistantMode = .chat
     @State private var chatVM = ChatViewModel()
     @State private var drillsVM = DrillsViewModel()
@@ -46,22 +46,26 @@ struct AssistantRootView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if horizontalSizeClass == .regular {
-                    HStack(spacing: 0) {
-                        modeSidebar
-                        Divider()
-                        modeContent
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                } else {
-                    VStack(spacing: 0) {
-                        CardLanguagePicker(selection: $languageRaw)
-                            .padding(.horizontal)
-                            .padding(.top, 8)
-                        modePicker
-                        Divider()
-                        modeContent
+            ZStack {
+                VocaThemeBackground()
+
+                Group {
+                    if horizontalSizeClass == .regular {
+                        HStack(spacing: 0) {
+                            modeSidebar
+                            Divider()
+                            modeContent
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    } else {
+                        VStack(spacing: 0) {
+                            CardLanguagePicker(selection: $languageRaw)
+                                .padding(.horizontal)
+                                .padding(.top, 8)
+                            modePicker
+                            Divider().opacity(0.6)
+                            modeContent
+                        }
                     }
                 }
             }
@@ -94,12 +98,13 @@ struct AssistantRootView: View {
     }
 
     private var modeSidebar: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             CardLanguagePicker(selection: $languageRaw)
                 .padding(.bottom, 6)
             ForEach(AssistantMode.allCases) { item in
                 let selected = mode == item
                 Button {
+                    Haptics.selection()
                     withAnimation(.easeInOut(duration: 0.15)) { mode = item }
                 } label: {
                     Label(item.title, systemImage: item.icon)
@@ -108,19 +113,22 @@ struct AssistantRootView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 11)
                         .foregroundStyle(selected ? .white : .primary)
-                        .background(selected ? Brand.green : Color.clear,
-                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background {
+                            if selected {
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .fill(Brand.gradient)
+                            }
+                        }
                 }
                 .buttonStyle(.plain)
             }
             Spacer()
         }
         .padding(12)
-        .frame(width: 210)
-        .background(Color(.secondarySystemGroupedBackground))
+        .frame(width: 220)
+        .background(Brand.cardFill(for: colorScheme).opacity(0.85))
     }
 
-    /// Scrollable pill row: the selected mode fills with `Brand.green`.
     private var modePicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -136,6 +144,7 @@ struct AssistantRootView: View {
     private func modePill(_ item: AssistantMode) -> some View {
         let selected = mode == item
         return Button {
+            Haptics.selection()
             withAnimation(.easeInOut(duration: 0.15)) { mode = item }
         } label: {
             Label(item.title, systemImage: item.icon)
@@ -144,7 +153,13 @@ struct AssistantRootView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .foregroundStyle(selected ? .white : Brand.green)
-                .background(selected ? Brand.green : Brand.greenSoft, in: Capsule())
+                .background {
+                    if selected {
+                        Capsule().fill(Brand.gradient)
+                    } else {
+                        Capsule().fill(Brand.greenSoft)
+                    }
+                }
         }
         .buttonStyle(.plain)
     }

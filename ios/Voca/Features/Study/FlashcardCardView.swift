@@ -1,122 +1,266 @@
 import SwiftUI
 
-/// A single flashcard surface with a 3D flip between a word "front" and a meaning "back".
-/// Purely presentational: the owning `FlashcardDeckView` drives `flipped` and the drag transform.
+/// A single flashcard surface with a smooth 3D flip between front and back, supporting reverse recall mode.
 struct FlashcardCardView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let card: Card
-    /// Whether the back face is showing. Only meaningful for the top card.
     var flipped: Bool = false
-    /// The interactive top card shows the speaker + hint affordances; peeking cards don't.
     var isTop: Bool = false
+    var reverseMode: Bool = false
 
     var body: some View {
         ZStack {
-            cardSurface { frontFace }
-                .opacity(flipped ? 0 : 1)
+            cardSurface {
+                if reverseMode { meaningFace(isFront: true) } else { wordFace(isFront: true) }
+            }
+            .opacity(flipped ? 0 : 1)
 
-            cardSurface { backFace }
-                .opacity(flipped ? 1 : 0)
-                // Pre-rotate the back so its content reads correctly once the container hits 180°.
-                .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
+            cardSurface {
+                if reverseMode { wordFace(isFront: false) } else { meaningFace(isFront: false) }
+            }
+            .opacity(flipped ? 1 : 0)
+            .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
         }
         .rotation3DEffect(.degrees(flipped ? 180 : 0), axis: (x: 0, y: 1, z: 0))
     }
 
-    // MARK: - Surface (brandCard-style, larger radius + shadow)
+    // MARK: - Surface
 
     @ViewBuilder private func cardSurface<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
-            .padding(28)
+            .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(Color(.secondarySystemBackground))
+                    .fill(Brand.cardFill(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Brand.green.opacity(colorScheme == .dark ? 0.10 : 0.05),
+                                        Color.clear
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .strokeBorder(Brand.green.opacity(0.10), lineWidth: 1)
+                    .strokeBorder(Brand.green.opacity(colorScheme == .dark ? 0.22 : 0.16), lineWidth: 1.2)
             )
-            .shadow(color: .black.opacity(0.14), radius: 18, x: 0, y: 10)
+            .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.12), radius: 18, x: 0, y: 10)
     }
 
-    // MARK: - Front
+    // MARK: - Card Metadata Header
 
-    @ViewBuilder private var frontFace: some View {
-        VStack(spacing: 14) {
-            Spacer(minLength: 0)
+    private var metaStrip: some View {
+        HStack(spacing: 6) {
+            VocaPillBadge(
+                text: card.isChinese ? "中文" : "English",
+                tint: card.isChinese ? .orange : Brand.green
+            )
 
             if let pos = card.partOfSpeech, !pos.isEmpty {
                 Badge(text: pos, color: Brand.green)
             }
 
+            Spacer(minLength: 4)
+
+            if let level = CardLevel(card.level) {
+                Badge(text: level.label, color: Brand.levelColor(level.rawValue))
+            }
+        }
+    }
+
+    // MARK: - Word Face
+
+    @ViewBuilder private func wordFace(isFront: Bool) -> some View {
+        VStack(spacing: 14) {
+            metaStrip
+
+            Spacer(minLength: 0)
+
             Text(card.word)
-                .font(.system(size: card.isChinese ? 60 : 42, weight: .bold, design: .rounded))
+                .font(card.isChinese
+                      ? VocaTypography.hanziFont(size: 62, weight: .bold)
+                      : .system(size: 40, weight: .bold, design: .rounded))
                 .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.5)
+                .minimumScaleFactor(0.45)
                 .lineLimit(3)
 
-            if let phonetic = frontPhonetic {
+            if let phonetic = card.phonetic {
                 Text(phonetic)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .font(card.isChinese ? .title3.weight(.medium) : .system(.title3, design: .monospaced))
+                    .foregroundStyle(card.isChinese ? Brand.green : .secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                    .background(
+                        Brand.elevatedFill(for: colorScheme),
+                        in: Capsule()
+                    )
             }
 
             if isTop {
-                PronounceButton(text: card.word, language: card.cardLanguage, size: 48, font: .title2)
-                    .padding(.top, 4)
+                PronounceButton(
+                    text: card.word,
+                    language: card.cardLanguage,
+                    size: 48,
+                    font: .title2,
+                    tintedCapsule: true
+                )
+                .padding(.top, 4)
+            }
+
+            if !isFront {
+                if let meaning = card.meaningVi, !meaning.isEmpty {
+                    Text(meaning)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 4)
+                }
             }
 
             Spacer(minLength: 0)
 
-            if isTop {
+            if isTop && isFront {
                 Label("Chạm để lật", systemImage: "hand.tap.fill")
-                    .font(.caption)
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var frontPhonetic: String? {
-        card.phonetic
-    }
+    // MARK: - Meaning Face
 
-    // MARK: - Back
-
-    @ViewBuilder private var backFace: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(card.word)
-                .font(.headline)
-                .foregroundStyle(.secondary)
-
-            if let vi = card.meaningVi, !vi.isEmpty {
-                block("Nghĩa", titleColor: Brand.green) {
-                    Text(vi).font(.title2.weight(.semibold))
+    @ViewBuilder private func meaningFace(isFront: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 10) {
+                if !isFront {
+                    Text(card.word)
+                        .font(card.isChinese ? VocaTypography.hanziFont(size: 26, weight: .bold) : .title3.weight(.bold))
+                        .foregroundStyle(.primary)
+                    if let phonetic = card.phonetic {
+                        Text(phonetic)
+                            .font(.subheadline)
+                            .foregroundStyle(card.isChinese ? Brand.green : .secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    if isTop {
+                        PronounceButton(
+                            text: card.word,
+                            language: card.cardLanguage,
+                            size: 34,
+                            font: .body,
+                            tintedCapsule: true
+                        )
+                    }
+                } else {
+                    metaStrip
                 }
             }
 
-            if !card.isChinese, let en = card.meaningEn, !en.isEmpty {
-                block("Meaning") {
-                    Text(en).font(.body)
-                }
-            }
+            Divider().opacity(0.6)
 
-            if let example = card.examples?.first(where: { !$0.isEmpty }) {
-                block("Ví dụ") {
-                    if card.isChinese {
-                        let parsed = ChineseExample(example)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(parsed.hanzi).font(.headline)
-                            if let pinyin = parsed.pinyin { Text(pinyin).foregroundStyle(Brand.green) }
-                            if let meaning = parsed.meaningVi { Text(meaning).foregroundStyle(.secondary) }
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let vi = card.meaningVi, !vi.isEmpty {
+                        block("Nghĩa tiếng Việt", titleColor: Brand.green) {
+                            Text(vi)
+                                .font(isFront ? .title2.weight(.bold) : .title3.weight(.semibold))
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                    } else {
-                        Text(example).font(.callout).italic()
+                    }
+
+                    if !card.isChinese, let en = card.meaningEn, !en.isEmpty {
+                        block("English Meaning") {
+                            Text(en)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    if !isFront, let examples = card.examples?.filter({ !$0.isEmpty }), !examples.isEmpty {
+                        block("Ví dụ") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(Array(examples.prefix(2).enumerated()), id: \.offset) { _, raw in
+                                    if card.isChinese {
+                                        let parsed = ChineseExample(raw)
+                                        HStack(alignment: .top, spacing: 8) {
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(parsed.hanzi)
+                                                    .font(.subheadline.weight(.semibold))
+                                                if let pinyin = parsed.pinyin {
+                                                    Text(pinyin)
+                                                        .font(.caption)
+                                                        .foregroundStyle(Brand.green)
+                                                }
+                                                if let meaning = parsed.meaningVi {
+                                                    Text(meaning)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            Spacer(minLength: 4)
+                                            if isTop {
+                                                PronounceButton(
+                                                    text: parsed.hanzi,
+                                                    language: .chinese,
+                                                    size: 28,
+                                                    font: .caption
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        HStack(alignment: .top, spacing: 8) {
+                                            Text("“\(raw)”")
+                                                .font(.callout)
+                                                .italic()
+                                                .foregroundStyle(.secondary)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                            if isTop {
+                                                PronounceButton(
+                                                    text: raw,
+                                                    language: .english,
+                                                    size: 28,
+                                                    font: .caption
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !isFront, let tip = card.memoryTip, !tip.isEmpty {
+                        block("Mẹo ghi nhớ") {
+                            Text(tip)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Spacer(minLength: 0)
+            if isFront && isTop {
+                HStack {
+                    Spacer()
+                    Label("Chạm để xem từ gốc", systemImage: "hand.tap.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -128,7 +272,7 @@ struct FlashcardCardView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .font(.caption.weight(.bold))
                 .foregroundStyle(titleColor)
             content()
         }

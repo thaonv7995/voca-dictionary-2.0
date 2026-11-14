@@ -1,37 +1,32 @@
 import SwiftUI
 
-/// The interactive, draggable flashcard stack.
-///
-/// - Shows the top card plus 1-2 peeking cards behind for depth.
-/// - The top card is draggable (follows the finger with rotation) and tap-to-flip.
-/// - Releasing past a horizontal threshold grades the card and flings it off-screen:
-///   right = Tốt (good), far right = Dễ (easy); left = Lại (again), far left = Khó (hard).
-/// - The four grade buttons below are an explicit alternative to the swipe.
-///
-/// Owns the per-card review call and advancement so the animation stays in a single transaction.
+/// The interactive, draggable flashcard stack for FSRS review sessions.
 struct FlashcardDeckView: View {
     let items: [DueItem]
     @Binding var index: Int
     @Binding var gradedCount: Int
+    var reverseMode: Bool = false
+    var autoSpeak: Bool = false
+    var onGradeRecorded: (ReviewGrade) -> Void = { _ in }
 
     @State private var drag: CGSize = .zero
-    /// When non-nil the top card is flying off-screen (mid-commit).
     @State private var flyAway: CGSize?
     @State private var flipped = false
     @State private var isGrading = false
     @State private var reviewError: String?
     @State private var lastGrade: ReviewGrade?
+    @State private var crossedThresholdGrade: ReviewGrade?
 
     private let service = StudyService()
 
-    private let swipeThreshold: CGFloat = 100
-    private let farThreshold: CGFloat = 220
+    private let swipeThreshold: CGFloat = 95
+    private let farThreshold: CGFloat = 205
     private let flingDistance: CGFloat = 900
 
-    private let commitSpring = Animation.spring(response: 0.4, dampingFraction: 0.85)
-    private let advanceSpring = Animation.spring(response: 0.45, dampingFraction: 0.8)
-    private let flipSpring = Animation.spring(response: 0.5, dampingFraction: 0.8)
-    private let snapSpring = Animation.spring(response: 0.35, dampingFraction: 0.7)
+    private let commitSpring = Animation.spring(response: 0.38, dampingFraction: 0.85)
+    private let advanceSpring = Animation.spring(response: 0.42, dampingFraction: 0.8)
+    private let flipSpring = Animation.spring(response: 0.48, dampingFraction: 0.8)
+    private let snapSpring = Animation.spring(response: 0.34, dampingFraction: 0.72)
 
     var body: some View {
         VStack(spacing: 14) {
@@ -40,6 +35,17 @@ struct FlashcardDeckView: View {
                 errorBanner(reviewError)
             }
             gradeButtons
+        }
+        .onAppear {
+            speakCurrentIfNeeded(justFlipped: false)
+        }
+        .onChange(of: index) { _, _ in
+            speakCurrentIfNeeded(justFlipped: false)
+        }
+        .onChange(of: flipped) { _, nowFlipped in
+            if nowFlipped && reverseMode {
+                speakCurrentIfNeeded(justFlipped: true)
+            }
         }
     }
 
@@ -59,18 +65,27 @@ struct FlashcardDeckView: View {
         let depth = entry.offset
         let isTop = depth == 0
         let currentOffset = flyAway ?? drag
+        let previewGrade = isTop ? grade(for: currentOffset.width) : nil
 
         let base = FlashcardCardView(
             card: entry.item.card,
             flipped: isTop && flipped,
-            isTop: isTop
+            isTop: isTop,
+            reverseMode: reverseMode
         )
         .frame(maxWidth: 520)
-        .scaleEffect(1 - CGFloat(depth) * 0.05)
-        .offset(y: CGFloat(depth) * 14)
+        .overlay {
+            if let previewGrade {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .strokeBorder(previewGrade.gradeColor.opacity(0.65), lineWidth: 3)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay { if isTop { swipeSticker(for: currentOffset.width) } }
+        .scaleEffect(1 - CGFloat(depth) * 0.045)
+        .offset(y: CGFloat(depth) * 12)
         .offset(isTop ? currentOffset : .zero)
         .rotationEffect(.degrees(isTop ? angle(for: currentOffset.width) : 0))
-        .overlay { if isTop { swipeSticker(for: currentOffset.width) } }
         .zIndex(Double(-depth))
         .allowsHitTesting(isTop && !isGrading)
 
@@ -78,6 +93,7 @@ struct FlashcardDeckView: View {
             base
                 .gesture(dragGesture(for: entry.item))
                 .onTapGesture {
+                    Haptics.impact(.light)
                     withAnimation(flipSpring) { flipped.toggle() }
                 }
         } else {
@@ -85,25 +101,28 @@ struct FlashcardDeckView: View {
         }
     }
 
-    /// The colored "sticker" hint (TỐT / DỄ / LẠI / KHÓ) shown while dragging or flinging.
     @ViewBuilder private func swipeSticker(for width: CGFloat) -> some View {
         if let grade = grade(for: width) {
             let goesRight = grade.goesRight
-            Text(grade.label.uppercased())
-                .font(.system(size: 30, weight: .heavy, design: .rounded))
-                .foregroundStyle(grade.gradeColor)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(grade.gradeColor, lineWidth: 4)
-                )
-                .rotationEffect(.degrees(goesRight ? -12 : 12))
-                .opacity(min(1, Double(abs(width)) / Double(swipeThreshold)))
-                .frame(maxWidth: .infinity, maxHeight: .infinity,
-                       alignment: goesRight ? .topLeading : .topTrailing)
-                .padding(30)
-                .allowsHitTesting(false)
+            HStack(spacing: 6) {
+                Image(systemName: grade.icon)
+                Text(grade.label.uppercased())
+            }
+            .font(.system(size: 24, weight: .heavy, design: .rounded))
+            .foregroundStyle(grade.gradeColor)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(grade.gradeColor, lineWidth: 3)
+            )
+            .rotationEffect(.degrees(goesRight ? -10 : 10))
+            .opacity(min(1, Double(abs(width)) / Double(swipeThreshold)))
+            .frame(maxWidth: .infinity, maxHeight: .infinity,
+                   alignment: goesRight ? .topLeading : .topTrailing)
+            .padding(26)
+            .allowsHitTesting(false)
         }
     }
 
@@ -114,9 +133,15 @@ struct FlashcardDeckView: View {
             .onChanged { value in
                 guard !isGrading, flyAway == nil else { return }
                 drag = value.translation
+                let current = grade(for: value.translation.width)
+                if current != crossedThresholdGrade {
+                    crossedThresholdGrade = current
+                    if current != nil { Haptics.selection() }
+                }
             }
             .onEnded { value in
                 guard !isGrading, flyAway == nil else { return }
+                crossedThresholdGrade = nil
                 if let grade = grade(for: value.translation.width) {
                     commit(grade, for: item)
                 } else {
@@ -126,7 +151,7 @@ struct FlashcardDeckView: View {
     }
 
     private func angle(for width: CGFloat) -> Double {
-        Double(max(-15, min(15, width / 14)))
+        Double(max(-14, min(14, width / 15)))
     }
 
     private func grade(for width: CGFloat) -> ReviewGrade? {
@@ -137,31 +162,37 @@ struct FlashcardDeckView: View {
         return nil
     }
 
-    // MARK: - Grade buttons (explicit alternative to swipe)
+    // MARK: - Grade buttons
 
     @ViewBuilder private var gradeButtons: some View {
-        VStack(spacing: 10) {
-            Text("Vuốt thẻ hoặc chọn mức độ")
+        VStack(spacing: 8) {
+            Text("Vuốt thẻ trái/phải hoặc chọn mức nhớ")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ForEach(ReviewGrade.allCases) { grade in
                     Button {
                         guard let item = currentItem else { return }
                         commit(grade, for: item)
                     } label: {
-                        Text(grade.label)
-                            .font(.subheadline.weight(.bold))
-                            .frame(maxWidth: .infinity)
+                        VStack(spacing: 2) {
+                            Image(systemName: grade.icon)
+                                .font(.caption.weight(.bold))
+                            Text(grade.label)
+                                .font(.subheadline.weight(.bold))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(grade.gradeColor, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(grade.gradeColor)
+                    .buttonStyle(PressableScaleStyle(scale: 0.94))
                     .disabled(isGrading)
                 }
             }
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 8)
+        .padding(.bottom, 10)
     }
 
     @ViewBuilder private func errorBanner(_ message: String) -> some View {
@@ -189,14 +220,12 @@ struct FlashcardDeckView: View {
         items.indices.contains(index) ? items[index] : nil
     }
 
-    /// One entry per visible card. `offset` is depth from the top (0 = top card).
     private struct DeckEntry: Identifiable {
         let offset: Int
         let item: DueItem
         var id: String { item.id }
     }
 
-    /// Up to three visible cards, ordered back-to-front so the top card draws last.
     private var visibleEntries: [DeckEntry] {
         guard !items.isEmpty else { return [] }
         let end = min(index + 3, items.count)
@@ -206,11 +235,21 @@ struct FlashcardDeckView: View {
 
     // MARK: - Actions
 
+    private func speakCurrentIfNeeded(justFlipped: Bool) {
+        guard autoSpeak, let item = currentItem else { return }
+        if reverseMode && !justFlipped { return }
+        let card = item.card
+        Task {
+            try? await TTSService().speak(card.word, language: card.cardLanguage)
+        }
+    }
+
     private func commit(_ grade: ReviewGrade, for item: DueItem) {
         guard !isGrading else { return }
         isGrading = true
         reviewError = nil
         lastGrade = grade
+        Haptics.impact(grade == .again ? .rigid : .medium)
 
         withAnimation(commitSpring) {
             flyAway = CGSize(width: grade.goesRight ? flingDistance : -flingDistance, height: drag.height)
@@ -220,14 +259,16 @@ struct FlashcardDeckView: View {
             do {
                 try await service.review(slug: item.card.slug, grade: grade)
                 isGrading = false
+                LocalLearnerStore.shared.recordReviewCompleted(count: 1)
+                onGradeRecorded(grade)
                 withAnimation(advanceSpring) {
                     gradedCount += 1
                     advanceState()
                 }
             } catch {
                 isGrading = false
+                Haptics.notify(.error)
                 reviewError = (error as? ApiError)?.message ?? error.localizedDescription
-                // Bring the card back so the user can retry or skip.
                 withAnimation(commitSpring) {
                     flyAway = nil
                     drag = .zero
@@ -236,7 +277,6 @@ struct FlashcardDeckView: View {
         }
     }
 
-    /// Advance past the current card without recording a review (used after a failed save).
     private func skip() {
         withAnimation(advanceSpring) {
             reviewError = nil
@@ -244,28 +284,166 @@ struct FlashcardDeckView: View {
         }
     }
 
-    /// Move to the next card and reset the top-card transform. Call inside a `withAnimation`.
     private func advanceState() {
         index += 1
         flyAway = nil
         drag = .zero
         flipped = false
+        crossedThresholdGrade = nil
     }
 }
 
-// MARK: - Grade presentation (feature-local; Core `ReviewGrade` stays untouched)
+// MARK: - Free Browse Deck (No FSRS mutation)
 
-private extension ReviewGrade {
-    /// Again = red / Hard = orange / Good = green / Easy = blue.
-    var gradeColor: Color {
-        switch self {
-        case .again: return .red
-        case .hard: return .orange
-        case .good: return Brand.green
-        case .easy: return .blue
+/// Free-study deck allowing users to flip, favorite, shuffle, and browse any card set freely.
+struct FreeFlashcardDeckView: View {
+    @Binding var cards: [Card]
+    @Binding var index: Int
+    var reverseMode: Bool = false
+    var autoSpeak: Bool = false
+
+    @State private var flipped = false
+    @State private var dragOffset: CGFloat = 0
+
+    private let flipSpring = Animation.spring(response: 0.48, dampingFraction: 0.8)
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                ForEach(visibleCards, id: \.offset) { depth, card in
+                    let isTop = depth == 0
+                    FlashcardCardView(
+                        card: card,
+                        flipped: isTop && flipped,
+                        isTop: isTop,
+                        reverseMode: reverseMode
+                    )
+                    .frame(maxWidth: 520)
+                    .scaleEffect(1 - CGFloat(depth) * 0.045)
+                    .offset(y: CGFloat(depth) * 12)
+                    .offset(x: isTop ? dragOffset : 0)
+                    .rotationEffect(.degrees(isTop ? Double(dragOffset / 22) : 0))
+                    .zIndex(Double(-depth))
+                    .allowsHitTesting(isTop)
+                    .gesture(isTop ? browseDragGesture : nil)
+                    .onTapGesture {
+                        guard isTop else { return }
+                        Haptics.impact(.light)
+                        withAnimation(flipSpring) { flipped.toggle() }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 20)
+
+            controlsBar
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+        }
+        .onAppear { speakCurrentIfNeeded(justFlipped: false) }
+        .onChange(of: index) { _, _ in speakCurrentIfNeeded(justFlipped: false) }
+        .onChange(of: flipped) { _, nowFlipped in
+            if nowFlipped && reverseMode { speakCurrentIfNeeded(justFlipped: true) }
         }
     }
 
-    /// Good/Easy fling to the right; Again/Hard fling to the left.
+    private var visibleCards: [(offset: Int, card: Card)] {
+        guard !cards.isEmpty, index < cards.count else { return [] }
+        let end = min(index + 3, cards.count)
+        return (index..<end).reversed().map { ($0 - index, cards[$0]) }
+    }
+
+    private var browseDragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                dragOffset = value.translation.width
+            }
+            .onEnded { value in
+                if value.translation.width < -70 && index < cards.count - 1 {
+                    move(to: index + 1)
+                } else if value.translation.width > 70 && index > 0 {
+                    move(to: index - 1)
+                } else {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { dragOffset = 0 }
+                }
+            }
+    }
+
+    private var controlsBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                move(to: max(0, index - 1))
+            } label: {
+                Label("Trước", systemImage: "chevron.left")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(index == 0)
+
+            Button {
+                Haptics.impact(.light)
+                withAnimation(flipSpring) { flipped.toggle() }
+            } label: {
+                Label("Lật thẻ", systemImage: "arrow.triangle.2.circlepath")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Brand.green)
+
+            Button {
+                if index < cards.count - 1 {
+                    move(to: index + 1)
+                } else {
+                    move(to: 0)
+                }
+            } label: {
+                Label(index < cards.count - 1 ? "Sau" : "Đầu lại", systemImage: "chevron.right")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(cards.count <= 1)
+        }
+    }
+
+    private func move(to newIndex: Int) {
+        Haptics.selection()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            dragOffset = 0
+            flipped = false
+            index = newIndex
+        }
+    }
+
+    private func speakCurrentIfNeeded(justFlipped: Bool) {
+        guard autoSpeak, cards.indices.contains(index) else { return }
+        if reverseMode && !justFlipped { return }
+        let card = cards[index]
+        Task {
+            try? await TTSService().speak(card.word, language: card.cardLanguage)
+        }
+    }
+}
+
+// MARK: - Grade presentation
+
+extension ReviewGrade {
+    var gradeColor: Color {
+        switch self {
+        case .again: return Color(red: 0.918, green: 0.247, blue: 0.314)
+        case .hard: return Color(red: 0.945, green: 0.553, blue: 0.055)
+        case .good: return Brand.semanticSuccess
+        case .easy: return Color(red: 0.055, green: 0.565, blue: 0.914)
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .again: return "arrow.counterclockwise"
+        case .hard: return "tortoise.fill"
+        case .good: return "checkmark"
+        case .easy: return "hare.fill"
+        }
+    }
+
     var goesRight: Bool { self == .good || self == .easy }
 }

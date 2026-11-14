@@ -1,7 +1,6 @@
 import SwiftUI
 import Observation
 
-/// Generates and holds a reading-comprehension context (Part 6 / Part 7).
 @MainActor
 @Observable
 final class ReadingViewModel {
@@ -38,18 +37,21 @@ final class ReadingViewModel {
                 }
                 if let parsed = PracticeParsing.reading(from: acc) {
                     context = parsed
+                    Haptics.notify(.success)
                 } else {
                     errorMessage = "Không tạo được nội dung, thử lại"
+                    Haptics.notify(.error)
                 }
             } catch {
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+                Haptics.notify(.error)
             }
             isGenerating = false
         }
     }
 }
 
-/// Picks a format, generates a passage, and renders it with interactive questions.
+/// Picks a format, generates a passage with warm reading paper card styling, and renders questions.
 struct ReadingView: View {
     @Bindable var vm: ReadingViewModel
 
@@ -64,6 +66,7 @@ struct ReadingView: View {
                 .disabled(vm.isGenerating)
 
                 Button {
+                    Haptics.impact(.light)
                     vm.generate()
                 } label: {
                     Label("Tạo bài đọc", systemImage: "doc.text")
@@ -84,22 +87,28 @@ struct ReadingView: View {
                 if let context = vm.context {
                     ReadingContextView(context: context, language: vm.language)
                 } else if !vm.isGenerating && vm.errorMessage == nil {
-                    Text(vm.language == .chinese
-                         ? "Chọn định dạng rồi nhấn nút để tạo bài đọc Hán ngữ luyện tập."
-                         : "Chọn định dạng rồi nhấn nút để tạo một bài đọc luyện tập.")
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 40)
+                    VStack(spacing: 12) {
+                        VocaIconBadge(systemImage: "doc.text", size: 54, iconSize: 24)
+                        Text(vm.language == .chinese
+                             ? "Chọn định dạng rồi nhấn nút để tạo bài đọc Hán ngữ luyện tập."
+                             : "Chọn định dạng rồi nhấn nút để tạo một bài đọc luyện tập.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 36)
                 }
             }
             .padding()
+            .frame(maxWidth: 780)
+            .frame(maxWidth: .infinity)
         }
     }
 }
 
-/// Renders the passage / documents, target-word chips and each question.
 private struct ReadingContextView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let context: ReadingContext
     let language: CardLanguage
 
@@ -110,11 +119,9 @@ private struct ReadingContextView: View {
             }
 
             if let words = context.targetWords, !words.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(Array(words.enumerated()), id: \.offset) { _, word in
-                            Text(word).chip()
-                        }
+                VocaFlowLayout(spacing: 6) {
+                    ForEach(Array(words.enumerated()), id: \.offset) { _, word in
+                        Text(word).chip()
                     }
                 }
             }
@@ -136,23 +143,40 @@ private struct ReadingContextView: View {
     }
 
     private func passageBlock(_ lines: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let isChinese = lines.joined().hasChineseCharacters || language == .chinese
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
+                VocaPillBadge(text: "Đoạn đọc", icon: "book.pages.fill")
                 Spacer()
                 PronounceButton(
                     text: lines.joined(separator: "\n"),
-                    language: lines.joined().hasChineseCharacters ? .chinese : language
+                    language: isChinese ? .chinese : language,
+                    tintedCapsule: true
                 )
             }
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 Text(line)
+                    .font(isChinese ? VocaTypography.hanziFont(size: 18, weight: .regular) : .system(.body, design: .serif))
+                    .lineSpacing(5)
+                    .textSelection(.enabled)
             }
         }
-        .practiceCard()
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Brand.readingPaper(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Brand.readingPaperBorder(for: colorScheme), lineWidth: 1)
+        )
     }
 
     private func documentBlock(_ document: ReadingDocument) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let joined = document.passage?.joined() ?? ""
+        let isChinese = joined.hasChineseCharacters || language == .chinese
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center) {
                 if let title = document.title, !title.isEmpty {
                     Text(title).font(.headline)
@@ -161,7 +185,8 @@ private struct ReadingContextView: View {
                 if let lines = document.passage, !lines.isEmpty {
                     PronounceButton(
                         text: lines.joined(separator: "\n"),
-                        language: lines.joined().hasChineseCharacters ? .chinese : language
+                        language: isChinese ? .chinese : language,
+                        tintedCapsule: true
                     )
                 }
             }
@@ -171,14 +196,25 @@ private struct ReadingContextView: View {
             if let lines = document.passage {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                     Text(line)
+                        .font(isChinese ? VocaTypography.hanziFont(size: 18, weight: .regular) : .system(.body, design: .serif))
+                        .lineSpacing(5)
+                        .textSelection(.enabled)
                 }
             }
         }
-        .practiceCard()
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Brand.readingPaper(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Brand.readingPaperBorder(for: colorScheme), lineWidth: 1)
+        )
     }
 }
 
-/// A single reading question with a blank label, prompt and interactive choices.
 private struct ReadingQuestionCard: View {
     let question: ReadingQuestion
     let number: Int

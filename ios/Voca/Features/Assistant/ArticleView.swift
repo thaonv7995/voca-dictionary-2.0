@@ -1,7 +1,6 @@
 import SwiftUI
 import Observation
 
-/// Generates and holds a business-article practice set (passage + questions + vocabulary).
 @MainActor
 @Observable
 final class ArticleViewModel {
@@ -36,18 +35,21 @@ final class ArticleViewModel {
                 }
                 if let parsed = PracticeParsing.article(from: acc) {
                     article = parsed
+                    Haptics.notify(.success)
                 } else {
                     errorMessage = "Không tạo được nội dung, thử lại"
+                    Haptics.notify(.error)
                 }
             } catch {
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+                Haptics.notify(.error)
             }
             isGenerating = false
         }
     }
 }
 
-/// Generates an article and renders its passage, interactive questions and vocabulary notes.
+/// Generates an article and renders its editorial paper passage, questions, and vocabulary notes.
 struct ArticleView: View {
     @Bindable var vm: ArticleViewModel
 
@@ -55,6 +57,7 @@ struct ArticleView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Button {
+                    Haptics.impact(.light)
                     vm.generate()
                 } label: {
                     Label(vm.article == nil ? "Tạo bài báo" : "Tạo bài báo mới",
@@ -78,22 +81,28 @@ struct ArticleView: View {
                 if let article = vm.article {
                     ArticleContentView(article: article, language: vm.language)
                 } else if !vm.isGenerating && vm.errorMessage == nil {
-                    Text(vm.language == .chinese
-                         ? "Nhấn nút để tạo một bài báo Hán ngữ kèm câu hỏi và ghi chú từ vựng."
-                         : "Nhấn nút để tạo một bài báo luyện đọc kèm câu hỏi và ghi chú từ vựng.")
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 40)
+                    VStack(spacing: 12) {
+                        VocaIconBadge(systemImage: "newspaper", size: 54, iconSize: 24)
+                        Text(vm.language == .chinese
+                             ? "Nhấn nút để tạo một bài báo Hán ngữ kèm câu hỏi và ghi chú từ vựng."
+                             : "Nhấn nút để tạo một bài báo luyện đọc kèm câu hỏi và ghi chú từ vựng.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 36)
                 }
             }
             .padding()
+            .frame(maxWidth: 780)
+            .frame(maxWidth: .infinity)
         }
     }
 }
 
-/// Renders the article title, target-word chips, passage card, questions and vocabulary notes.
 private struct ArticleContentView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let article: ArticlePractice
     let language: CardLanguage
 
@@ -110,30 +119,42 @@ private struct ArticleContentView: View {
             }
 
             if let words = article.targetWords, !words.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(Array(words.enumerated()), id: \.offset) { _, word in
-                            Text(word).chip()
-                        }
+                VocaFlowLayout(spacing: 6) {
+                    ForEach(Array(words.enumerated()), id: \.offset) { _, word in
+                        Text(word).chip()
                     }
                 }
             }
 
             if let passage = article.passage, !passage.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
+                let isChinese = passage.joined().hasChineseCharacters || language == .chinese
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
+                        VocaPillBadge(text: "Bài báo", icon: "newspaper.fill")
                         Spacer()
                         PronounceButton(
                             text: passage.joined(separator: "\n"),
-                            language: passage.joined().hasChineseCharacters ? .chinese : language
+                            language: isChinese ? .chinese : language,
+                            tintedCapsule: true
                         )
                     }
                     ForEach(Array(passage.enumerated()), id: \.offset) { _, line in
                         Text(line)
+                            .font(isChinese ? VocaTypography.hanziFont(size: 18, weight: .regular) : .system(.body, design: .serif))
+                            .lineSpacing(5)
+                            .textSelection(.enabled)
                     }
                 }
+                .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .brandCard()
+                .background(
+                    Brand.readingPaper(for: colorScheme),
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Brand.readingPaperBorder(for: colorScheme), lineWidth: 1)
+                )
             }
 
             if !article.questions.isEmpty {
@@ -146,8 +167,11 @@ private struct ArticleContentView: View {
             if let notes = article.vocabularyNotes, !notes.isEmpty {
                 Text("Ghi chú từ vựng").font(.headline)
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(notes) { note in
+                    ForEach(Array(notes.enumerated()), id: \.element.id) { idx, note in
                         VocabularyNoteRow(note: note, language: language)
+                        if idx < notes.count - 1 {
+                            Divider().opacity(0.5)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,7 +181,6 @@ private struct ArticleContentView: View {
     }
 }
 
-/// A single article question with prompt and interactive choices.
 private struct ArticleQuestionCard: View {
     let question: ReadingQuestion
     let number: Int
@@ -181,7 +204,6 @@ private struct ArticleQuestionCard: View {
     }
 }
 
-/// One vocabulary note: word • Vietnamese meaning • contextual meaning.
 private struct VocabularyNoteRow: View {
     let note: VocabularyNote
     let language: CardLanguage
@@ -194,8 +216,9 @@ private struct VocabularyNoteRow: View {
                     PronounceButton(
                         text: word,
                         language: word.hasChineseCharacters ? .chinese : language,
-                        size: 24,
-                        font: .subheadline
+                        size: 26,
+                        font: .subheadline,
+                        tintedCapsule: true
                     )
                 }
             }
