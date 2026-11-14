@@ -29,7 +29,13 @@ struct TodayView: View {
             }
             .navigationTitle("Hôm nay")
             .refreshable { await model.load() }
+            .onAppear { model.syncFromCache() }
             .task { await model.load() }
+            .task {
+                for await _ in NotificationCenter.default.notifications(named: AppCache.cardsDidChangeNotification) {
+                    model.syncFromCache()
+                }
+            }
             .fullScreenCover(isPresented: $showSession, onDismiss: {
                 Task { await model.load() }
             }) {
@@ -415,9 +421,15 @@ struct TodayView: View {
 final class TodayModel {
     var stats: StudyStats?
     var due: DueResponse?
-    var cards: [Card] = []
+    var cards: [Card] = [] {
+        didSet { rebuildLanguageIndex() }
+    }
     var isLoading = false
     var errorMessage: String?
+
+    private var cardsByLanguage: [CardLanguage: [Card]] = [:]
+    private var levelCountsByLanguage: [CardLanguage: [CardLevel: Int]] = [:]
+    private var recentByLanguage: [CardLanguage: [Card]] = [:]
 
     private let studyService = StudyService()
     private let cardsService = CardsService()
@@ -426,6 +438,22 @@ final class TodayModel {
         stats = studyService.cachedStats()
         due = studyService.cachedDue()
         cards = cardsService.cachedList()
+        rebuildLanguageIndex()
+    }
+
+    @MainActor
+    func syncFromCache() {
+        let cachedCards = cardsService.cachedList()
+        if cachedCards != cards {
+            cards = cachedCards
+        }
+        if let cachedDue = studyService.cachedDue(),
+           due?.cards.map(\.id) != cachedDue.cards.map(\.id) || due?.count != cachedDue.count {
+            due = cachedDue
+        }
+        if let cachedStats = studyService.cachedStats(), stats == nil {
+            stats = cachedStats
+        }
     }
 
     @MainActor
@@ -447,8 +475,42 @@ final class TodayModel {
         isLoading = false
     }
 
+    private func rebuildLanguageIndex() {
+        var byLanguage: [CardLanguage: [Card]] = [:]
+        var levelCounts: [CardLanguage: [CardLevel: Int]] = [:]
+        var dates: [String: Date] = [:]
+
+        for card in cards {
+            let lang = card.cardLanguage
+            byLanguage[lang, default: []].append(card)
+            if let lvl = CardLevel(card.level) {
+                levelCounts[lang, default: [:]][lvl, default: 0] += 1
+            }
+            if let parsed = Self.parseDate(card.createdAt) {
+                dates[card.slug] = parsed
+            }
+        }
+
+        var recents: [CardLanguage: [Card]] = [:]
+        for (lang, langCards) in byLanguage {
+            let sorted = langCards.sorted { lhs, rhs in
+                switch (dates[lhs.slug], dates[rhs.slug]) {
+                case let (l?, r?): return l > r
+                case (_?, nil): return true
+                case (nil, _?): return false
+                case (nil, nil): return false
+                }
+            }
+            recents[lang] = Array(sorted.prefix(5))
+        }
+
+        cardsByLanguage = byLanguage
+        levelCountsByLanguage = levelCounts
+        recentByLanguage = recents
+    }
+
     func cards(for language: CardLanguage) -> [Card] {
-        cards.filter { $0.cardLanguage == language }
+        cardsByLanguage[language] ?? []
     }
 
     func dueItems(for language: CardLanguage) -> [DueItem] {
@@ -458,11 +520,11 @@ final class TodayModel {
     func dueCount(for language: CardLanguage) -> Int { dueItems(for: language).count }
 
     func totalCards(for language: CardLanguage) -> Int {
-        cards.filter { $0.cardLanguage == language }.count
+        cardsByLanguage[language]?.count ?? 0
     }
 
     func count(for level: CardLevel, language: CardLanguage) -> Int {
-        cards.filter { $0.cardLanguage == language && CardLevel($0.level) == level }.count
+        levelCountsByLanguage[language]?[level] ?? 0
     }
 
     func masteryFraction(for language: CardLanguage) -> Double {
@@ -472,15 +534,7 @@ final class TodayModel {
     }
 
     func recentCards(for language: CardLanguage) -> [Card] {
-        let sorted = cards.filter { $0.cardLanguage == language }.sorted { lhs, rhs in
-            switch (Self.parseDate(lhs.createdAt), Self.parseDate(rhs.createdAt)) {
-            case let (l?, r?): return l > r
-            case (_?, nil): return true
-            case (nil, _?): return false
-            case (nil, nil): return false
-            }
-        }
-        return Array(sorted.prefix(5))
+        recentByLanguage[language] ?? []
     }
 
     private static let isoFormatter = ISO8601DateFormatter()

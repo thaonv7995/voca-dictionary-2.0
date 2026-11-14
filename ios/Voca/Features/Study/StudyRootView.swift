@@ -75,7 +75,13 @@ struct StudyRootView: View {
             }
             .navigationTitle("Học tập")
             .refreshable { await model.load() }
+            .onAppear { model.syncFromCache() }
             .task { await model.load() }
+            .task {
+                for await _ in NotificationCenter.default.notifications(named: AppCache.cardsDidChangeNotification) {
+                    model.syncFromCache()
+                }
+            }
             .fullScreenCover(isPresented: $showReviewSession, onDismiss: {
                 Task { await model.load() }
             }) {
@@ -289,6 +295,21 @@ final class StudyModel {
         stats = service.cachedStats()
         due = service.cachedDue()
         cards = cardsService.cachedList()
+    }
+
+    @MainActor
+    func syncFromCache() {
+        let cachedCards = cardsService.cachedList()
+        if cachedCards != cards {
+            cards = cachedCards
+        }
+        if let cachedDue = service.cachedDue(),
+           due?.cards.map(\.id) != cachedDue.cards.map(\.id) || due?.count != cachedDue.count {
+            due = cachedDue
+        }
+        if let cachedStats = service.cachedStats(), stats == nil {
+            stats = cachedStats
+        }
     }
 
     @MainActor

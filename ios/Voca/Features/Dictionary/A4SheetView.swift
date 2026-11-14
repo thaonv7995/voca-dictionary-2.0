@@ -129,13 +129,20 @@ struct A4SheetView: View {
 
     @MainActor
     private func loadSheet() async {
-        isLoading = true
+        if let cached = cardsService.cachedHtml(slug: card.slug) {
+            self.htmlContent = cached
+            self.isLoading = false
+        } else {
+            isLoading = true
+        }
         errorMessage = nil
         do {
             let html = try await cardsService.getHtml(slug: card.slug)
             self.htmlContent = html
         } catch {
-            self.errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+            if self.htmlContent == nil {
+                self.errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+            }
         }
         isLoading = false
     }

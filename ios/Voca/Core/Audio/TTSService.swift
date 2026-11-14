@@ -1,13 +1,12 @@
 import Foundation
 
-/// Text-to-speech via `POST /api/tts` (server holds the TTS key) with system speech fallback.
-struct TTSService {
-    private let api = ApiClient.shared
+/// Text-to-speech with persistent disk caching (`AudioCacheStore`) over `POST /api/tts`,
+/// plus on-device `AVSpeechSynthesizer` mode/fallback.
+struct TTSService: Sendable {
+    private struct TTSBody: Encodable, Sendable { let text: String; let voiceModel: String? }
 
-    private struct TTSBody: Encodable { let text: String; let voiceModel: String? }
-
-    /// Synthesises `text` and plays it. Uses on-device speech immediately when enabled in Settings,
-    /// otherwise calls `POST /api/tts` with optional `AVSpeechSynthesizer` fallback.
+    /// Synthesises `text` and plays it. Uses on-device speech when enabled in Settings,
+    /// otherwise hits `AudioCacheStore` first and only calls `POST /api/tts` on cache miss.
     func speak(_ text: String,
                language: CardLanguage? = nil,
                voiceModel: String? = nil,
@@ -39,6 +38,43 @@ struct TTSService {
         )
     }
 
+    /// Resolves canonical spoken text + effective voice model matching `speak(...)` cache keys.
+    func resolveInput(_ text: String,
+                      language: CardLanguage?,
+                      voiceModel: String? = nil) async -> (text: String, voice: String, speechLanguage: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isChinese = trimmed.hasChineseCharacters || language == .chinese
+        let clean: String
+        if isChinese {
+            let spoken = trimmed.spokenChineseText
+            clean = spoken.isEmpty ? trimmed : spoken
+        } else {
+            clean = trimmed
+        }
+        let resolvedVoice = await VoiceSettingsStore.shared.resolvedVoice(
+            forText: clean,
+            language: isChinese ? .chinese : .english,
+            explicitVoice: voiceModel
+        )
+        return (clean, resolvedVoice, isChinese ? "zh-CN" : "en-US")
+    }
+
+    /// Ensures audio for `(cleanText, effectiveVoice)` is cached on disk without playing it.
+    /// Used by `AudioPrefetchManager` to batch-download vocabulary audio over multiple concurrent workers.
+    func ensureCached(cleanText: String, voiceModel: String) async throws -> (fromCache: Bool, byteCount: Int) {
+        let result = try await AudioCacheStore.shared.getOrFetchAudio(
+            text: cleanText,
+            voiceModel: voiceModel
+        ) {
+            try await ApiClient.shared.rawData(
+                method: "POST",
+                path: "/api/tts",
+                body: TTSBody(text: cleanText, voiceModel: voiceModel)
+            )
+        }
+        return (result.fromCache, result.data.count)
+    }
+
     private func performSpeech(_ text: String,
                                language: CardLanguage?,
                                voiceModel: String?,
@@ -67,8 +103,16 @@ struct TTSService {
         }
 
         do {
-            let data = try await api.rawData(method: "POST", path: "/api/tts",
-                                             body: TTSBody(text: cleanText, voiceModel: effectiveVoice))
+            let (data, _) = try await AudioCacheStore.shared.getOrFetchAudio(
+                text: cleanText,
+                voiceModel: effectiveVoice
+            ) {
+                try await ApiClient.shared.rawData(
+                    method: "POST",
+                    path: "/api/tts",
+                    body: TTSBody(text: cleanText, voiceModel: effectiveVoice)
+                )
+            }
             let played: Bool
             if waitForCompletion {
                 played = await AudioPlayer.shared.playAndWait(data)
@@ -76,7 +120,7 @@ struct TTSService {
                 played = await AudioPlayer.shared.play(data)
             }
             if !played {
-                throw ApiError(status: 0, code: "AUDIO_PLAYBACK_FAILED", message: "Không phát được tệp âm thanh từ máy chủ.")
+                throw ApiError(status: 0, code: "AUDIO_PLAYBACK_FAILED", message: "Không phát được tệp âm thanh.")
             }
         } catch {
             if fallbackToSystem {
@@ -94,25 +138,5 @@ struct TTSService {
     @MainActor
     private func resolveUseDevice(forceSystem: Bool?) -> Bool {
         forceSystem ?? VoiceSettingsStore.shared.useDeviceSpeech
-    }
-
-    private func resolveInput(_ text: String,
-                              language: CardLanguage?,
-                              voiceModel: String?) async -> (text: String, voice: String, speechLanguage: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isChinese = trimmed.hasChineseCharacters || language == .chinese
-        let clean: String
-        if isChinese {
-            let spoken = trimmed.spokenChineseText
-            clean = spoken.isEmpty ? trimmed : spoken
-        } else {
-            clean = trimmed
-        }
-        let resolvedVoice = await VoiceSettingsStore.shared.resolvedVoice(
-            forText: clean,
-            language: isChinese ? .chinese : .english,
-            explicitVoice: voiceModel
-        )
-        return (clean, resolvedVoice, isChinese ? "zh-CN" : "en-US")
     }
 }

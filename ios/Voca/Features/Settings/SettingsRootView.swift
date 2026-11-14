@@ -15,6 +15,9 @@ struct SettingsRootView: View {
     }
 
     @State private var showServerConfig = false
+    @State private var showAudioCacheSheet = false
+    @State private var prefetch = AudioPrefetchManager.shared
+    @State private var vocabMeta = AppCache.cardsMetadata()
 
     // LLM
     @State private var llmBaseUrl = ""
@@ -78,6 +81,8 @@ struct SettingsRootView: View {
 
             ttsSection
 
+            cacheSection
+
             Section("API keys") {
                 NavigationLink {
                     ApiKeysView()
@@ -100,11 +105,15 @@ struct SettingsRootView: View {
         .scrollContentBackground(.hidden)
         .background(VocaThemeBackground())
         .navigationTitle("Cài đặt")
+        .onAppear { refreshCacheSummary() }
         .task { await load() }
         .sheet(isPresented: $showServerConfig) {
             ServerConfigSheet {
                 Task { await load() }
             }
+        }
+        .sheet(isPresented: $showAudioCacheSheet, onDismiss: { refreshCacheSummary() }) {
+            AudioCacheSheet()
         }
     }
 
@@ -313,6 +322,60 @@ struct SettingsRootView: View {
                 statusRow(ttsStatus)
             }
         }
+    }
+
+    private var cacheSection: some View {
+        @Bindable var prefetch = prefetch
+        return Section {
+            LabeledContent(
+                "Từ vựng đã cache",
+                value: "\(vocabMeta.cardCount) thẻ · \(ByteCountFormatter.string(fromByteCount: vocabMeta.totalBytes, countStyle: .file))"
+            )
+
+            LabeledContent(
+                "Audio đã lưu",
+                value: "\(prefetch.cacheStats.fileCount) tệp · \(prefetch.cacheStats.formattedSize)"
+            )
+
+            Toggle("Tự cache audio khi tạo từ mới", isOn: $prefetch.autoCacheNewCards)
+
+            if prefetch.isRunning {
+                VStack(alignment: .leading, spacing: 6) {
+                    ProgressView(value: prefetch.progress)
+                        .tint(theme.palette.primary)
+                    Text("Đang tải \(prefetch.processedCount)/\(prefetch.totalCount) audio (\(prefetch.threadCount) luồng)…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
+            }
+
+            Button {
+                Haptics.impact(.light)
+                showAudioCacheSheet = true
+            } label: {
+                HStack {
+                    Label(
+                        prefetch.isRunning ? "Xem tiến trình tải audio" : "Quản lý cache & tải nhiều luồng",
+                        systemImage: prefetch.isRunning ? "arrow.down.circle.fill" : "internaldrive.fill"
+                    )
+                    Spacer()
+                    Text("\(prefetch.threadCount) luồng")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Bộ nhớ đệm & Offline")
+        } footer: {
+            Text("Từ vựng, bảng ôn A4 và audio đã nghe hoặc tải sẵn được lưu trên máy để mở tức thì và tránh gọi lại TTS.")
+        }
+    }
+
+    private func refreshCacheSummary() {
+        vocabMeta = AppCache.cardsMetadata()
+        let cachedCards = AppCache.loadCards()
+        Task { await prefetch.refreshStats(cards: cachedCards) }
     }
 
     @ViewBuilder

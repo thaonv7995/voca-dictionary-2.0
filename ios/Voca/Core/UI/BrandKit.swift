@@ -163,18 +163,25 @@ struct VocaBrandMark: View {
 struct CardLanguagePicker: View {
     @Binding var selection: String
     @Environment(\.colorScheme) private var colorScheme
-    @Namespace private var switcherNamespace
+    @State private var visualSelection: String = ""
+
+    private var activeValue: String {
+        visualSelection.isEmpty ? selection : visualSelection
+    }
+
+    private var selectedIndex: Int {
+        CardLanguage.allCases.firstIndex(where: { $0.rawValue == activeValue }) ?? 0
+    }
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(CardLanguage.allCases) { language in
-                let isSelected = selection == language.rawValue
+                let isSelected = activeValue == language.rawValue
                 Button {
                     guard selection != language.rawValue else { return }
                     Haptics.selection()
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
-                        selection = language.rawValue
-                    }
+                    visualSelection = language.rawValue
+                    selection = language.rawValue
                 } label: {
                     HStack(spacing: 6) {
                         Text(language == .chinese ? "🇨🇳" : "🇺🇸")
@@ -185,18 +192,24 @@ struct CardLanguagePicker: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
                     .foregroundStyle(isSelected ? .white : .primary.opacity(0.75))
-                    .background {
-                        if isSelected {
-                            Capsule()
-                                .fill(Brand.gradient)
-                                .matchedGeometryEffect(id: "lang-pill", in: switcherNamespace)
-                                .shadow(color: Brand.green.opacity(0.28), radius: 6, y: 2)
-                        }
-                    }
+                    .animation(.easeOut(duration: 0.16), value: isSelected)
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+        .background {
+            GeometryReader { geo in
+                let count = max(1, CardLanguage.allCases.count)
+                let spacing: CGFloat = 4
+                let pillWidth = max(0, (geo.size.width - spacing * CGFloat(count - 1)) / CGFloat(count))
+                Capsule()
+                    .fill(Brand.gradient)
+                    .shadow(color: Brand.green.opacity(0.24), radius: 5, y: 2)
+                    .frame(width: pillWidth, height: geo.size.height)
+                    .offset(x: CGFloat(selectedIndex) * (pillWidth + spacing))
+                    .animation(.spring(response: 0.28, dampingFraction: 0.86), value: selectedIndex)
             }
         }
         .padding(4)
@@ -207,13 +220,14 @@ struct CardLanguagePicker: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Chọn ngôn ngữ học")
-        .onAppear { syncWidgetLanguage(selection) }
-        .onChange(of: selection) { _, value in syncWidgetLanguage(value) }
-    }
-
-    private func syncWidgetLanguage(_ value: String) {
-        WidgetSharedStore.setSelectedLanguage(value)
-        WidgetCenter.shared.reloadAllTimelines()
+        .onAppear {
+            if visualSelection != selection { visualSelection = selection }
+            WidgetSync.setSelectedLanguage(selection)
+        }
+        .onChange(of: selection) { _, value in
+            if visualSelection != value { visualSelection = value }
+            WidgetSync.setSelectedLanguage(value)
+        }
     }
 }
 

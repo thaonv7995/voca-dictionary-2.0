@@ -5,14 +5,70 @@ import UIKit
 @MainActor
 @Observable
 final class DictionaryStore {
-    private(set) var cards: [Card] = []
+    private(set) var cards: [Card] = [] {
+        didSet { rebuildIndexes() }
+    }
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
+    private var cardsByLanguage: [CardLanguage: [Card]] = [:]
+    private var topicsByLanguage: [CardLanguage: [String]] = [:]
+    private var createdDatesBySlug: [String: Date] = [:]
+
     private let service = CardsService()
+
+    private static let isoFormatter = ISO8601DateFormatter()
+    private static let isoFractionalFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
 
     init() {
         cards = service.cachedList()
+        rebuildIndexes()
+    }
+
+    func cards(for language: CardLanguage) -> [Card] {
+        cardsByLanguage[language] ?? []
+    }
+
+    func topics(for language: CardLanguage) -> [String] {
+        topicsByLanguage[language] ?? []
+    }
+
+    func createdDate(for card: Card) -> Date? {
+        createdDatesBySlug[card.slug]
+    }
+
+    private func rebuildIndexes() {
+        var byLanguage: [CardLanguage: [Card]] = [:]
+        var topicSets: [CardLanguage: Set<String>] = [:]
+        var dates: [String: Date] = [:]
+        dates.reserveCapacity(cards.count)
+
+        for card in cards {
+            let lang = card.cardLanguage
+            byLanguage[lang, default: []].append(card)
+            if let topic = card.topic, !topic.isEmpty {
+                topicSets[lang, default: []].insert(topic)
+            }
+            if let raw = card.createdAt, !raw.isEmpty,
+               let parsed = Self.isoFormatter.date(from: raw) ?? Self.isoFractionalFormatter.date(from: raw) {
+                dates[card.slug] = parsed
+            }
+        }
+
+        cardsByLanguage = byLanguage
+        topicsByLanguage = topicSets.mapValues { $0.sorted() }
+        createdDatesBySlug = dates
+    }
+
+    func syncFromCache() {
+        let cached = service.cachedList()
+        if cached != cards {
+            cards = cached
+        }
     }
 
     func load() async {
@@ -79,30 +135,18 @@ struct DictionaryView: View {
     @State private var sortOrder: DictionarySortOrder = .newest
     @State private var showCreate = false
     @State private var showScan = false
+    @State private var showAudioCache = false
     @State private var focusedHanzi: FocusedHanzi?
     @State private var a4Card: Card?
     @State private var navigationPath = NavigationPath()
+    @State private var prefetch = AudioPrefetchManager.shared
 
     private var language: CardLanguage {
         CardLanguage(rawValue: languageRaw) ?? .english
     }
 
-    private static let isoFormatter = ISO8601DateFormatter()
-    private static let isoFractionalFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
-    private static func parseDate(_ raw: String?) -> Date? {
-        guard let raw, !raw.isEmpty else { return nil }
-        return isoFormatter.date(from: raw) ?? isoFractionalFormatter.date(from: raw)
-    }
-
     private var topics: [String] {
-        let all = store.cards.filter { $0.cardLanguage == language }
-            .compactMap { $0.topic }.filter { !$0.isEmpty }
-        return Array(Set(all)).sorted()
+        store.topics(for: language)
     }
 
     private var hasActiveFilters: Bool {
@@ -110,27 +154,42 @@ struct DictionaryView: View {
     }
 
     private var languageCards: [Card] {
-        store.cards.filter { $0.cardLanguage == language }
+        store.cards(for: language)
+    }
+
+    private var filterAnimationKey: Int {
+        var hasher = Hasher()
+        hasher.combine(sortOrder)
+        hasher.combine(favoritesOnly)
+        hasher.combine(levelFilter?.rawValue)
+        hasher.combine(topicFilter)
+        hasher.combine(dateFilter)
+        hasher.combine(searchText)
+        return hasher.finalize()
     }
 
     private var filteredCards: [Card] {
         let query = normalized(searchText)
-        let matching = store.cards.filter { card in
-            if card.cardLanguage != language { return false }
-            if favoritesOnly && !learner.isFavorite(card.slug) { return false }
-            if let levelFilter, CardLevel(card.level) != levelFilter { return false }
-            if let topicFilter, card.topic != topicFilter { return false }
-            if !matchesDate(card) { return false }
-            guard !query.isEmpty else { return true }
-            let fields = [card.word, card.phonetic, card.meaningVi, card.meaningEn,
-                          card.topic, card.tags?.joined(separator: " ")]
-            return fields.compactMap { $0 }.contains { normalized($0).contains(query) }
+        let scoped = languageCards
+        let matching = if !hasActiveFilters && query.isEmpty {
+            scoped
+        } else {
+            scoped.filter { card in
+                if favoritesOnly && !learner.isFavorite(card.slug) { return false }
+                if let levelFilter, CardLevel(card.level) != levelFilter { return false }
+                if let topicFilter, card.topic != topicFilter { return false }
+                if !matchesDate(card) { return false }
+                guard !query.isEmpty else { return true }
+                let fields = [card.word, card.phonetic, card.meaningVi, card.meaningEn,
+                              card.topic, card.tags?.joined(separator: " ")]
+                return fields.compactMap { $0 }.contains { normalized($0).contains(query) }
+            }
         }
 
         switch sortOrder {
         case .newest:
             return matching.sorted { lhs, rhs in
-                switch (Self.parseDate(lhs.createdAt), Self.parseDate(rhs.createdAt)) {
+                switch (store.createdDate(for: lhs), store.createdDate(for: rhs)) {
                 case let (l?, r?): return l > r
                 case (_?, nil): return true
                 case (nil, _?): return false
@@ -161,7 +220,7 @@ struct DictionaryView: View {
 
     private func matchesDate(_ card: Card) -> Bool {
         guard dateFilter != .all else { return true }
-        guard let date = Self.parseDate(card.createdAt) else { return false }
+        guard let date = store.createdDate(for: card) else { return false }
         let now = Date()
         switch dateFilter {
         case .all: return true
@@ -190,6 +249,16 @@ struct DictionaryView: View {
                 ToolbarItem(placement: .topBarLeading) { sortAndFilterMenu }
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
+                        Haptics.impact(.light)
+                        showAudioCache = true
+                    } label: {
+                        Image(systemName: prefetch.isRunning ? "arrow.down.circle.fill" : "arrow.down.circle")
+                            .foregroundStyle(prefetch.isRunning ? Color.accentColor : Color.primary)
+                            .symbolEffect(.pulse, isActive: prefetch.isRunning)
+                    }
+                    .accessibilityLabel("Cache từ & audio")
+
+                    Button {
                         showScan = true
                     } label: {
                         Label("Quét ảnh", systemImage: "camera.viewfinder")
@@ -212,6 +281,9 @@ struct DictionaryView: View {
             .sheet(isPresented: $showScan) {
                 ScanWordsView(language: language) { Task { await store.load() } }
             }
+            .sheet(isPresented: $showAudioCache) {
+                AudioCacheSheet(initialCards: store.cards)
+            }
             .sheet(item: $focusedHanzi) { focus in
                 HanziFocusSheet(word: focus.word)
                     .presentationDetents([.height(320), .medium])
@@ -220,16 +292,28 @@ struct DictionaryView: View {
             .sheet(item: $a4Card) { card in
                 A4SheetView(card: card)
             }
+            .onAppear {
+                store.syncFromCache()
+            }
             .task {
-                if store.cards.isEmpty { await store.load() }
+                if store.cards.isEmpty {
+                    await store.load()
+                } else {
+                    await store.refresh()
+                }
                 openPendingCardIfAvailable()
+            }
+            .task(id: "cache-sync") {
+                for await _ in NotificationCenter.default.notifications(named: AppCache.cardsDidChangeNotification) {
+                    store.syncFromCache()
+                }
             }
             .onChange(of: router.pendingCardSlug) { _, _ in
                 openPendingCardIfAvailable()
             }
             .onChange(of: languageRaw) { _, _ in
-                searchText = ""
-                resetFilters()
+                if !searchText.isEmpty { searchText = "" }
+                if hasActiveFilters { resetFilters() }
             }
         }
     }
@@ -291,6 +375,7 @@ struct DictionaryView: View {
     }
 
     @ViewBuilder private var cardList: some View {
+        let visibleCards = filteredCards
         Group {
             if horizontalSizeClass == .regular {
                 ScrollView {
@@ -301,75 +386,47 @@ struct DictionaryView: View {
                         alignment: .leading,
                         spacing: 14
                     ) {
-                        ForEach(filteredCards) { card in
-                            CardRow(card: card, onWritingFocus: { tapped in
-                                Haptics.impact(.light)
-                                focusedHanzi = FocusedHanzi(word: tapped)
-                            }, onA4Tap: { tapped in
-                                Haptics.impact(.light)
-                                a4Card = tapped
-                            })
-                            .brandCard(padding: 15, cornerRadius: 18)
-                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .onTapGesture {
-                                Haptics.impact(.light)
-                                navigationPath.append(card)
-                            }
-                            .accessibilityAddTraits(.isButton)
-                            .accessibilityAction { navigationPath.append(card) }
-                            .contextMenu { cardContextMenu(card) }
+                        ForEach(visibleCards) { card in
+                            interactiveCardRow(card, padding: 15, cornerRadius: 18)
                         }
                     }
                     .padding(20)
                     .frame(maxWidth: 1100)
                     .frame(maxWidth: .infinity)
-                    .animation(.spring(response: 0.34, dampingFraction: 0.84), value: filteredCards.map(\.id))
+                    .animation(.spring(response: 0.28, dampingFraction: 0.86), value: filterAnimationKey)
                 }
+                .id(language)
                 .refreshable { await store.refresh() }
             } else {
                 List {
-                    ForEach(filteredCards) { card in
-                        CardRow(card: card, onWritingFocus: { tapped in
-                            Haptics.impact(.light)
-                            focusedHanzi = FocusedHanzi(word: tapped)
-                        }, onA4Tap: { tapped in
-                            Haptics.impact(.light)
-                            a4Card = tapped
-                        })
-                        .brandCard(padding: 14, cornerRadius: 16)
-                        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .onTapGesture {
-                            Haptics.impact(.light)
-                            navigationPath.append(card)
-                        }
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityAction { navigationPath.append(card) }
-                        .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            Button {
-                                Haptics.selection()
-                                learner.toggleFavorite(card.slug)
-                            } label: {
-                                Label(
-                                    learner.isFavorite(card.slug) ? "Bỏ thích" : "Yêu thích",
-                                    systemImage: learner.isFavorite(card.slug) ? "star.slash.fill" : "star.fill"
-                                )
+                    ForEach(visibleCards) { card in
+                        interactiveCardRow(card, padding: 14, cornerRadius: 16)
+                            .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                Button {
+                                    Haptics.selection()
+                                    learner.toggleFavorite(card.slug)
+                                } label: {
+                                    Label(
+                                        learner.isFavorite(card.slug) ? "Bỏ thích" : "Yêu thích",
+                                        systemImage: learner.isFavorite(card.slug) ? "star.slash.fill" : "star.fill"
+                                    )
+                                }
+                                .tint(.orange)
                             }
-                            .tint(.orange)
-                        }
-                        .contextMenu { cardContextMenu(card) }
                     }
                 }
+                .id(language)
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
-                .animation(.spring(response: 0.34, dampingFraction: 0.84), value: filteredCards.map(\.id))
+                .animation(.spring(response: 0.28, dampingFraction: 0.86), value: filterAnimationKey)
                 .refreshable { await store.refresh() }
             }
         }
         .overlay {
-            if filteredCards.isEmpty {
+            if visibleCards.isEmpty {
                 if !searchText.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                 } else {
@@ -392,6 +449,25 @@ struct DictionaryView: View {
                 }
             }
         }
+    }
+
+    private func interactiveCardRow(_ card: Card, padding: CGFloat, cornerRadius: CGFloat) -> some View {
+        CardRow(card: card, onWritingFocus: { tapped in
+            Haptics.impact(.light)
+            focusedHanzi = FocusedHanzi(word: tapped)
+        }, onA4Tap: { tapped in
+            Haptics.impact(.light)
+            a4Card = tapped
+        })
+        .brandCard(padding: padding, cornerRadius: cornerRadius)
+        .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .onTapGesture {
+            Haptics.impact(.light)
+            navigationPath.append(card)
+        }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { navigationPath.append(card) }
+        .contextMenu { cardContextMenu(card) }
     }
 
     @ViewBuilder

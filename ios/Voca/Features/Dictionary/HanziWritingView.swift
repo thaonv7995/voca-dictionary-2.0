@@ -127,6 +127,37 @@ private struct HanziCharacterPractice: View {
     }
 
     var body: some View {
+        if compact {
+            compactTile
+        } else {
+            interactiveBody
+        }
+    }
+
+    /// Lightweight pure-SwiftUI Mi-grid thumbnail for Dictionary list rows so switching
+    /// to Chinese never spawns dozens of `WKWebView` instances at once.
+    private var compactTile: some View {
+        ZStack {
+            canvasSurfaceColor
+            HanziMiGridOverlay(colorScheme: colorScheme)
+            Text(character)
+                .font(VocaTypography.hanziFont(size: 28, weight: .medium))
+                .foregroundStyle(
+                    colorScheme == .dark
+                        ? Color(red: 0.945, green: 0.961, blue: 0.976)
+                        : Color(red: 0.067, green: 0.094, blue: 0.153)
+                )
+        }
+        .frame(width: canvasSize, height: canvasSize)
+        .clipShape(RoundedRectangle(cornerRadius: canvasRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: canvasRadius, style: .continuous)
+                .strokeBorder(gridBorderColor, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var interactiveBody: some View {
         let content = VStack(spacing: 10) {
             ZStack {
                 canvasSurfaceColor
@@ -200,7 +231,7 @@ private struct HanziCharacterPractice: View {
         }
         .task(id: character) { await loadData() }
 
-        if compact || displayOnly {
+        if displayOnly {
             content
         } else {
             content
@@ -249,6 +280,24 @@ private struct HanziCommand: Equatable {
     enum Kind { case animate, quiz }
     let id = UUID()
     let kind: Kind
+}
+
+private struct HanziMiGridOverlay: View {
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        let crossColor = colorScheme == .dark
+            ? Color(red: 0.58, green: 0.64, blue: 0.72).opacity(0.34)
+            : Color(red: 0.663, green: 0.729, blue: 0.827).opacity(0.65)
+        Canvas { context, size in
+            var path = Path()
+            path.move(to: CGPoint(x: size.width / 2, y: 0))
+            path.addLine(to: CGPoint(x: size.width / 2, y: size.height))
+            path.move(to: CGPoint(x: 0, y: size.height / 2))
+            path.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+            context.stroke(path, with: .color(crossColor), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        }
+    }
 }
 
 private struct HanziWriterWebView: UIViewRepresentable {

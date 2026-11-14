@@ -23,6 +23,8 @@ struct StudyService {
 
     @discardableResult
     func review(slug: String, grade: ReviewGrade) async throws -> ReviewResult {
-        try await api.post("/api/review", body: ReviewBody(slug: slug, grade: grade.rawValue))
+        let result: ReviewResult = try await api.post("/api/review", body: ReviewBody(slug: slug, grade: grade.rawValue))
+        AppCache.removeDueCard(slug: slug)
+        return result
     }
 }

@@ -129,9 +129,10 @@ struct CardCreateView: View {
         Haptics.impact(.light)
         Task {
             do {
-                _ = try await cards.createWithAI(
+                let created = try await cards.createWithAI(
                     word: word.trimmingCharacters(in: .whitespacesAndNewlines),
                     language: language)
+                AudioPrefetchManager.shared.cacheCardInBackgroundIfEnabled(created)
                 Haptics.notify(.success)
                 onCreated()
                 dismiss()
