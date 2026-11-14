@@ -11,6 +11,7 @@ import reactor.core.Disposable;
 import site.thaonv.voca.ai.AiConfigResolver.LlmConfig;
 import site.thaonv.voca.card.Card;
 import site.thaonv.voca.card.CardRepository;
+import site.thaonv.voca.card.CardService;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -37,10 +38,21 @@ public class PracticeService {
 
     /** Words ordered by learning priority (new/learning first), used as the practice target index. */
     public List<String> vocabularyIndex(int limit) {
-        List<Card> all = new ArrayList<>(cards.findAll());
-        all.sort(Comparator.comparingInt((Card c) -> levelRank(c.getLevel()))
-                .thenComparing(Card::getCreatedAt));
-        return all.stream().map(Card::getWord).limit(limit).toList();
+        return vocabularyIndex(null, "en", limit);
+    }
+
+    /** Per-user, per-language vocabulary index ordered by learning priority (new/learning first). */
+    public List<String> vocabularyIndex(Long ownerId, String language, int limit) {
+        String normalizedLanguage = CardService.normalizeLanguage(language);
+        List<Card> source = ownerId != null
+                ? cards.findByOwnerIdAndLanguage(ownerId, normalizedLanguage)
+                : cards.findAll().stream()
+                        .filter(c -> normalizedLanguage.equals(CardService.normalizeLanguage(c.getLanguage())))
+                        .toList();
+        List<Card> sorted = new ArrayList<>(source);
+        sorted.sort(Comparator.comparingInt((Card c) -> levelRank(c.getLevel()))
+                .thenComparing(Card::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
+        return sorted.stream().map(Card::getWord).limit(limit).toList();
     }
 
     /** Resolves the LLM config (throws if unconfigured) then streams deltas to a new SseEmitter. */

@@ -74,10 +74,7 @@ struct PronounceButton: View {
             guard !speaking, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
             speaking = true
             Task {
-                let voice = voiceModel ?? (language == .chinese
-                    ? "edge-tts/zh-CN-XiaoxiaoNeural"
-                    : nil)
-                try? await TTSService().speak(text, voiceModel: voice)
+                try? await TTSService().speak(text, language: language, voiceModel: voiceModel)
                 speaking = false
             }
         } label: {

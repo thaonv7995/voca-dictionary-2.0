@@ -1,10 +1,11 @@
 import SwiftUI
 import Observation
 
-/// Generates and holds a batch of multiple-choice IELTS drills.
+/// Generates and holds a batch of multiple-choice vocabulary drills.
 @MainActor
 @Observable
 final class DrillsViewModel {
+    var language: CardLanguage = .english
     var drills: [Drill] = []
     var isGenerating = false
     var errorMessage: String?
@@ -14,17 +15,29 @@ final class DrillsViewModel {
 
     private let service = AssistantService()
 
+    func setLanguage(_ newLanguage: CardLanguage) {
+        guard language != newLanguage else { return }
+        language = newLanguage
+        if !isGenerating {
+            drills = []
+            errorMessage = nil
+            hasGenerated = false
+            currentIndex = 0
+        }
+    }
+
     func generate(count: Int = 5) {
         guard !isGenerating else { return }
         isGenerating = true
         errorMessage = nil
         drills = []
         currentIndex = 0
+        let lang = language
 
         Task { @MainActor in
             var acc = ""
             do {
-                for try await chunk in service.drills(count: count) {
+                for try await chunk in service.drills(count: count, language: lang) {
                     acc += chunk
                 }
                 drills = PracticeParsing.drills(from: acc)
@@ -88,13 +101,15 @@ struct DrillsView: View {
 
                 if !vm.drills.isEmpty {
                     let index = min(vm.currentIndex, vm.drills.count - 1)
-                    DrillCardView(drill: vm.drills[index], number: index + 1)
+                    DrillCardView(drill: vm.drills[index], number: index + 1, language: vm.language)
                         .id(vm.drills[index].id)
                     pager(index: index)
                 }
 
                 if !vm.isGenerating && vm.drills.isEmpty && vm.errorMessage == nil && !vm.hasGenerated {
-                    Text("Nhấn nút để tạo 5 câu trắc nghiệm luyện tập.")
+                    Text(vm.language == .chinese
+                         ? "Nhấn nút để tạo 5 câu trắc nghiệm Hán ngữ luyện tập."
+                         : "Nhấn nút để tạo 5 câu trắc nghiệm luyện tập.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
@@ -152,9 +167,14 @@ private struct TrailingIconLabelStyle: LabelStyle {
 private struct DrillCardView: View {
     let drill: Drill
     let number: Int
+    let language: CardLanguage
 
     private var questionText: String {
         drill.scenario ?? drill.instruction ?? drill.title ?? ""
+    }
+
+    private var effectiveLanguage: CardLanguage {
+        questionText.hasChineseCharacters ? .chinese : language
     }
 
     var body: some View {
@@ -191,12 +211,12 @@ private struct DrillCardView: View {
                 HStack(alignment: .top, spacing: 8) {
                     Text(scenario)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    PronounceButton(text: questionText)
+                    PronounceButton(text: questionText, language: effectiveLanguage)
                 }
             } else if !questionText.isEmpty {
                 HStack {
                     Spacer()
-                    PronounceButton(text: questionText)
+                    PronounceButton(text: questionText, language: effectiveLanguage)
                 }
             }
 
@@ -205,7 +225,8 @@ private struct DrillCardView: View {
                 answer: drill.answer,
                 explanation: drill.explanation,
                 whyWrong: drill.whyWrong,
-                speakChoices: true)
+                speakChoices: true,
+                language: effectiveLanguage)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .brandCard()

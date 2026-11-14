@@ -8,11 +8,15 @@ struct SettingsService {
     private struct DeleteResponse: Decodable { let id: Int?; let deleted: Bool? }
 
     func get() async throws -> UserSettings {
-        try await api.get("/api/user/settings")
+        let settings: UserSettings = try await api.get("/api/user/settings")
+        await VoiceSettingsStore.shared.apply(settings)
+        return settings
     }
 
     func update(_ body: UpdateSettingsBody) async throws -> UserSettings {
-        try await api.put("/api/user/settings", body: body)
+        let settings: UserSettings = try await api.put("/api/user/settings", body: body)
+        await VoiceSettingsStore.shared.apply(settings)
+        return settings
     }
 
     // MARK: API keys

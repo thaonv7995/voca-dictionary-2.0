@@ -593,4 +593,49 @@ final class MacFeatureModelTests: XCTestCase {
             database.fetchAllItems().contains(where: { $0.id == "resilient" })
         )
     }
+
+    func testClientPromptsGenerateChineseConversationPromptWithVoices() {
+        let prompt = ClientPrompts.conversation(
+            index: ["朋友", "咖啡"],
+            selectedWord: "朋友",
+            format: "conversation",
+            language: .chinese,
+            availableVoices: [("edge-tts/zh-CN-XiaoxiaoNeural", "Xiaoxiao")],
+            autoSelectVoices: true
+        )
+
+        XCTAssertTrue(prompt.contains("Chinese (Hán ngữ giao tiếp)"))
+        XCTAssertTrue(prompt.contains("\"pinyin\""))
+        XCTAssertTrue(prompt.contains("edge-tts/zh-CN-XiaoxiaoNeural"))
+        XCTAssertFalse(prompt.contains("everyday English listening passage"))
+    }
+
+    func testClientPromptsGenerateEnglishConversationPromptByDefault() {
+        let prompt = ClientPrompts.conversation(
+            index: ["mitigate"],
+            selectedWord: nil,
+            format: "auto"
+        )
+
+        XCTAssertTrue(prompt.contains("everyday English listening passage"))
+        XCTAssertFalse(prompt.contains("CRITICAL 3-PART FORMAT RULE PER LINE"))
+    }
+
+    func testAssistantServiceVocabularyIndexFiltersByLanguageAndPriority() throws {
+        let json = """
+        [
+          {"slug": "mitigate", "word": "mitigate", "language": "en", "level": "new"},
+          {"slug": "zh-1", "word": "谢谢", "language": "zh-CN", "level": "mastered"},
+          {"slug": "zh-2", "word": "朋友", "language": "zh-CN", "level": "learning"},
+          {"slug": "zh-3", "word": "你好", "language": "zh-CN", "level": "new"}
+        ]
+        """.data(using: .utf8)!
+        let cards = try JSONDecoder().decode([Card].self, from: json)
+
+        let chinese = AssistantService.vocabularyIndex(from: cards, language: .chinese)
+        let english = AssistantService.vocabularyIndex(from: cards, language: .english)
+
+        XCTAssertEqual(chinese, ["你好", "朋友", "谢谢"])
+        XCTAssertEqual(english, ["mitigate"])
+    }
 }

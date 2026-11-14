@@ -29,16 +29,16 @@ public class PracticeController {
         this.prompts = prompts;
     }
 
-    public record DrillRequest(Integer count, String selectedWord, String context) {
+    public record DrillRequest(Integer count, String selectedWord, String context, String language) {
     }
 
-    public record ReadingRequest(String selectedWord, String format, String context) {
+    public record ReadingRequest(String selectedWord, String format, String context, String language) {
     }
 
-    public record GenRequest(String selectedWord, String context) {
+    public record GenRequest(String selectedWord, String context, String language) {
     }
 
-    public record ChatRequest(String message) {
+    public record ChatRequest(String message, String language) {
     }
 
     @PostMapping(value = "/practice/drills", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -47,7 +47,8 @@ public class PracticeController {
         int count = req != null && req.count() != null ? req.count() : 5;
         String selected = req != null ? req.selectedWord() : null;
         String context = req != null && req.context() != null ? req.context() : DEFAULT_CONTEXT;
-        String prompt = prompts.drillPrompt(index(), selected, count, context, DEFAULT_WEAKNESS);
+        String language = req != null ? req.language() : null;
+        String prompt = prompts.drillPrompt(index(principal.id(), language), selected, count, context, DEFAULT_WEAKNESS, language);
         return practice.stream(principal.id(), null, prompt);
     }
 
@@ -57,7 +58,8 @@ public class PracticeController {
         String selected = req != null ? req.selectedWord() : null;
         String format = req != null && req.format() != null ? req.format() : "part6";
         String context = req != null && req.context() != null ? req.context() : DEFAULT_CONTEXT;
-        String prompt = prompts.readingPrompt(index(), selected, format, context, DEFAULT_WEAKNESS);
+        String language = req != null ? req.language() : null;
+        String prompt = prompts.readingPrompt(index(principal.id(), language), selected, format, context, DEFAULT_WEAKNESS, language);
         return practice.stream(principal.id(), null, prompt);
     }
 
@@ -66,7 +68,8 @@ public class PracticeController {
                               @AuthenticationPrincipal UserPrincipal principal) {
         String selected = req != null ? req.selectedWord() : null;
         String context = req != null && req.context() != null ? req.context() : DEFAULT_CONTEXT;
-        String prompt = prompts.articlePrompt(index(), selected, context, DEFAULT_WEAKNESS);
+        String language = req != null ? req.language() : null;
+        String prompt = prompts.articlePrompt(index(principal.id(), language), selected, context, DEFAULT_WEAKNESS, language);
         return practice.stream(principal.id(), null, prompt);
     }
 
@@ -75,17 +78,19 @@ public class PracticeController {
                                @AuthenticationPrincipal UserPrincipal principal) {
         String selected = req != null ? req.selectedWord() : null;
         String context = req != null && req.context() != null ? req.context() : DEFAULT_CONTEXT;
-        String prompt = prompts.speakingPrompt(index(), selected, context, DEFAULT_WEAKNESS);
+        String language = req != null ? req.language() : null;
+        String prompt = prompts.speakingPrompt(index(principal.id(), language), selected, context, DEFAULT_WEAKNESS, language);
         return practice.stream(principal.id(), null, prompt);
     }
 
     @PostMapping(value = "/agent/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chat(@RequestBody ChatRequest req, @AuthenticationPrincipal UserPrincipal principal) {
         String message = req == null || req.message() == null ? "" : req.message();
-        return practice.stream(principal.id(), prompts.assistantSystemPrompt(), message);
+        String language = req != null ? req.language() : null;
+        return practice.stream(principal.id(), prompts.assistantSystemPrompt(language), message);
     }
 
-    private List<String> index() {
-        return practice.vocabularyIndex(INDEX_LIMIT);
+    private List<String> index(Long userId, String language) {
+        return practice.vocabularyIndex(userId, language, INDEX_LIMIT);
     }
 }

@@ -64,6 +64,7 @@ struct PracticeChoicesView: View {
     var whyWrong: [String: String]? = nil
     /// When true, each choice gets a trailing speaker button that reads it aloud (TTS).
     var speakChoices: Bool = false
+    var language: CardLanguage = .english
 
     @State private var selected: String?
 
@@ -73,7 +74,10 @@ struct PracticeChoicesView: View {
                 if speakChoices {
                     HStack(alignment: .center, spacing: 8) {
                         choiceButton(index: index, choice: choice)
-                        PronounceButton(text: choice)
+                        PronounceButton(
+                            text: choice,
+                            language: choice.hasChineseCharacters ? .chinese : language
+                        )
                     }
                 } else {
                     choiceButton(index: index, choice: choice)

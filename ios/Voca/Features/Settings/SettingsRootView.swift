@@ -19,11 +19,21 @@ struct SettingsRootView: View {
     @State private var llmStatus: SaveStatus?
 
     // TTS
+    @AppStorage(VoiceSettingsStore.useDeviceSpeechDefaultsKey) private var useDeviceSpeech = false
     @State private var ttsBaseUrl = ""
-    @State private var ttsModel = ""
+    @State private var ttsModel = UserVoices.defaultEnglishModel
+    @State private var chineseTtsModel = UserVoices.defaultChineseModel
+    @State private var voiceA = UserVoices.defaultEnglishSpeakers[0]
+    @State private var voiceB = UserVoices.defaultEnglishSpeakers[1]
+    @State private var voiceC = UserVoices.defaultEnglishSpeakers[2]
+    @State private var chineseVoiceA = UserVoices.defaultChineseSpeakers[0]
+    @State private var chineseVoiceB = UserVoices.defaultChineseSpeakers[1]
+    @State private var chineseVoiceC = UserVoices.defaultChineseSpeakers[2]
+    @State private var autoSelectVoices = true
     @State private var ttsApiKey = ""
     @State private var hasTtsKey = false
     @State private var isSavingTts = false
+    @State private var isTestingTts = false
     @State private var ttsStatus: SaveStatus?
 
     @State private var isLoading = false
@@ -95,84 +105,165 @@ struct SettingsRootView: View {
         }
     }
 
-    private static let popularVoices: [(label: String, value: String)] = [
-        ("Xiaoxiao (Chinese Mainland · F)", "edge-tts/zh-CN-XiaoxiaoNeural"),
-        ("Yunxi (Chinese Mainland · M)", "edge-tts/zh-CN-YunxiNeural"),
-        ("Xiaoyi (Chinese Mainland · F)", "edge-tts/zh-CN-XiaoyiNeural"),
-        ("Yunjian (Chinese Mainland · M)", "edge-tts/zh-CN-YunjianNeural"),
-        ("Yunxia (Chinese Mainland · M)", "edge-tts/zh-CN-YunxiaNeural"),
-        ("Yunyang (Chinese Mainland · M)", "edge-tts/zh-CN-YunyangNeural"),
-        ("Xiaobei (Chinese NE · F)", "edge-tts/zh-CN-liaoning-XiaobeiNeural"),
-        ("HsiaoChen (Chinese TW · F)", "edge-tts/zh-TW-HsiaoChenNeural"),
-        ("YunJhe (Chinese TW · M)", "edge-tts/zh-TW-YunJheNeural"),
-        ("HsiaoYu (Chinese TW · F)", "edge-tts/zh-TW-HsiaoYuNeural"),
-        ("HiuGaai (Cantonese · F)", "edge-tts/zh-HK-HiuGaaiNeural"),
-        ("HiuMaan (HK · F)", "edge-tts/zh-HK-HiuMaanNeural"),
-        ("WanLung (HK · M)", "edge-tts/zh-HK-WanLungNeural"),
-        ("Xiaoni (Shaanxi · F)", "edge-tts/zh-CN-shaanxi-XiaoniNeural"),
-        ("Steffan (US · M)", "edge-tts/en-US-SteffanNeural"),
-        ("Ava (US · F)", "edge-tts/en-US-AvaNeural"),
-        ("Andrew (US · M)", "edge-tts/en-US-AndrewNeural"),
-        ("Emma (US · F)", "edge-tts/en-US-EmmaNeural"),
-        ("Brian (US · M)", "edge-tts/en-US-BrianNeural"),
-    ]
-
     private var ttsSection: some View {
         Section("Giọng đọc (TTS)") {
-            TextField("Base URL", text: $ttsBaseUrl)
+            Toggle("Dùng giọng đọc của máy", isOn: $useDeviceSpeech)
+
+            if useDeviceSpeech {
+                Text("Phát âm từ vựng, ví dụ và hội thoại trực tiếp bằng giọng đọc tích hợp trên máy, không gọi lên máy chủ.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                LabeledContent("Tiếng Trung") {
+                    Text(AudioPlayer.preferredDeviceVoiceSummary(for: .chinese))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Tiếng Anh") {
+                    Text(AudioPlayer.preferredDeviceVoiceSummary(for: .english))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                ttsTestButtons
+
+                Text("Mẹo: Vào Cài đặt iPhone → Trợ năng → Nội dung được đọc → Giọng nói để tải giọng Enhanced / Premium.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                DisclosureGroup("Cấu hình TTS máy chủ (đang tắt)") {
+                    serverTtsControls
+                    saveTtsButton
+                    statusRow(ttsStatus)
+                }
+            } else {
+                serverTtsControls
+                ttsTestButtons
+                saveTtsButton
+                statusRow(ttsStatus)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var serverTtsControls: some View {
+        TextField("Base URL", text: $ttsBaseUrl)
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
+            .keyboardType(.URL)
+
+        voiceFieldRow(
+            label: "Giọng tiếng Trung",
+            text: $chineseTtsModel,
+            presets: VoicePreset.chinese
+        )
+
+        voiceFieldRow(
+            label: "Giọng tiếng Anh",
+            text: $ttsModel,
+            presets: VoicePreset.english
+        )
+
+        DisclosureGroup("Giọng hội thoại (A / B / C)") {
+            Toggle("AI tự chọn giọng phù hợp", isOn: $autoSelectVoices)
+
+            voiceFieldRow(label: "Tiếng Trung · A", text: $chineseVoiceA, presets: VoicePreset.chinese)
+            voiceFieldRow(label: "Tiếng Trung · B", text: $chineseVoiceB, presets: VoicePreset.chinese)
+            voiceFieldRow(label: "Tiếng Trung · C", text: $chineseVoiceC, presets: VoicePreset.chinese)
+
+            voiceFieldRow(label: "Tiếng Anh · A", text: $voiceA, presets: VoicePreset.english)
+            voiceFieldRow(label: "Tiếng Anh · B", text: $voiceB, presets: VoicePreset.english)
+            voiceFieldRow(label: "Tiếng Anh · C", text: $voiceC, presets: VoicePreset.english)
+        }
+
+        SecureField("••• để trống nếu không đổi", text: $ttsApiKey)
+
+        LabeledContent("Khóa API") {
+            Text(hasTtsKey ? "Đã cấu hình khóa" : "Chưa có khóa")
+                .foregroundStyle(hasTtsKey ? Color.green : Color.secondary)
+        }
+    }
+
+    private var ttsTestButtons: some View {
+        HStack(spacing: 12) {
+            Button {
+                testVoice(
+                    text: "你好，这是中文语音测试。",
+                    language: .chinese,
+                    voiceModel: chineseTtsModel
+                )
+            } label: {
+                Label("Thử Tiếng Trung", systemImage: "speaker.wave.2")
+            }
+            .disabled(isTestingTts)
+
+            Spacer()
+
+            Button {
+                testVoice(
+                    text: "Hello, this is a voice test.",
+                    language: .english,
+                    voiceModel: ttsModel
+                )
+            } label: {
+                Label("Thử Tiếng Anh", systemImage: "speaker.wave.2")
+            }
+            .disabled(isTestingTts)
+        }
+    }
+
+    private var saveTtsButton: some View {
+        Button {
+            saveTts()
+        } label: {
+            HStack {
+                if isSavingTts { ProgressView().padding(.trailing, 4) }
+                Text("Lưu")
+            }
+        }
+        .disabled(isSavingTts || isLoading)
+    }
+
+    private func voiceFieldRow(label: String, text: Binding<String>, presets: [(id: String, label: String)]) -> some View {
+        HStack {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            TextField(label, text: text)
+                .multilineTextAlignment(.trailing)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-            HStack {
-                TextField("Model", text: $ttsModel)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                Menu {
-                    Section("Giọng tiếng Trung (Chinese)") {
-                        ForEach(Self.popularVoices.filter { $0.value.contains("/zh-") }, id: \.value) { item in
-                            Button(item.label) { ttsModel = item.value }
-                        }
-                    }
-                    Section("Giọng tiếng Anh (English)") {
-                        ForEach(Self.popularVoices.filter { $0.value.contains("/en-") }, id: \.value) { item in
-                            Button(item.label) { ttsModel = item.value }
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .foregroundStyle(Brand.green)
-                        .imageScale(.large)
-                }
-            }
-            SecureField("••• để trống nếu không đổi", text: $ttsApiKey)
-
-            LabeledContent("Khóa API") {
-                Text(hasTtsKey ? "Đã cấu hình khóa" : "Chưa có khóa")
-                    .foregroundStyle(hasTtsKey ? Color.green : Color.secondary)
-            }
-
-            Button {
-                Task {
-                    let testSentence = ttsModel.contains("/zh-")
-                        ? "你好，这是语音测试。"
-                        : "Hello, this is a voice test."
-                    try? await TTSService().speak(testSentence, voiceModel: ttsModel.isEmpty ? nil : ttsModel)
+            Menu {
+                ForEach(presets, id: \.id) { item in
+                    Button(item.label) { text.wrappedValue = item.id }
                 }
             } label: {
-                Label("Nghe thử giọng", systemImage: "speaker.wave.2")
+                Image(systemName: "ellipsis.circle")
+                    .foregroundStyle(Brand.green)
+                    .imageScale(.large)
             }
+        }
+    }
 
-            Button {
-                saveTts()
-            } label: {
-                HStack {
-                    if isSavingTts { ProgressView().padding(.trailing, 4) }
-                    Text("Lưu")
-                }
+    private func testVoice(text: String, language: CardLanguage, voiceModel: String) {
+        isTestingTts = true
+        ttsStatus = nil
+        let clean = voiceModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let forceLocal = useDeviceSpeech
+        Task {
+            do {
+                try await TTSService().speak(
+                    text,
+                    language: language,
+                    voiceModel: clean.isEmpty ? nil : clean,
+                    fallbackToSystem: forceLocal,
+                    forceSystem: forceLocal
+                )
+            } catch {
+                ttsStatus = .failure((error as? ApiError)?.message ?? error.localizedDescription)
             }
-            .disabled(isSavingTts || isLoading)
-
-            statusRow(ttsStatus)
+            isTestingTts = false
         }
     }
 
@@ -207,8 +298,27 @@ struct SettingsRootView: View {
         llmModel = s.llmModel ?? ""
         hasLlmKey = s.hasLlmKey
         ttsBaseUrl = s.ttsBaseUrl ?? ""
-        ttsModel = s.ttsModel ?? ""
+        let loadedEnglish = (s.ttsModel ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        ttsModel = loadedEnglish.isEmpty ? UserVoices.defaultEnglishModel : loadedEnglish
+        let loadedChinese = (s.voices?.chineseModel ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        chineseTtsModel = loadedChinese.isEmpty
+            ? (VoiceSettingsStore.isChineseVoice(loadedEnglish) ? loadedEnglish : UserVoices.defaultChineseModel)
+            : loadedChinese
+        voiceA = nonEmpty(s.voices?.a) ?? UserVoices.defaultEnglishSpeakers[0]
+        voiceB = nonEmpty(s.voices?.b) ?? UserVoices.defaultEnglishSpeakers[1]
+        voiceC = nonEmpty(s.voices?.c) ?? UserVoices.defaultEnglishSpeakers[2]
+        chineseVoiceA = nonEmpty(s.voices?.chineseA) ?? UserVoices.defaultChineseSpeakers[0]
+        chineseVoiceB = nonEmpty(s.voices?.chineseB) ?? UserVoices.defaultChineseSpeakers[1]
+        chineseVoiceC = nonEmpty(s.voices?.chineseC) ?? UserVoices.defaultChineseSpeakers[2]
+        autoSelectVoices = s.voices?.autoSelect ?? true
         hasTtsKey = s.hasTtsKey
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private func saveLlm() {
@@ -223,7 +333,8 @@ struct SettingsRootView: View {
                     llmModel: llmModel,
                     ttsBaseUrl: nil,
                     ttsApiKey: nil,
-                    ttsModel: nil
+                    ttsModel: nil,
+                    voices: nil
                 )
                 let updated = try await service.update(body)
                 apply(updated)
@@ -240,6 +351,16 @@ struct SettingsRootView: View {
         isSavingTts = true
         ttsStatus = nil
         let keyOrNil = ttsApiKey.isEmpty ? nil : ttsApiKey
+        let voices = UserVoices(
+            a: voiceA,
+            b: voiceB,
+            c: voiceC,
+            chineseModel: chineseTtsModel,
+            chineseA: chineseVoiceA,
+            chineseB: chineseVoiceB,
+            chineseC: chineseVoiceC,
+            autoSelect: autoSelectVoices
+        )
         Task {
             do {
                 let body = UpdateSettingsBody(
@@ -248,7 +369,8 @@ struct SettingsRootView: View {
                     llmModel: nil,
                     ttsBaseUrl: ttsBaseUrl,
                     ttsApiKey: keyOrNil,
-                    ttsModel: ttsModel
+                    ttsModel: ttsModel,
+                    voices: voices
                 )
                 let updated = try await service.update(body)
                 apply(updated)

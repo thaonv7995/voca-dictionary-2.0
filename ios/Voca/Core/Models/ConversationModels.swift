@@ -52,13 +52,25 @@ extension String {
     }
 
     var spokenChineseText: String {
-        let pattern = #"[\(（][a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü\s,.'’\-–—0-9]+[\)）]"#
-        return self.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = self
+        // Remove full-width/half-width parentheses or brackets containing Latin/Pinyin annotations
+        result = result.replacingOccurrences(
+            of: #"[（(][^）)]*[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü][^）)]*[）)]"#,
+            with: "",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"[\[【][^\]】]*[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü][^\]】]*[\]】]"#,
+            with: "",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(of: #"[ \t]+"#, with: " ", options: .regularExpression)
+        result = result.replacingOccurrences(of: #"\s+([，。！？；：、])"#, with: "$1", options: .regularExpression)
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var inlinePinyin: String? {
-        let pattern = #"[\(（]([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü\s,.'’\-–—0-9]+)[\)）]"#
+        let pattern = #"[（(]([^）)]*[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü][^）)]*)[）)]"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let nsString = self as NSString
         let matches = regex.matches(in: self, range: NSRange(location: 0, length: nsString.length))

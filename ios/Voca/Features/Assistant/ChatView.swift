@@ -14,11 +14,20 @@ struct ChatMessage: Identifiable {
 @MainActor
 @Observable
 final class ChatViewModel {
+    var language: CardLanguage = .english
     var messages: [ChatMessage] = []
     var input: String = ""
     var isStreaming = false
 
     private let service = AssistantService()
+
+    func setLanguage(_ newLanguage: CardLanguage) {
+        guard language != newLanguage else { return }
+        language = newLanguage
+        if !isStreaming {
+            messages = []
+        }
+    }
 
     var canSend: Bool {
         !isStreaming && !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -29,6 +38,7 @@ final class ChatViewModel {
         guard !text.isEmpty, !isStreaming else { return }
 
         input = ""
+        let lang = language
         let assistant = ChatMessage(role: .assistant, text: "")
         let assistantId = assistant.id
         withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
@@ -40,7 +50,7 @@ final class ChatViewModel {
         Task { @MainActor in
             var acc = ""
             do {
-                for try await chunk in service.chat(message: text) {
+                for try await chunk in service.chat(message: text, language: lang) {
                     acc += chunk
                     update(assistantId, text: acc)
                 }
@@ -99,7 +109,9 @@ struct ChatView: View {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
-            Text("Hãy đặt câu hỏi hoặc yêu cầu luyện tập.")
+            Text(vm.language == .chinese
+                 ? "Hỏi gia sư AI về Hán tự, Pinyin, âm Hán Việt hoặc yêu cầu luyện tập tiếng Trung."
+                 : "Hãy đặt câu hỏi hoặc yêu cầu luyện tập.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }

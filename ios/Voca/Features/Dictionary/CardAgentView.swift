@@ -14,11 +14,19 @@ struct CardAgentView: View {
 
     private let assistant = AssistantService()
 
-    private let starters = [
-        "Cho ví dụ",
-        "Phân biệt từ gần nghĩa",
-        "Bẫy IELTS của từ này",
-    ]
+    private var starters: [String] {
+        card.isChinese
+            ? [
+                "Cho ví dụ có Pinyin",
+                "Bộ thủ & Âm Hán Việt",
+                "Phân biệt từ gần nghĩa",
+            ]
+            : [
+                "Cho ví dụ",
+                "Phân biệt từ gần nghĩa",
+                "Bẫy IELTS của từ này",
+            ]
+    }
 
     var body: some View {
         NavigationStack {
@@ -159,7 +167,13 @@ struct CardAgentView: View {
         Task {
             var acc = ""
             do {
-                for try await chunk in assistant.cardChat(word: card.word, message: text) {
+                for try await chunk in assistant.cardChat(
+                    word: card.word,
+                    message: text,
+                    language: card.cardLanguage,
+                    pronunciation: card.phonetic,
+                    meaningVi: card.meaningVi
+                ) {
                     acc += chunk
                     updateMessage(id: replyId, text: acc, isError: false)
                 }

@@ -5,6 +5,7 @@ import Observation
 @MainActor
 @Observable
 final class ReadingViewModel {
+    var language: CardLanguage = .english
     var format: String = "part6"
     var context: ReadingContext?
     var isGenerating = false
@@ -12,17 +13,27 @@ final class ReadingViewModel {
 
     private let service = AssistantService()
 
+    func setLanguage(_ newLanguage: CardLanguage) {
+        guard language != newLanguage else { return }
+        language = newLanguage
+        if !isGenerating {
+            context = nil
+            errorMessage = nil
+        }
+    }
+
     func generate() {
         guard !isGenerating else { return }
         isGenerating = true
         errorMessage = nil
         context = nil
         let format = self.format
+        let lang = self.language
 
         Task { @MainActor in
             var acc = ""
             do {
-                for try await chunk in service.reading(format: format) {
+                for try await chunk in service.reading(format: format, language: lang) {
                     acc += chunk
                 }
                 if let parsed = PracticeParsing.reading(from: acc) {
@@ -46,8 +57,8 @@ struct ReadingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Picker("Định dạng", selection: $vm.format) {
-                    Text("Part 6").tag("part6")
-                    Text("Part 7").tag("part7")
+                    Text(vm.language == .chinese ? "Điền từ" : "Part 6").tag("part6")
+                    Text(vm.language == .chinese ? "Đọc hiểu" : "Part 7").tag("part7")
                 }
                 .pickerStyle(.segmented)
                 .disabled(vm.isGenerating)
@@ -71,9 +82,11 @@ struct ReadingView: View {
                 }
 
                 if let context = vm.context {
-                    ReadingContextView(context: context)
+                    ReadingContextView(context: context, language: vm.language)
                 } else if !vm.isGenerating && vm.errorMessage == nil {
-                    Text("Chọn định dạng rồi nhấn nút để tạo một bài đọc luyện tập.")
+                    Text(vm.language == .chinese
+                         ? "Chọn định dạng rồi nhấn nút để tạo bài đọc Hán ngữ luyện tập."
+                         : "Chọn định dạng rồi nhấn nút để tạo một bài đọc luyện tập.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
@@ -88,6 +101,7 @@ struct ReadingView: View {
 /// Renders the passage / documents, target-word chips and each question.
 private struct ReadingContextView: View {
     let context: ReadingContext
+    let language: CardLanguage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -116,13 +130,20 @@ private struct ReadingContextView: View {
             }
 
             ForEach(Array(context.questions.enumerated()), id: \.element.id) { index, question in
-                ReadingQuestionCard(question: question, number: index + 1)
+                ReadingQuestionCard(question: question, number: index + 1, language: language)
             }
         }
     }
 
     private func passageBlock(_ lines: [String]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Spacer()
+                PronounceButton(
+                    text: lines.joined(separator: "\n"),
+                    language: lines.joined().hasChineseCharacters ? .chinese : language
+                )
+            }
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 Text(line)
             }
@@ -132,8 +153,17 @@ private struct ReadingContextView: View {
 
     private func documentBlock(_ document: ReadingDocument) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let title = document.title, !title.isEmpty {
-                Text(title).font(.headline)
+            HStack(alignment: .center) {
+                if let title = document.title, !title.isEmpty {
+                    Text(title).font(.headline)
+                }
+                Spacer()
+                if let lines = document.passage, !lines.isEmpty {
+                    PronounceButton(
+                        text: lines.joined(separator: "\n"),
+                        language: lines.joined().hasChineseCharacters ? .chinese : language
+                    )
+                }
             }
             if let type = document.documentType, !type.isEmpty {
                 Text(type).chip()
@@ -152,6 +182,7 @@ private struct ReadingContextView: View {
 private struct ReadingQuestionCard: View {
     let question: ReadingQuestion
     let number: Int
+    let language: CardLanguage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -167,7 +198,9 @@ private struct ReadingQuestionCard: View {
             PracticeChoicesView(
                 choices: question.choices,
                 answer: question.answer,
-                explanation: question.explanation)
+                explanation: question.explanation,
+                speakChoices: question.choices.contains(where: \.hasChineseCharacters),
+                language: language)
         }
         .practiceCard()
     }

@@ -245,9 +245,13 @@ struct CardDetailView: View {
         if let raw = card.examples?.first(where: { !$0.isEmpty }) {
             let example = ChineseExample(raw)
             VStack(alignment: .leading, spacing: 7) {
-                Label("Ví dụ", systemImage: "text.quote")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Label("Ví dụ", systemImage: "text.quote")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    PronounceButton(text: example.hanzi, language: .chinese, size: 28, font: .subheadline)
+                }
                 Text(example.hanzi).font(.title3.weight(.semibold))
                 if let pinyin = example.pinyin {
                     Text(pinyin).foregroundStyle(Brand.green)
@@ -269,9 +273,12 @@ struct CardDetailView: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeader("Ví dụ", icon: "text.quote")
                 ForEach(examples, id: \.self) { example in
+                    let spoken = card.isChinese ? ChineseExample(example).hanzi : example
                     HStack(alignment: .top, spacing: 8) {
                         Text("•").foregroundStyle(.secondary)
                         Text(example)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        PronounceButton(text: spoken, language: card.cardLanguage, size: 26, font: .footnote)
                     }
                 }
             }

@@ -6,6 +6,7 @@ import Observation
 @MainActor
 @Observable
 final class ConversationViewModel {
+    var language: CardLanguage = .english
     var format: ConversationFormat = .auto
     var conversation: Conversation?
     var isGenerating = false
@@ -16,6 +17,16 @@ final class ConversationViewModel {
     private let tts = TTSService()
     private var playAllTask: Task<Void, Never>?
 
+    func setLanguage(_ newLanguage: CardLanguage) {
+        guard language != newLanguage else { return }
+        language = newLanguage
+        if !isGenerating {
+            stopPlayAll()
+            conversation = nil
+            errorMessage = nil
+        }
+    }
+
     /// Streams the conversation JSON, accumulates, then parses it into a `Conversation`.
     func generate() {
         guard !isGenerating else { return }
@@ -24,11 +35,21 @@ final class ConversationViewModel {
         errorMessage = nil
         conversation = nil
         let fmt = format
+        let lang = language
 
         Task { @MainActor in
+            await VoiceSettingsStore.shared.refreshIfNeeded()
+            let availableVoices = VoiceSettingsStore.shared.availableVoiceOptions(for: lang)
+            let autoSelect = VoiceSettingsStore.shared.autoSelectConversationVoices
+
             var acc = ""
             do {
-                for try await chunk in service.conversation(format: fmt.rawValue) {
+                for try await chunk in service.conversation(
+                    format: fmt.rawValue,
+                    language: lang,
+                    availableVoices: availableVoices,
+                    autoSelectVoices: autoSelect
+                ) {
                     acc += chunk
                 }
                 if let parsed = PracticeParsing.conversation(from: acc) {
@@ -43,9 +64,43 @@ final class ConversationViewModel {
         }
     }
 
-    /// Voice model for a line's speaker (nil → server default voice).
+    func language(for line: ConversationLine) -> CardLanguage {
+        (line.text?.hasChineseCharacters == true) ? .chinese : language
+    }
+
+    /// Resolves a voice model matching the line's language, falling back across configured A/B/C speaker voices.
     func voice(for line: ConversationLine) -> String? {
-        conversation?.voiceAssignments?[line.speaker ?? ""]
+        let lineLanguage = language(for: line)
+        let speaker = (line.speaker ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if VoiceSettingsStore.shared.autoSelectConversationVoices,
+           !speaker.isEmpty,
+           let assigned = conversation?.voiceAssignments?[speaker]?
+               .trimmingCharacters(in: .whitespacesAndNewlines),
+           !assigned.isEmpty,
+           !(lineLanguage == .chinese && VoiceSettingsStore.isEnglishVoice(assigned)),
+           !(lineLanguage == .english && VoiceSettingsStore.isChineseVoice(assigned)) {
+            return assigned
+        }
+
+        let pool = VoiceSettingsStore.shared.speakerVoices(for: lineLanguage)
+        guard !pool.isEmpty else { return nil }
+        let speakers = orderedSpeakerNames()
+        let index = speakers.firstIndex(of: speaker) ?? 0
+        return pool[index % pool.count]
+    }
+
+    private func orderedSpeakerNames() -> [String] {
+        var seen: [String] = []
+        for name in conversation?.speakers ?? [] {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && !seen.contains(trimmed) { seen.append(trimmed) }
+        }
+        for line in conversation?.lines ?? [] {
+            let trimmed = (line.speaker ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && !seen.contains(trimmed) { seen.append(trimmed) }
+        }
+        return seen
     }
 
     func togglePlayAll() {
@@ -62,9 +117,14 @@ final class ConversationViewModel {
                 let text = (line.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { continue }
                 do {
-                    try await tts.speakAndWait(text, voiceModel: voice(for: line))
+                    try await tts.speakAndWait(
+                        text,
+                        language: language(for: line),
+                        voiceModel: voice(for: line)
+                    )
                 } catch {
-                    break // e.g. TTS not configured (503) — stop the run quietly
+                    errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+                    break
                 }
                 if Task.isCancelled { break }
             }
@@ -152,7 +212,9 @@ struct ConversationView: View {
             Image(systemName: "person.2.wave.2")
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
-            Text("Chưa có hội thoại, nhấn Tạo")
+            Text(vm.language == .chinese
+                 ? "Chưa có hội thoại tiếng Trung, nhấn Tạo hội thoại"
+                 : "Chưa có hội thoại, nhấn Tạo")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
@@ -173,7 +235,8 @@ struct ConversationView: View {
                     line: line,
                     isPrimary: isPrimary(line, speakers: speakers),
                     attributed: highlightedVocabulary(line.text ?? "", vocabulary: line.vocabulary),
-                    voiceModel: vm.voice(for: line))
+                    voiceModel: vm.voice(for: line),
+                    language: vm.language(for: line))
             }
         }
     }
@@ -264,6 +327,7 @@ private struct ConversationBubble: View {
     let isPrimary: Bool
     let attributed: AttributedString
     let voiceModel: String?
+    let language: CardLanguage
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -290,7 +354,7 @@ private struct ConversationBubble: View {
                 PronounceButton(
                     text: line.text ?? "",
                     voiceModel: voiceModel,
-                    language: (line.text?.hasChineseCharacters == true) ? .chinese : .english,
+                    language: language,
                     size: 24,
                     font: .footnote
                 )

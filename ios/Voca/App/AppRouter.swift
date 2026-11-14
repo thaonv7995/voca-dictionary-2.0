@@ -18,12 +18,12 @@ final class AppRouter {
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return }
 
-        let language = components.queryItems?.first(where: { $0.name == "language" })?.value
+        let rawLang = components.queryItems?.first(where: { $0.name == "language" })?.value
+        let resolvedLang: CardLanguage = rawLang == CardLanguage.chinese.rawValue || text.hasChineseCharacters
+            ? .chinese
+            : .english
         Task {
-            let voice = language == CardLanguage.chinese.rawValue
-                ? "edge-tts/zh-CN-XiaoxiaoNeural"
-                : nil
-            try? await TTSService().speak(text, voiceModel: voice)
+            try? await TTSService().speak(text, language: resolvedLang)
         }
     }
 

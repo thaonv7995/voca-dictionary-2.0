@@ -31,6 +31,7 @@ enum AssistantMode: String, CaseIterable, Identifiable {
 /// view-models live here so their state survives switching modes.
 struct AssistantRootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
     @State private var mode: AssistantMode = .chat
     @State private var chatVM = ChatViewModel()
     @State private var drillsVM = DrillsViewModel()
@@ -38,6 +39,10 @@ struct AssistantRootView: View {
     @State private var articleVM = ArticleViewModel()
     @State private var speakingVM = SpeakingViewModel()
     @State private var conversationVM = ConversationViewModel()
+
+    private var language: CardLanguage {
+        CardLanguage(rawValue: languageRaw) ?? .english
+    }
 
     var body: some View {
         NavigationStack {
@@ -51,6 +56,9 @@ struct AssistantRootView: View {
                     }
                 } else {
                     VStack(spacing: 0) {
+                        CardLanguagePicker(selection: $languageRaw)
+                            .padding(.horizontal)
+                            .padding(.top, 8)
                         modePicker
                         Divider()
                         modeContent
@@ -59,7 +67,19 @@ struct AssistantRootView: View {
             }
             .navigationTitle("Trợ lý AI")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { syncLanguage() }
+            .onChange(of: languageRaw) { _, _ in syncLanguage() }
         }
+    }
+
+    private func syncLanguage() {
+        let lang = language
+        chatVM.setLanguage(lang)
+        drillsVM.setLanguage(lang)
+        readingVM.setLanguage(lang)
+        articleVM.setLanguage(lang)
+        speakingVM.setLanguage(lang)
+        conversationVM.setLanguage(lang)
     }
 
     @ViewBuilder private var modeContent: some View {
@@ -75,6 +95,8 @@ struct AssistantRootView: View {
 
     private var modeSidebar: some View {
         VStack(spacing: 6) {
+            CardLanguagePicker(selection: $languageRaw)
+                .padding(.bottom, 6)
             ForEach(AssistantMode.allCases) { item in
                 let selected = mode == item
                 Button {

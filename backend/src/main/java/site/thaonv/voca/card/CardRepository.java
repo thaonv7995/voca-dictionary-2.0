@@ -19,6 +19,8 @@ public interface CardRepository extends JpaRepository<Card, Long> {
     // ---- Per-owner (the normal app scope) ----
     List<Card> findByOwnerIdOrderByCreatedAtDesc(Long ownerId);
 
+    List<Card> findByOwnerIdAndLanguage(Long ownerId, String language);
+
     Optional<Card> findFirstByOwnerIdAndSlugIgnoreCase(Long ownerId, String slug);
 
     Optional<Card> findFirstByOwnerIdAndWordIgnoreCase(Long ownerId, String word);

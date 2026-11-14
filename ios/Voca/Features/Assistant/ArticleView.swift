@@ -5,22 +5,33 @@ import Observation
 @MainActor
 @Observable
 final class ArticleViewModel {
+    var language: CardLanguage = .english
     var article: ArticlePractice?
     var isGenerating = false
     var errorMessage: String?
 
     private let service = AssistantService()
 
+    func setLanguage(_ newLanguage: CardLanguage) {
+        guard language != newLanguage else { return }
+        language = newLanguage
+        if !isGenerating {
+            article = nil
+            errorMessage = nil
+        }
+    }
+
     func generate() {
         guard !isGenerating else { return }
         isGenerating = true
         errorMessage = nil
         article = nil
+        let lang = language
 
         Task { @MainActor in
             var acc = ""
             do {
-                for try await chunk in service.article() {
+                for try await chunk in service.article(language: lang) {
                     acc += chunk
                 }
                 if let parsed = PracticeParsing.article(from: acc) {
@@ -65,9 +76,11 @@ struct ArticleView: View {
                 }
 
                 if let article = vm.article {
-                    ArticleContentView(article: article)
+                    ArticleContentView(article: article, language: vm.language)
                 } else if !vm.isGenerating && vm.errorMessage == nil {
-                    Text("Nhấn nút để tạo một bài báo luyện đọc kèm câu hỏi và ghi chú từ vựng.")
+                    Text(vm.language == .chinese
+                         ? "Nhấn nút để tạo một bài báo Hán ngữ kèm câu hỏi và ghi chú từ vựng."
+                         : "Nhấn nút để tạo một bài báo luyện đọc kèm câu hỏi và ghi chú từ vựng.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
@@ -82,6 +95,7 @@ struct ArticleView: View {
 /// Renders the article title, target-word chips, passage card, questions and vocabulary notes.
 private struct ArticleContentView: View {
     let article: ArticlePractice
+    let language: CardLanguage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -107,6 +121,13 @@ private struct ArticleContentView: View {
 
             if let passage = article.passage, !passage.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Spacer()
+                        PronounceButton(
+                            text: passage.joined(separator: "\n"),
+                            language: passage.joined().hasChineseCharacters ? .chinese : language
+                        )
+                    }
                     ForEach(Array(passage.enumerated()), id: \.offset) { _, line in
                         Text(line)
                     }
@@ -118,7 +139,7 @@ private struct ArticleContentView: View {
             if !article.questions.isEmpty {
                 Text("Câu hỏi").font(.headline)
                 ForEach(Array(article.questions.enumerated()), id: \.element.id) { index, question in
-                    ArticleQuestionCard(question: question, number: index + 1)
+                    ArticleQuestionCard(question: question, number: index + 1, language: language)
                 }
             }
 
@@ -126,7 +147,7 @@ private struct ArticleContentView: View {
                 Text("Ghi chú từ vựng").font(.headline)
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(notes) { note in
-                        VocabularyNoteRow(note: note)
+                        VocabularyNoteRow(note: note, language: language)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -140,6 +161,7 @@ private struct ArticleContentView: View {
 private struct ArticleQuestionCard: View {
     let question: ReadingQuestion
     let number: Int
+    let language: CardLanguage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -150,7 +172,9 @@ private struct ArticleQuestionCard: View {
             PracticeChoicesView(
                 choices: question.choices,
                 answer: question.answer,
-                explanation: question.explanation)
+                explanation: question.explanation,
+                speakChoices: question.choices.contains(where: \.hasChineseCharacters),
+                language: language)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .brandCard()
@@ -160,13 +184,19 @@ private struct ArticleQuestionCard: View {
 /// One vocabulary note: word • Vietnamese meaning • contextual meaning.
 private struct VocabularyNoteRow: View {
     let note: VocabularyNote
+    let language: CardLanguage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
                 if let word = note.word, !word.isEmpty {
                     Text(word).font(.subheadline).bold().foregroundStyle(Brand.green)
-                    PronounceButton(text: word, size: 24, font: .subheadline)
+                    PronounceButton(
+                        text: word,
+                        language: word.hasChineseCharacters ? .chinese : language,
+                        size: 24,
+                        font: .subheadline
+                    )
                 }
             }
             if let vi = note.meaningVi, !vi.isEmpty {

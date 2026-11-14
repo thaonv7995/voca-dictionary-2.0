@@ -3,11 +3,12 @@ package site.thaonv.voca.ai;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
+import site.thaonv.voca.card.CardService;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/** IELTS practice prompts, ported from packages/voca-core/src/practice/prompts.ts. */
+/** IELTS & Chinese (zh-CN) practice prompts, ported from web/src/core/practice/prompts.ts. */
 @Component
 public class PracticePrompts {
 
@@ -17,14 +18,54 @@ public class PracticePrompts {
         this.mapper = mapper;
     }
 
+    private static boolean isChinese(String language) {
+        return "zh-CN".equals(CardService.normalizeLanguage(language));
+    }
+
     public String assistantSystemPrompt() {
+        return assistantSystemPrompt("en");
+    }
+
+    public String assistantSystemPrompt(String language) {
+        if (isChinese(language)) {
+            return "You are Voca, an expert Chinese (Hán ngữ) tutor for Vietnamese learners. "
+                    + "Always communicate in clear Vietnamese with Simplified Chinese characters (Hán tự) and Pinyin with tone marks. "
+                    + "When providing example sentences, include Chinese characters, Pinyin with tone marks, and Vietnamese translation. "
+                    + "Highlight Sino-Vietnamese (âm Hán Việt) and radicals (bộ thủ) when helpful to aid memorization.";
+        }
         return "You are Voca, a concise bilingual (English-Vietnamese) IELTS vocabulary tutor. "
                 + "Answer in clear Markdown, English first then a short Vietnamese support line when helpful. "
                 + "Ground answers in the learner's vocabulary when relevant.";
     }
 
     public String drillPrompt(List<String> index, String selectedWord, int count, String context, String weakness) {
+        return drillPrompt(index, selectedWord, count, context, weakness, "en");
+    }
+
+    public String drillPrompt(List<String> index, String selectedWord, int count, String context, String weakness, String language) {
         List<String> lines = new ArrayList<>();
+        if (isChinese(language)) {
+            lines.add("You are creating " + count + " friendly everyday Chinese (Hán ngữ giao tiếp đời sống) vocabulary practice questions for a casual hobbyist learner.");
+            lines.add("This is for casual hobby learning (daily life, food, travel, shopping, casual communication), NOT high-stress academic exams.");
+            lines.add("Use targetVocabularyIndex as the active learning context and the full list of allowed target answers.");
+            lines.add("For wrong choices and supporting context, create plausible Chinese distractors (similar Hanzi, homophones, near-synonyms, common mix-ups) yourself when the target list is small.");
+            lines.add("Active context: " + context + ".");
+            lines.add("The targetVocabularyIndex is ordered by learning priority: new and learning words first, mastered words last. Prefer earlier unmastered words.");
+            lines.add(weakness);
+            lines.add("Use exact Chinese words or phrases from targetVocabularyIndex as correct answers whenever possible.");
+            lines.add("Each drill must be unique and use a different target answer if possible.");
+            lines.add("Mix these fun practice kinds across the batch: scenario, rescue, collocation, error_spotting, trap, reverse.");
+            lines.add("Return exactly 4 choices in Simplified Chinese for all drills.");
+            lines.add("Randomize the answer position. The explanation must be warm and helpful in Vietnamese, including Chinese characters, Pinyin with tone marks, and Sino-Vietnamese (âm Hán Việt) where helpful.");
+            lines.add("whyWrong must briefly explain why each wrong choice is wrong in friendly Vietnamese.");
+            lines.add("Set targetWord to the exact tested answer, testedSkill to a short skill label, and difficulty to easy or medium.");
+            lines.add("Return NDJSON only: each line must be one compact JSON object for one drill.");
+            lines.add("Each line shape: {\"kind\":\"scenario|rescue|collocation|error_spotting|trap|reverse\",\"trapType\":\"...\",\"targetWord\":\"...\",\"testedSkill\":\"...\",\"difficulty\":\"easy|medium|hard\",\"title\":\"...\",\"instruction\":\"...\",\"scenario\":\"...\",\"choices\":[\"...\"],\"answer\":\"...\",\"explanation\":\"...\",\"whyWrong\":{\"choice\":\"reason\"}}.");
+            lines.add("Do not wrap the lines in an array. Do not use markdown.");
+            lines.add(selectedWord != null ? "Currently selected word: " + selectedWord : "No selected word.");
+            lines.add("Target vocabulary index JSON: " + toJson(index));
+            return String.join("\n", lines);
+        }
         lines.add("You are creating " + count + " IELTS vocabulary drills.");
         lines.add("Use targetVocabularyIndex as the active learning context and the full list of allowed target answers.");
         lines.add("For wrong choices and supporting context, create plausible IELTS/academic distractors yourself when the target list is small.");
@@ -48,8 +89,32 @@ public class PracticePrompts {
     }
 
     public String readingPrompt(List<String> index, String selectedWord, String format, String context, String weakness) {
+        return readingPrompt(index, selectedWord, format, context, weakness, "en");
+    }
+
+    public String readingPrompt(List<String> index, String selectedWord, String format, String context, String weakness, String language) {
         boolean isPart6 = !"part7".equalsIgnoreCase(format);
         List<String> lines = new ArrayList<>();
+        if (isChinese(language)) {
+            lines.add("You are creating one Chinese (Hán ngữ / HSK) reading " + (isPart6 ? "gap-fill" : "full passage") + " practice for a vocabulary learning app.");
+            lines.add("Use targetVocabularyIndex as the active learning context and target vocabulary source.");
+            lines.add("For wrong choices and related vocabulary, create plausible Chinese distractors yourself when the target list is small.");
+            lines.add("Active context: " + context + ".");
+            lines.add(weakness);
+            lines.add("Create a realistic Chinese reading passage in Simplified Chinese characters (topics: daily life, culture, education, technology, work).");
+            lines.add(isPart6
+                    ? "Gap-fill passage: create a 120-180 character Chinese passage with 3-6 numbered blanks formatted as [1] _____, [2] _____, etc. Each blank tests vocabulary in context."
+                    : "Full passage: create a Chinese reading passage of 200-350 characters. Mix question types: True/False/Not Given, multiple choice (4 choices). Ask 3-6 questions.");
+            lines.add("Questions, prompts, and explanations should be in Vietnamese with Chinese characters and Pinyin when useful.");
+            lines.add("Use exact words or phrases from targetVocabularyIndex for correct answers whenever possible.");
+            lines.add(isPart6
+                    ? "Return JSON only in this exact shape: {\"type\":\"reading_context\",\"format\":\"part6\",\"documentType\":\"chinese_passage\",\"title\":\"...\",\"passage\":[\"...\"],\"questions\":[{\"blank\":1,\"prompt\":\"...\",\"choices\":[\"...\",\"...\",\"...\",\"...\"],\"answer\":\"...\",\"explanation\":\"...\"}],\"targetWords\":[\"...\"]}."
+                    : "Return JSON only in this exact shape: {\"type\":\"reading_context\",\"format\":\"part7\",\"documentType\":\"chinese_passage\",\"title\":\"...\",\"passage\":[\"...\"],\"documents\":[{\"title\":\"Bài đọc\",\"documentType\":\"chinese_passage\",\"passage\":[\"...\"]}],\"questions\":[{\"prompt\":\"...\",\"choices\":[\"...\",\"...\",\"...\",\"...\"],\"answer\":\"...\",\"explanation\":\"...\"}],\"targetWords\":[\"...\"]}.");
+            lines.add("Do not use markdown. Do not include extra text outside JSON.");
+            lines.add(selectedWord != null ? "Currently selected word: " + selectedWord : "No selected word.");
+            lines.add("Target vocabulary index JSON: " + toJson(index));
+            return String.join("\n", lines);
+        }
         lines.add("You are creating one IELTS Academic Reading " + (isPart6 ? "gap-fill" : "full passage") + " practice for a vocabulary learning app.");
         lines.add("Use targetVocabularyIndex as the active learning context and target vocabulary source.");
         lines.add("Active context: " + context + ".");
@@ -70,7 +135,25 @@ public class PracticePrompts {
     }
 
     public String articlePrompt(List<String> index, String selectedWord, String context, String weakness) {
+        return articlePrompt(index, selectedWord, context, weakness, "en");
+    }
+
+    public String articlePrompt(List<String> index, String selectedWord, String context, String weakness, String language) {
         List<String> lines = new ArrayList<>();
+        if (isChinese(language)) {
+            lines.add("You are creating one short Chinese (Hán ngữ) article practice set for a vocabulary learning app.");
+            lines.add("This is a focused reading article in Simplified Chinese that teaches vocabulary in context.");
+            lines.add("Active context: " + context + ".");
+            lines.add(weakness);
+            lines.add("Use 3-5 target Chinese words naturally in an interesting short article in Simplified Chinese (150-250 characters, 6-10 short lines).");
+            lines.add("Create 3-5 questions across vocabulary-in-context, main purpose, and inference. Questions, options, and explanations should be clear for Vietnamese learners (Vietnamese with Chinese characters and Pinyin).");
+            lines.add("Each question must have exactly 4 plausible choices and one correct answer. Add vocabularyNotes for the target Chinese words used with Vietnamese meaning and Pinyin in contextMeaning.");
+            lines.add("Return JSON only in this shape: {\"type\":\"article_practice\",\"title\":\"...\",\"documentType\":\"chinese_article\",\"passage\":[\"...\"],\"targetWords\":[\"...\"],\"questions\":[{\"prompt\":\"...\",\"choices\":[\"...\"],\"answer\":\"...\",\"explanation\":\"...\"}],\"vocabularyNotes\":[{\"word\":\"...\",\"meaningVi\":\"...\",\"contextMeaning\":\"Pinyin + cách dùng trong bài\"}]}.");
+            lines.add("Do not use markdown. Do not include extra text outside JSON.");
+            lines.add(selectedWord != null ? "Currently selected word: " + selectedWord : "No selected word.");
+            lines.add("Target vocabulary index JSON: " + toJson(index));
+            return String.join("\n", lines);
+        }
         lines.add("You are creating one short IELTS-style article practice set for a vocabulary learning app.");
         lines.add("This is a focused business article/email/notice/memo that teaches vocabulary in context.");
         lines.add("Active context: " + context + ".");
@@ -86,7 +169,24 @@ public class PracticePrompts {
     }
 
     public String speakingPrompt(List<String> index, String selectedWord, String context, String weakness) {
+        return speakingPrompt(index, selectedWord, context, weakness, "en");
+    }
+
+    public String speakingPrompt(List<String> index, String selectedWord, String context, String weakness, String language) {
         List<String> lines = new ArrayList<>();
+        if (isChinese(language)) {
+            lines.add("You are creating one Chinese (Hán ngữ) speaking/shadowing practice set for a mobile vocabulary learning app.");
+            lines.add("The goal is to help users practice speaking Simplified Chinese aloud with synchronized words/phrases (karaoke style).");
+            lines.add("Active context: " + context + ".");
+            lines.add(weakness);
+            lines.add("Incorporate 2-4 target Chinese words naturally into a 120-200 character everyday Simplified Chinese passage in 2-3 short paragraphs.");
+            lines.add("For each sentence provide: the Simplified Chinese sentence text (no inline pinyin in text), the sentence Pinyin with tone marks in the ipa field, and a list of segmented Chinese words/phrases each with word/ipa (its Pinyin)/startMs/endMs chronological across the passage. Leave connectedSpeech empty [].");
+            lines.add("Return JSON only in this exact shape: {\"type\":\"speaking_practice\",\"title\":\"...\",\"topic\":\"...\",\"passageText\":\"...\",\"sentences\":[{\"text\":\"...\",\"ipa\":\"pinyin\",\"words\":[{\"word\":\"...\",\"ipa\":\"pinyin\",\"startMs\":0,\"endMs\":400}],\"connectedSpeech\":[]}]}.");
+            lines.add("Do not use markdown. Do not include extra text outside JSON.");
+            lines.add(selectedWord != null ? "Currently selected word: " + selectedWord : "No selected word.");
+            lines.add("Target vocabulary index JSON: " + toJson(index));
+            return String.join("\n", lines);
+        }
         lines.add("You are creating one English speaking/shadowing practice set for a mobile vocabulary learning app.");
         lines.add("The goal is to help users practice speaking by reading a passage aloud with synchronized words (karaoke style).");
         lines.add("Active context: " + context + ".");
