@@ -224,6 +224,22 @@ struct StudyRootView: View {
 
             Divider().opacity(0.6)
 
+            Toggle(isOn: $bindableTheme.autoFlipFlashcard) {
+                Label("Tự động lật thẻ (Auto-flip)", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.subheadline)
+            }
+            .tint(Brand.green)
+
+            Divider().opacity(0.6)
+
+            Toggle(isOn: $bindableTheme.autoAdvanceFlashcard) {
+                Label("Tự động lướt thẻ tiếp theo", systemImage: "arrow.right.circle")
+                    .font(.subheadline)
+            }
+            .tint(Brand.green)
+
+            Divider().opacity(0.6)
+
             Toggle(isOn: $bindableTheme.hapticsEnabled) {
                 Label("Phản hồi rung (Haptics)", systemImage: "iphone.radiowaves.left.and.right")
                     .font(.subheadline)

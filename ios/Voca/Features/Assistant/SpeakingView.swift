@@ -155,7 +155,7 @@ private struct SpeakingSentenceCard: View {
                     .font(.subheadline).bold()
                     .foregroundStyle(Brand.green)
                 Text(sentenceText)
-                    .font(effectiveLang == .chinese ? VocaTypography.hanziFont(size: 19, weight: .medium) : .body)
+                    .font(effectiveLang == .chinese ? VocaTypography.hanziFont(size: 19, weight: .medium, isCalligraphic: ThemeStore.shared.hanziCalligraphic) : .body)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
                 PronounceButton(text: sentenceText, language: effectiveLang, tintedCapsule: true)

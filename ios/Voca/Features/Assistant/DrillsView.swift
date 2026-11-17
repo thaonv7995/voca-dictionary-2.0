@@ -286,7 +286,7 @@ private struct DrillCardView: View {
             if let scenario = drill.scenario, !scenario.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
                     Text(scenario)
-                        .font(effectiveLanguage == .chinese ? VocaTypography.hanziFont(size: 19, weight: .medium) : .body)
+                        .font(effectiveLanguage == .chinese ? VocaTypography.hanziFont(size: 19, weight: .medium, isCalligraphic: ThemeStore.shared.hanziCalligraphic) : .body)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     PronounceButton(text: questionText, language: effectiveLanguage, tintedCapsule: true)
                 }

@@ -131,6 +131,8 @@ final class ThemeStore {
         static let hapticsEnabled = "voca.ui.haptics"
         static let hanziCalligraphic = "voca.ui.hanziCalligraphic"
         static let autoSpeakFlashcard = "voca.study.autoSpeak"
+        static let autoFlipFlashcard = "voca.study.autoFlip"
+        static let autoAdvanceFlashcard = "voca.study.autoAdvance"
         static let reverseFlashcardMode = "voca.study.reverseMode"
     }
 
@@ -154,6 +156,14 @@ final class ThemeStore {
         didSet { UserDefaults.standard.set(autoSpeakFlashcard, forKey: Keys.autoSpeakFlashcard) }
     }
 
+    var autoFlipFlashcard: Bool {
+        didSet { UserDefaults.standard.set(autoFlipFlashcard, forKey: Keys.autoFlipFlashcard) }
+    }
+
+    var autoAdvanceFlashcard: Bool {
+        didSet { UserDefaults.standard.set(autoAdvanceFlashcard, forKey: Keys.autoAdvanceFlashcard) }
+    }
+
     var reverseFlashcardMode: Bool {
         didSet { UserDefaults.standard.set(reverseFlashcardMode, forKey: Keys.reverseFlashcardMode) }
     }
@@ -165,6 +175,8 @@ final class ThemeStore {
         hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
         hanziCalligraphic = defaults.object(forKey: Keys.hanziCalligraphic) as? Bool ?? true
         autoSpeakFlashcard = defaults.object(forKey: Keys.autoSpeakFlashcard) as? Bool ?? false
+        autoFlipFlashcard = defaults.object(forKey: Keys.autoFlipFlashcard) as? Bool ?? false
+        autoAdvanceFlashcard = defaults.object(forKey: Keys.autoAdvanceFlashcard) as? Bool ?? false
         reverseFlashcardMode = defaults.object(forKey: Keys.reverseFlashcardMode) as? Bool ?? false
     }
 
@@ -179,8 +191,8 @@ final class ThemeStore {
 /// Editorial & calligraphic typography helpers tailored for English IPA and Chinese Hanzi.
 enum VocaTypography {
     @MainActor
-    static func hanziFont(size: CGFloat, weight: Font.Weight = .bold) -> Font {
-        guard ThemeStore.shared.hanziCalligraphic else {
+    static func hanziFont(size: CGFloat, weight: Font.Weight = .bold, isCalligraphic: Bool) -> Font {
+        guard isCalligraphic else {
             return .system(size: size, weight: weight, design: .rounded)
         }
         let candidates: [String]
@@ -189,6 +201,8 @@ enum VocaTypography {
             candidates = ["STSongti-SC-Bold", "Songti SC Bold", "PingFangSC-Semibold"]
         case .medium:
             candidates = ["STSongti-SC-Regular", "Songti SC", "PingFangSC-Medium"]
+        case .ultraLight, .thin, .light:
+            candidates = ["STSongti-SC-Light", "Songti SC Light", "STSongti-SC-Regular", "Songti SC", "PingFangSC-Light"]
         default:
             candidates = ["STSongti-SC-Regular", "Songti SC", "PingFangSC-Regular"]
         }

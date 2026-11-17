@@ -140,7 +140,7 @@ private struct ArticleContentView: View {
                     }
                     ForEach(Array(passage.enumerated()), id: \.offset) { _, line in
                         Text(line)
-                            .font(isChinese ? VocaTypography.hanziFont(size: 18, weight: .regular) : .system(.body, design: .serif))
+                            .font(isChinese ? VocaTypography.hanziFont(size: 18, weight: .regular, isCalligraphic: ThemeStore.shared.hanziCalligraphic) : .system(.body, design: .serif))
                             .lineSpacing(5)
                             .textSelection(.enabled)
                     }

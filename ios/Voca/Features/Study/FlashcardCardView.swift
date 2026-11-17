@@ -3,6 +3,7 @@ import SwiftUI
 /// A single flashcard surface with a smooth 3D flip between front and back, supporting reverse recall mode.
 struct FlashcardCardView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(ThemeStore.self) private var theme
 
     let card: Card
     var flipped: Bool = false
@@ -86,7 +87,7 @@ struct FlashcardCardView: View {
 
             Text(card.word)
                 .font(card.isChinese
-                      ? VocaTypography.hanziFont(size: 62, weight: .bold)
+                      ? VocaTypography.hanziFont(size: 62, weight: .light, isCalligraphic: theme.hanziCalligraphic)
                       : .system(size: 40, weight: .bold, design: .rounded))
                 .multilineTextAlignment(.center)
                 .minimumScaleFactor(0.45)
@@ -143,7 +144,7 @@ struct FlashcardCardView: View {
             HStack(alignment: .center, spacing: 10) {
                 if !isFront {
                     Text(card.word)
-                        .font(card.isChinese ? VocaTypography.hanziFont(size: 26, weight: .bold) : .title3.weight(.bold))
+                        .font(card.isChinese ? VocaTypography.hanziFont(size: 26, weight: .light, isCalligraphic: theme.hanziCalligraphic) : .title3.weight(.bold))
                         .foregroundStyle(.primary)
                     if let phonetic = card.phonetic {
                         Text(phonetic)

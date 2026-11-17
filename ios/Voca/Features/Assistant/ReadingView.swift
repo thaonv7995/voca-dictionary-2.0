@@ -156,7 +156,7 @@ private struct ReadingContextView: View {
             }
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 Text(line)
-                    .font(isChinese ? VocaTypography.hanziFont(size: 18, weight: .regular) : .system(.body, design: .serif))
+                    .font(isChinese ? VocaTypography.hanziFont(size: 18, weight: .regular, isCalligraphic: ThemeStore.shared.hanziCalligraphic) : .system(.body, design: .serif))
                     .lineSpacing(5)
                     .textSelection(.enabled)
             }
@@ -196,7 +196,7 @@ private struct ReadingContextView: View {
             if let lines = document.passage {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                     Text(line)
-                        .font(isChinese ? VocaTypography.hanziFont(size: 18, weight: .regular) : .system(.body, design: .serif))
+                        .font(isChinese ? VocaTypography.hanziFont(size: 18, weight: .regular, isCalligraphic: ThemeStore.shared.hanziCalligraphic) : .system(.body, design: .serif))
                         .lineSpacing(5)
                         .textSelection(.enabled)
                 }

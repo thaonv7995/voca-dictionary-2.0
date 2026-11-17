@@ -84,7 +84,7 @@ struct RecentCardRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(card.word)
-                        .font(card.isChinese ? VocaTypography.hanziFont(size: 20, weight: .bold) : .headline)
+                        .font(card.isChinese ? VocaTypography.hanziFont(size: 20, weight: .bold, isCalligraphic: ThemeStore.shared.hanziCalligraphic) : .headline)
                     if let phonetic = card.phonetic {
                         Text(phonetic)
                             .font(.subheadline)

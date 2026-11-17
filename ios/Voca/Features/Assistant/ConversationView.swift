@@ -398,7 +398,7 @@ private struct ConversationBubble: View {
 
             if let text = line.text, !text.isEmpty {
                 Text(attributed)
-                    .font(language == .chinese ? VocaTypography.hanziFont(size: 18, weight: .medium) : .body)
+                    .font(language == .chinese ? VocaTypography.hanziFont(size: 18, weight: .medium, isCalligraphic: ThemeStore.shared.hanziCalligraphic) : .body)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }

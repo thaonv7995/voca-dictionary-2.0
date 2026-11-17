@@ -660,7 +660,7 @@ private struct CardRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(card.word)
-                            .font(VocaTypography.hanziFont(size: 25, weight: .bold))
+                            .font(VocaTypography.hanziFont(size: 25, weight: .bold, isCalligraphic: ThemeStore.shared.hanziCalligraphic))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                         if learner.isFavorite(card.slug) {

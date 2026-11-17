@@ -103,7 +103,7 @@ struct CardDetailView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(card.word)
                     .font(card.isChinese
-                          ? VocaTypography.hanziFont(size: 52, weight: .bold)
+                          ? VocaTypography.hanziFont(size: 52, weight: .bold, isCalligraphic: ThemeStore.shared.hanziCalligraphic)
                           : .system(size: 36, weight: .bold, design: .rounded))
                     .textSelection(.enabled)
                 Spacer(minLength: 8)

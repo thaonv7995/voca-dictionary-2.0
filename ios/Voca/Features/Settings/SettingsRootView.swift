@@ -29,6 +29,8 @@ struct SettingsRootView: View {
 
     // TTS
     @AppStorage(VoiceSettingsStore.useDeviceSpeechDefaultsKey) private var useDeviceSpeech = false
+    @AppStorage("voca.nonStop.enabled") private var nonStopEnabled = false
+    @AppStorage("voca.nonStop.preloadCount") private var nonStopPreloadCount = 1
     @State private var ttsBaseUrl = ""
     @State private var ttsModel = UserVoices.defaultEnglishModel
     @State private var chineseTtsModel = UserVoices.defaultChineseModel
@@ -76,6 +78,13 @@ struct SettingsRootView: View {
             appearanceSection
 
             studyUxSection
+
+            Section("Nghe liên tục (Non-stop)") {
+                Toggle("Bật nghe liên tục", isOn: $nonStopEnabled)
+                if nonStopEnabled {
+                    Stepper("Số lượng hội thoại preload: \(nonStopPreloadCount)", value: $nonStopPreloadCount, in: 1...5)
+                }
+            }
 
             llmSection
 
@@ -204,7 +213,7 @@ struct SettingsRootView: View {
             Toggle(isOn: $theme.hanziCalligraphic) {
                 HStack(spacing: 10) {
                     Text("学")
-                        .font(VocaTypography.hanziFont(size: 20, weight: .bold))
+                        .font(VocaTypography.hanziFont(size: 20, weight: .bold, isCalligraphic: ThemeStore.shared.hanziCalligraphic))
                         .foregroundStyle(theme.accent)
                         .frame(width: 28, height: 28)
                         .background(theme.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))

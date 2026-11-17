@@ -106,6 +106,7 @@ struct HanziWritingView: View {
 }
 
 private struct HanziCharacterPractice: View {
+    @Environment(ThemeStore.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
     let character: String
     let compact: Bool
@@ -137,11 +138,16 @@ private struct HanziCharacterPractice: View {
     /// Lightweight pure-SwiftUI Mi-grid thumbnail for Dictionary list rows so switching
     /// to Chinese never spawns dozens of `WKWebView` instances at once.
     private var compactTile: some View {
-        ZStack {
+        let crossColor = colorScheme == .dark
+            ? Color(red: 0.58, green: 0.64, blue: 0.72).opacity(0.34)
+            : Color(red: 0.663, green: 0.729, blue: 0.827).opacity(0.65)
+
+        return ZStack {
             canvasSurfaceColor
-            HanziMiGridOverlay(colorScheme: colorScheme)
+            HanziMiGridOverlay()
+                .stroke(crossColor, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
             Text(character)
-                .font(VocaTypography.hanziFont(size: 28, weight: .medium))
+                .font(VocaTypography.hanziFont(size: 28, weight: .light, isCalligraphic: theme.hanziCalligraphic))
                 .foregroundStyle(
                     colorScheme == .dark
                         ? Color(red: 0.945, green: 0.961, blue: 0.976)
@@ -177,7 +183,7 @@ private struct HanziCharacterPractice: View {
                 } else if errorMessage != nil {
                     VStack(spacing: 8) {
                         Text(character)
-                            .font(VocaTypography.hanziFont(size: compact ? 28 : 84, weight: .semibold))
+                            .font(VocaTypography.hanziFont(size: compact ? 28 : 84, weight: .semibold, isCalligraphic: ThemeStore.shared.hanziCalligraphic))
                         if !compact {
                             Button("Tải lại") { load() }.font(.caption)
                         }
@@ -188,7 +194,7 @@ private struct HanziCharacterPractice: View {
                     )
                 } else {
                     Text(character)
-                        .font(VocaTypography.hanziFont(size: compact ? 26 : (displayOnly ? 120 : 86), weight: .regular))
+                        .font(VocaTypography.hanziFont(size: compact ? 26 : (displayOnly ? 120 : 86), weight: .regular, isCalligraphic: ThemeStore.shared.hanziCalligraphic))
                         .foregroundStyle(.secondary.opacity(0.32))
                         .overlay(
                             RoundedRectangle(cornerRadius: canvasRadius, style: .continuous)
@@ -282,21 +288,14 @@ private struct HanziCommand: Equatable {
     let kind: Kind
 }
 
-private struct HanziMiGridOverlay: View {
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        let crossColor = colorScheme == .dark
-            ? Color(red: 0.58, green: 0.64, blue: 0.72).opacity(0.34)
-            : Color(red: 0.663, green: 0.729, blue: 0.827).opacity(0.65)
-        Canvas { context, size in
-            var path = Path()
-            path.move(to: CGPoint(x: size.width / 2, y: 0))
-            path.addLine(to: CGPoint(x: size.width / 2, y: size.height))
-            path.move(to: CGPoint(x: 0, y: size.height / 2))
-            path.addLine(to: CGPoint(x: size.width, y: size.height / 2))
-            context.stroke(path, with: .color(crossColor), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-        }
+private struct HanziMiGridOverlay: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        return path
     }
 }
 
