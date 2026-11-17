@@ -129,30 +129,41 @@ private struct HanziCharacterPractice: View {
 
     var body: some View {
         if compact {
-            compactTile
+            compactDetailTile
         } else {
             interactiveBody
         }
     }
 
-    /// Lightweight pure-SwiftUI Mi-grid thumbnail for Dictionary list rows so switching
-    /// to Chinese never spawns dozens of `WKWebView` instances at once.
-    private var compactTile: some View {
-        let crossColor = colorScheme == .dark
-            ? Color(red: 0.58, green: 0.64, blue: 0.72).opacity(0.34)
-            : Color(red: 0.663, green: 0.729, blue: 0.827).opacity(0.65)
-
-        return ZStack {
+    /// Dùng cùng dữ liệu nét và HanziWriter như ô detail, thay vì thay thế chữ bằng font.
+    /// Nhờ vậy hình dáng chữ trong danh sách khớp chính xác với ô luyện viết chi tiết.
+    private var compactDetailTile: some View {
+        ZStack {
             canvasSurfaceColor
-            HanziMiGridOverlay()
-                .stroke(crossColor, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-            Text(character)
-                .font(VocaTypography.hanziFont(size: 28, weight: .light, isCalligraphic: theme.hanziCalligraphic))
-                .foregroundStyle(
-                    colorScheme == .dark
-                        ? Color(red: 0.945, green: 0.961, blue: 0.976)
-                        : Color(red: 0.067, green: 0.094, blue: 0.153)
+
+            if let strokeJSON {
+                HanziWriterWebView(
+                    character: character,
+                    strokeJSON: strokeJSON,
+                    size: Int(canvasSize),
+                    borderWidth: 1,
+                    cornerRadius: Int(canvasRadius),
+                    isDark: colorScheme == .dark,
+                    command: nil,
+                    onStatus: { _ in }
                 )
+            } else {
+                HanziMiGridOverlay()
+                    .stroke(
+                        colorScheme == .dark
+                            ? Color(red: 0.58, green: 0.64, blue: 0.72).opacity(0.34)
+                            : Color(red: 0.663, green: 0.729, blue: 0.827).opacity(0.65),
+                        style: StrokeStyle(lineWidth: 1, dash: [3, 3])
+                    )
+                Text(character)
+                    .font(.custom("STSongti-SC-Regular", fixedSize: 30))
+                    .foregroundStyle(.secondary.opacity(0.35))
+            }
         }
         .frame(width: canvasSize, height: canvasSize)
         .clipShape(RoundedRectangle(cornerRadius: canvasRadius, style: .continuous))
@@ -160,6 +171,9 @@ private struct HanziCharacterPractice: View {
             RoundedRectangle(cornerRadius: canvasRadius, style: .continuous)
                 .strokeBorder(gridBorderColor, lineWidth: 1)
         )
+        .task(id: character) {
+            await loadData()
+        }
     }
 
     @ViewBuilder

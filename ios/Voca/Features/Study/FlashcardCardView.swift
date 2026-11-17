@@ -87,7 +87,7 @@ struct FlashcardCardView: View {
 
             Text(card.word)
                 .font(card.isChinese
-                      ? VocaTypography.hanziFont(size: 62, weight: .light, isCalligraphic: theme.hanziCalligraphic)
+                      ? .custom("STSongti-SC-Regular", fixedSize: 62)
                       : .system(size: 40, weight: .bold, design: .rounded))
                 .multilineTextAlignment(.center)
                 .minimumScaleFactor(0.45)
@@ -144,7 +144,7 @@ struct FlashcardCardView: View {
             HStack(alignment: .center, spacing: 10) {
                 if !isFront {
                     Text(card.word)
-                        .font(card.isChinese ? VocaTypography.hanziFont(size: 26, weight: .light, isCalligraphic: theme.hanziCalligraphic) : .title3.weight(.bold))
+                        .font(card.isChinese ? .custom("STSongti-SC-Regular", fixedSize: 26) : .title3.weight(.bold))
                         .foregroundStyle(.primary)
                     if let phonetic = card.phonetic {
                         Text(phonetic)
@@ -197,7 +197,7 @@ struct FlashcardCardView: View {
                                         HStack(alignment: .top, spacing: 8) {
                                             VStack(alignment: .leading, spacing: 3) {
                                                 Text(parsed.hanzi)
-                                                    .font(.subheadline.weight(.semibold))
+                                                    .font(.custom("STSongti-SC-Regular", fixedSize: 17))
                                                 if let pinyin = parsed.pinyin {
                                                     Text(pinyin)
                                                         .font(.caption)

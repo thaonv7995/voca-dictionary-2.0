@@ -18,6 +18,7 @@ struct FlashcardDeckView: View {
     @State private var lastGrade: ReviewGrade?
     @State private var crossedThresholdGrade: ReviewGrade?
     @State private var flipTimer: Timer?
+    @State private var advanceTimer: Timer?
 
     private let service = StudyService()
 
@@ -40,20 +41,41 @@ struct FlashcardDeckView: View {
         }
         .onAppear {
             speakCurrentIfNeeded(justFlipped: false)
+            scheduleReviewAutoFlip()
         }
         .onChange(of: index) { _, _ in
             speakCurrentIfNeeded(justFlipped: false)
-            if theme.autoFlipFlashcard {
-                flipTimer?.invalidate()
-                flipTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in
-                    if !flipped { withAnimation(flipSpring) { flipped = true } }
-                }
-            }
+            scheduleReviewAutoFlip()
         }
         .onChange(of: flipped) { _, nowFlipped in
             if nowFlipped && reverseMode {
                 speakCurrentIfNeeded(justFlipped: true)
             }
+            if nowFlipped {
+                scheduleReviewAutoAdvance()
+            } else {
+                advanceTimer?.invalidate()
+                advanceTimer = nil
+            }
+        }
+        .onChange(of: theme.autoFlipFlashcard) { _, isEnabled in
+            if isEnabled {
+                scheduleReviewAutoFlip()
+            } else {
+                flipTimer?.invalidate()
+                flipTimer = nil
+            }
+        }
+        .onChange(of: theme.autoAdvanceFlashcard) { _, isEnabled in
+            if isEnabled && flipped {
+                scheduleReviewAutoAdvance()
+            } else {
+                advanceTimer?.invalidate()
+                advanceTimer = nil
+            }
+        }
+        .onDisappear {
+            cancelReviewAutomationTimers()
         }
     }
 
@@ -297,11 +319,66 @@ struct FlashcardDeckView: View {
     }
 
     private func advanceState() {
+        cancelReviewAutomationTimers()
         index += 1
         flyAway = nil
         drag = .zero
         flipped = false
         crossedThresholdGrade = nil
+    }
+
+    private func scheduleReviewAutoFlip() {
+        flipTimer?.invalidate()
+        flipTimer = nil
+
+        let autoFlipEnabled = theme.autoFlipFlashcard
+        guard autoFlipEnabled,
+              currentItem != nil,
+              !flipped,
+              !isGrading else {
+            if flipped {
+                scheduleReviewAutoAdvance()
+            }
+            return
+        }
+
+        flipTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in
+            guard autoFlipEnabled,
+                  currentItem != nil,
+                  !flipped,
+                  !isGrading else { return }
+            withAnimation(flipSpring) {
+                flipped = true
+            }
+            flipTimer = nil
+        }
+    }
+
+    private func scheduleReviewAutoAdvance() {
+        advanceTimer?.invalidate()
+        advanceTimer = nil
+
+        let autoAdvanceEnabled = theme.autoAdvanceFlashcard
+        guard autoAdvanceEnabled,
+              flipped,
+              currentItem != nil,
+              !isGrading else { return }
+
+        advanceTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { _ in
+            guard autoAdvanceEnabled,
+                  flipped,
+                  currentItem != nil,
+                  !isGrading else { return }
+            skip()
+            advanceTimer = nil
+        }
+    }
+
+    private func cancelReviewAutomationTimers() {
+        flipTimer?.invalidate()
+        advanceTimer?.invalidate()
+        flipTimer = nil
+        advanceTimer = nil
     }
 }
 
@@ -506,7 +583,7 @@ struct FreeFlashcardDeckView: View {
               flipped,
               !cards.isEmpty else { return }
 
-        advanceTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
+        advanceTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { _ in
             guard autoAdvanceEnabled,
                   flipped,
                   !cards.isEmpty else { return }
