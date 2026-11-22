@@ -50,6 +50,11 @@
 	<string>Voca dùng camera để quét văn bản và tạo thẻ từ vựng.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Voca đọc ảnh bạn chọn để nhận diện từ và tạo thẻ.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>NotoSerifSC-Regular.otf</string>
+		<string>NotoSerifSC-Bold.otf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

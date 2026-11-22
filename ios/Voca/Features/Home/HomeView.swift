@@ -63,7 +63,7 @@ struct HomeView: View {
                 .tag(HomeSection.dictionary as HomeSection?)
 
             sectionView(.study)
-                .tabItem { Label("Học", systemImage: "brain.head.profile") }
+                .tabItem { Label("Ôn tập", systemImage: "brain.head.profile") }
                 .tag(HomeSection.study as HomeSection?)
 
             sectionView(.assistant)
@@ -107,7 +107,7 @@ private enum HomeSection: String, CaseIterable, Identifiable {
         switch self {
         case .today: "Hôm nay"
         case .dictionary: "Kho từ"
-        case .study: "Học tập"
+        case .study: "Ôn tập"
         case .assistant: "Trợ lý AI"
         case .profile: "Hồ sơ"
         }

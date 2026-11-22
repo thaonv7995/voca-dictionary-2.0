@@ -1,3 +1,4 @@
+import CoreText
 import SwiftUI
 import UIKit
 
@@ -132,9 +133,14 @@ final class ThemeStore {
         static let hanziCalligraphic = "voca.ui.hanziCalligraphic"
         static let autoSpeakFlashcard = "voca.study.autoSpeak"
         static let autoFlipFlashcard = "voca.study.autoFlip"
+        static let autoFlipDelaySeconds = "voca.study.autoFlipDelaySeconds"
         static let autoAdvanceFlashcard = "voca.study.autoAdvance"
+        static let autoAdvanceDelaySeconds = "voca.study.autoAdvanceDelaySeconds"
         static let reverseFlashcardMode = "voca.study.reverseMode"
     }
+
+    static let autoFlipDelayRange: ClosedRange<Double> = 0.5...10.0
+    static let autoAdvanceDelayRange: ClosedRange<Double> = 1.0...15.0
 
     var palette: VocaPalette {
         didSet { UserDefaults.standard.set(palette.rawValue, forKey: Keys.palette) }
@@ -160,8 +166,30 @@ final class ThemeStore {
         didSet { UserDefaults.standard.set(autoFlipFlashcard, forKey: Keys.autoFlipFlashcard) }
     }
 
+    var autoFlipDelaySeconds: Double {
+        didSet {
+            let clamped = Self.clampHalfSecond(autoFlipDelaySeconds, to: Self.autoFlipDelayRange)
+            if clamped != autoFlipDelaySeconds {
+                autoFlipDelaySeconds = clamped
+                return
+            }
+            UserDefaults.standard.set(clamped, forKey: Keys.autoFlipDelaySeconds)
+        }
+    }
+
     var autoAdvanceFlashcard: Bool {
         didSet { UserDefaults.standard.set(autoAdvanceFlashcard, forKey: Keys.autoAdvanceFlashcard) }
+    }
+
+    var autoAdvanceDelaySeconds: Double {
+        didSet {
+            let clamped = Self.clampHalfSecond(autoAdvanceDelaySeconds, to: Self.autoAdvanceDelayRange)
+            if clamped != autoAdvanceDelaySeconds {
+                autoAdvanceDelaySeconds = clamped
+                return
+            }
+            UserDefaults.standard.set(clamped, forKey: Keys.autoAdvanceDelaySeconds)
+        }
     }
 
     var reverseFlashcardMode: Bool {
@@ -176,8 +204,23 @@ final class ThemeStore {
         hanziCalligraphic = defaults.object(forKey: Keys.hanziCalligraphic) as? Bool ?? true
         autoSpeakFlashcard = defaults.object(forKey: Keys.autoSpeakFlashcard) as? Bool ?? false
         autoFlipFlashcard = defaults.object(forKey: Keys.autoFlipFlashcard) as? Bool ?? false
+        let storedFlipDelay = defaults.object(forKey: Keys.autoFlipDelaySeconds) as? Double ?? 1.5
+        autoFlipDelaySeconds = Self.clampHalfSecond(storedFlipDelay, to: Self.autoFlipDelayRange)
         autoAdvanceFlashcard = defaults.object(forKey: Keys.autoAdvanceFlashcard) as? Bool ?? false
+        let storedAdvanceDelay = defaults.object(forKey: Keys.autoAdvanceDelaySeconds) as? Double ?? 4.0
+        autoAdvanceDelaySeconds = Self.clampHalfSecond(storedAdvanceDelay, to: Self.autoAdvanceDelayRange)
         reverseFlashcardMode = defaults.object(forKey: Keys.reverseFlashcardMode) as? Bool ?? false
+    }
+
+    private static func clampHalfSecond(_ value: Double, to range: ClosedRange<Double>) -> Double {
+        let stepped = (value * 2).rounded() / 2
+        return min(max(stepped, range.lowerBound), range.upperBound)
+    }
+
+    static func formatDelay(_ seconds: Double, short: Bool = false) -> String {
+        let isWhole = abs(seconds.rounded() - seconds) < 0.001
+        let number = isWhole ? String(Int(seconds.rounded())) : String(format: "%.1f", seconds)
+        return short ? "\(number)s" : "\(number) giây"
     }
 
     var accent: Color { palette.primary }
@@ -190,24 +233,60 @@ final class ThemeStore {
 
 /// Editorial & calligraphic typography helpers tailored for English IPA and Chinese Hanzi.
 enum VocaTypography {
+    private static let bundledFontFiles: [(resource: String, ext: String)] = [
+        ("NotoSerifSC-Regular", "otf"),
+        ("NotoSerifSC-Bold", "otf"),
+    ]
+
+    private static let didRegisterBundledFonts: Bool = {
+        for item in bundledFontFiles {
+            let url = Bundle.main.url(forResource: item.resource, withExtension: item.ext)
+                ?? Bundle.main.url(forResource: item.resource, withExtension: item.ext, subdirectory: "Fonts")
+            if let url {
+                CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            }
+        }
+        return true
+    }()
+
+    @MainActor
+    private static let resolvedBoldName: String? = {
+        _ = didRegisterBundledFonts
+        let candidates = [
+            "NotoSerifSC-Bold",
+            "STSongti-SC-Bold",
+            "Songti SC Bold",
+            "NotoSerifSC-Regular",
+        ]
+        return candidates.first { UIFont(name: $0, size: 17) != nil }
+    }()
+
+    @MainActor
+    private static let resolvedRegularName: String? = {
+        _ = didRegisterBundledFonts
+        let candidates = [
+            "NotoSerifSC-Regular",
+            "STSongti-SC-Regular",
+            "Songti SC",
+            "NotoSerifSC-Bold",
+        ]
+        return candidates.first { UIFont(name: $0, size: 17) != nil }
+    }()
+
     @MainActor
     static func hanziFont(size: CGFloat, weight: Font.Weight = .bold, isCalligraphic: Bool) -> Font {
         guard isCalligraphic else {
             return .system(size: size, weight: weight, design: .rounded)
         }
-        let candidates: [String]
+        let resolved: String?
         switch weight {
         case .black, .heavy, .bold, .semibold:
-            candidates = ["STSongti-SC-Bold", "Songti SC Bold", "PingFangSC-Semibold"]
-        case .medium:
-            candidates = ["STSongti-SC-Regular", "Songti SC", "PingFangSC-Medium"]
-        case .ultraLight, .thin, .light:
-            candidates = ["STSongti-SC-Light", "Songti SC Light", "STSongti-SC-Regular", "Songti SC", "PingFangSC-Light"]
+            resolved = resolvedBoldName
         default:
-            candidates = ["STSongti-SC-Regular", "Songti SC", "PingFangSC-Regular"]
+            resolved = resolvedRegularName
         }
-        for name in candidates where UIFont(name: name, size: size) != nil {
-            return .custom(name, size: size)
+        if let resolved {
+            return .custom(resolved, size: size)
         }
         return .system(size: size, weight: weight, design: .serif)
     }

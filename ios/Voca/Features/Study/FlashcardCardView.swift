@@ -121,14 +121,19 @@ struct FlashcardCardView: View {
     }
 
     @ViewBuilder private func wordHeroBlock(isFront: Bool) -> some View {
-        VStack(spacing: 12) {
-            Text(card.word)
-                .font(card.isChinese
-                      ? VocaTypography.hanziFont(size: isFront ? 62 : 48, weight: .bold, isCalligraphic: theme.hanziCalligraphic)
-                      : .system(size: isFront ? 40 : 34, weight: .bold, design: .rounded))
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.45)
-                .lineLimit(3)
+        VStack(spacing: 14) {
+            if card.isChinese && theme.hanziCalligraphic {
+                HanziFlashcardWordView(word: card.word, isFront: isFront)
+            } else {
+                Text(card.word)
+                    .font(card.isChinese
+                          ? VocaTypography.hanziFont(size: isFront ? 62 : 48, weight: .bold, isCalligraphic: theme.hanziCalligraphic)
+                          : .system(size: isFront ? 40 : 34, weight: .bold, design: .rounded))
+                    .tracking(card.isChinese ? 2 : 0)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.45)
+                    .lineLimit(3)
+            }
 
             if let phonetic = card.phonetic {
                 Text(phonetic)

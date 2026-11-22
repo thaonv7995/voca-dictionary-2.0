@@ -25,14 +25,14 @@ struct ReviewSessionView: View {
 
     init(items: [DueItem]) {
         self.mode = .dueReview
-        _dueItems = State(initialValue: items)
+        _dueItems = State(initialValue: items.shuffled())
         _browseCards = State(initialValue: [])
     }
 
     init(browseCards: [Card], title: String = "Thẻ lật tự do") {
         self.mode = .freeBrowse(title: title)
         _dueItems = State(initialValue: [])
-        _browseCards = State(initialValue: browseCards)
+        _browseCards = State(initialValue: browseCards.shuffled())
     }
 
     private var total: Int {
@@ -167,7 +167,12 @@ struct ReviewSessionView: View {
                     if case .freeBrowse = mode, browseCards.count > 1 {
                         headerIconButton("shuffle", active: false, label: "Xáo trộn") {
                             Haptics.impact(.light)
-                            browseCards.shuffle()
+                            let previousID = browseCards.indices.contains(index) ? browseCards[index].id : nil
+                            var shuffled = browseCards.shuffled()
+                            if let previousID, shuffled.first?.id == previousID, shuffled.count > 1 {
+                                shuffled.swapAt(0, Int.random(in: 1..<shuffled.count))
+                            }
+                            browseCards = shuffled
                             index = 0
                             shuffleToken = UUID()
                         }

@@ -229,13 +229,13 @@ struct SettingsRootView: View {
             Toggle(isOn: $theme.hanziCalligraphic) {
                 HStack(spacing: 10) {
                     Text("学")
-                        .font(VocaTypography.hanziFont(size: 20, weight: .bold, isCalligraphic: ThemeStore.shared.hanziCalligraphic))
+                        .font(VocaTypography.hanziFont(size: 20, weight: .bold, isCalligraphic: theme.hanziCalligraphic))
                         .foregroundStyle(theme.accent)
                         .frame(width: 28, height: 28)
                         .background(theme.accentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Phông chữ Hán ngữ thư pháp")
-                        Text("Dùng nét Songti thanh đậm cho chữ Hán")
+                        Text("Phông chữ Hán ngữ thanh đậm")
+                        Text("Dùng nét Noto Serif SC thanh đậm cho chữ Hán")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -276,6 +276,42 @@ struct SettingsRootView: View {
 
             Toggle("Tự động phát âm khi mở thẻ", isOn: $theme.autoSpeakFlashcard)
             Toggle("Thẻ ngược (Nghĩa → Từ)", isOn: $theme.reverseFlashcardMode)
+            Toggle("Tự động lật thẻ (Auto-flip)", isOn: $theme.autoFlipFlashcard)
+            if theme.autoFlipFlashcard {
+                Stepper(
+                    value: $theme.autoFlipDelaySeconds,
+                    in: ThemeStore.autoFlipDelayRange,
+                    step: 0.5
+                ) {
+                    HStack {
+                        Text("Thời gian chờ lật")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(ThemeStore.formatDelay(theme.autoFlipDelaySeconds))
+                            .font(.subheadline.weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(theme.accent)
+                    }
+                }
+            }
+            Toggle("Tự động lướt thẻ (Thẻ lật tự do)", isOn: $theme.autoAdvanceFlashcard)
+            if theme.autoAdvanceFlashcard {
+                Stepper(
+                    value: $theme.autoAdvanceDelaySeconds,
+                    in: ThemeStore.autoAdvanceDelayRange,
+                    step: 0.5
+                ) {
+                    HStack {
+                        Text("Thời gian qua thẻ mới")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(ThemeStore.formatDelay(theme.autoAdvanceDelaySeconds))
+                            .font(.subheadline.weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(theme.accent)
+                    }
+                }
+            }
         }
     }
 

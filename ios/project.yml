@@ -58,6 +58,9 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        UIAppFonts:
+          - NotoSerifSC-Regular.otf
+          - NotoSerifSC-Bold.otf
         # Allow cleartext HTTP to the local dev backend (http://localhost:22052).
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

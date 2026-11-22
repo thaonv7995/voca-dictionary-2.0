@@ -5,6 +5,22 @@ private struct HanziStrokePayload: Decodable {
     let strokes: [String]
 }
 
+private final class HanziStrokeMemoryCache: @unchecked Sendable {
+    private let storage: NSCache<NSString, NSArray> = {
+        let cache = NSCache<NSString, NSArray>()
+        cache.countLimit = 256
+        return cache
+    }()
+
+    func strokes(for character: String) -> [String]? {
+        storage.object(forKey: character as NSString) as? [String]
+    }
+
+    func set(_ strokes: [String], for character: String) {
+        storage.setObject(strokes as NSArray, forKey: character as NSString)
+    }
+}
+
 private actor HanziStrokeRepository {
     static let shared = HanziStrokeRepository()
 
@@ -18,20 +34,20 @@ private actor HanziStrokeRepository {
         cache.countLimit = 256
         return cache
     }()
-    private let strokesCache: NSCache<NSString, NSArray> = {
-        let cache = NSCache<NSString, NSArray>()
-        cache.countLimit = 256
-        return cache
-    }()
+    private let strokesCache = HanziStrokeMemoryCache()
     private var inFlight: [String: InFlight] = [:]
 
+    nonisolated func cachedStrokesSync(for character: String) -> [String]? {
+        strokesCache.strokes(for: character)
+    }
+
     func strokes(for character: String) async throws -> [String] {
-        if let cached = strokesCache.object(forKey: character as NSString) as? [String] {
+        if let cached = strokesCache.strokes(for: character) {
             return cached
         }
         let raw = try await data(for: character)
         let payload = try JSONDecoder().decode(HanziStrokePayload.self, from: raw)
-        strokesCache.setObject(payload.strokes as NSArray, forKey: character as NSString)
+        strokesCache.set(payload.strokes, for: character)
         return payload.strokes
     }
 
@@ -188,6 +204,13 @@ private struct HanziCharacterPractice: View {
     @State private var errorMessage: String?
     @State private var command: HanziCommand?
     @State private var status = ""
+
+    init(character: String, compact: Bool, displayOnly: Bool) {
+        self.character = character
+        self.compact = compact
+        self.displayOnly = displayOnly
+        _strokePaths = State(initialValue: compact ? HanziStrokeRepository.shared.cachedStrokesSync(for: character) : nil)
+    }
 
     private var canvasSize: CGFloat { compact ? 48 : displayOnly ? 240 : 176 }
     private var canvasRadius: CGFloat { compact ? 9 : displayOnly ? 16 : 12 }
@@ -381,10 +404,14 @@ private struct HanziCharacterPractice: View {
     @MainActor private func loadData() async {
         errorMessage = nil
         strokeJSON = nil
-        strokePaths = nil
         status = ""
         command = nil
         let targetCharacter = character
+        if compact, let cached = HanziStrokeRepository.shared.cachedStrokesSync(for: targetCharacter) {
+            strokePaths = cached
+            return
+        }
+        strokePaths = nil
         do {
             if compact {
                 let paths = try await HanziStrokeRepository.shared.strokes(for: targetCharacter)
@@ -465,6 +492,204 @@ private struct HanziMiGridOverlay: Shape {
         path.move(to: CGPoint(x: rect.minX, y: rect.midY))
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
         return path
+    }
+}
+
+/// Renders a Chinese vocabulary word on Flashcard using the exact same Mi-grid (`ô mễ`)
+/// SVG brushstroke data (`hanzi-writer-data`) used in the Dictionary list and writing tiles.
+struct HanziFlashcardWordView: View {
+    @Environment(ThemeStore.self) private var theme
+    let word: String
+    var isFront: Bool = true
+
+    private var hanziCharacters: [String] {
+        word.map(String.init).filter { Self.isHanzi($0) }
+    }
+
+    private var shouldRenderMiGrid: Bool {
+        let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !hanziCharacters.isEmpty, hanziCharacters.count <= 8 else {
+            return false
+        }
+        return trimmed.allSatisfy { char in
+            char.isWhitespace || Self.isHanzi(String(char))
+        }
+    }
+
+    private var tileSize: CGFloat {
+        let count = hanziCharacters.count
+        if isFront {
+            switch count {
+            case 1: return 132
+            case 2: return 110
+            case 3: return 84
+            case 4: return 64
+            default: return 64
+            }
+        } else {
+            switch count {
+            case 1: return 84
+            case 2: return 78
+            case 3: return 66
+            default: return 56
+            }
+        }
+    }
+
+    private var tileSpacing: CGFloat {
+        let count = hanziCharacters.count
+        if isFront {
+            switch count {
+            case 1...2: return 10
+            case 3: return 8
+            default: return 6
+            }
+        } else {
+            return count <= 2 ? 8 : 6
+        }
+    }
+
+    private var rows: [[(offset: Int, character: String)]] {
+        let indexed = Array(hanziCharacters.enumerated()).map { (offset: $0.offset, character: $0.element) }
+        guard indexed.count > 4 else { return [indexed] }
+        let firstRowCount = (indexed.count + 1) / 2
+        return [
+            Array(indexed.prefix(firstRowCount)),
+            Array(indexed.dropFirst(firstRowCount)),
+        ]
+    }
+
+    var body: some View {
+        if shouldRenderMiGrid {
+            VStack(spacing: tileSpacing) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: tileSpacing) {
+                        ForEach(row, id: \.offset) { item in
+                            HanziFlashcardStrokeTile(
+                                character: item.character,
+                                size: tileSize
+                            )
+                            .id("\(item.offset)-\(item.character)")
+                        }
+                    }
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(word)
+        } else {
+            Text(word)
+                .font(VocaTypography.hanziFont(size: isFront ? 54 : 42, weight: .bold, isCalligraphic: theme.hanziCalligraphic))
+                .tracking(2)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.45)
+                .lineLimit(3)
+        }
+    }
+
+    private static func isHanzi(_ value: String) -> Bool {
+        value.unicodeScalars.contains { scalar in
+            (0x3400...0x4DBF).contains(scalar.value)
+                || (0x4E00...0x9FFF).contains(scalar.value)
+                || (0xF900...0xFAFF).contains(scalar.value)
+                || (0x20000...0x323AF).contains(scalar.value)
+        }
+    }
+}
+
+private struct HanziFlashcardStrokeTile: View {
+    @Environment(ThemeStore.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+
+    let character: String
+    let size: CGFloat
+
+    @State private var strokePaths: [String]?
+    @State private var didFail = false
+
+    init(character: String, size: CGFloat) {
+        self.character = character
+        self.size = size
+        _strokePaths = State(initialValue: HanziStrokeRepository.shared.cachedStrokesSync(for: character))
+    }
+
+    private var cornerRadius: CGFloat {
+        max(10, min(18, size * 0.14))
+    }
+
+    private var canvasSurfaceColor: Color {
+        colorScheme == .dark ? Color(red: 0.086, green: 0.114, blue: 0.184) : .white
+    }
+
+    private var gridBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.12)
+    }
+
+    private var crossColor: Color {
+        colorScheme == .dark
+            ? Color(red: 0.58, green: 0.64, blue: 0.72).opacity(0.34)
+            : Color(red: 0.663, green: 0.729, blue: 0.827).opacity(0.65)
+    }
+
+    private var strokeInkColor: Color {
+        colorScheme == .dark
+            ? Color(red: 0.945, green: 0.961, blue: 0.976)
+            : Color(red: 0.067, green: 0.094, blue: 0.153)
+    }
+
+    var body: some View {
+        ZStack {
+            canvasSurfaceColor
+
+            HanziMiGridOverlay()
+                .stroke(
+                    crossColor,
+                    style: StrokeStyle(lineWidth: size >= 90 ? 1.2 : 1, dash: [4, 4])
+                )
+
+            if let strokePaths, !strokePaths.isEmpty {
+                Canvas { context, canvasSize in
+                    let side = min(canvasSize.width, canvasSize.height)
+                    for svg in strokePaths {
+                        if let path = HanziSVGPathBuilder.path(from: svg, size: side) {
+                            context.fill(path, with: .color(strokeInkColor))
+                        }
+                    }
+                }
+            } else {
+                Text(character)
+                    .font(VocaTypography.hanziFont(size: size * 0.62, weight: .regular, isCalligraphic: theme.hanziCalligraphic))
+                    .foregroundStyle(didFail ? strokeInkColor : Color.secondary.opacity(0.35))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(gridBorderColor, lineWidth: size >= 90 ? 1.4 : 1.1)
+        )
+        .shadow(
+            color: .black.opacity(colorScheme == .dark ? 0.22 : 0.06),
+            radius: size >= 90 ? 8 : 4,
+            y: 2
+        )
+        .task(id: character) {
+            didFail = false
+            if let cached = HanziStrokeRepository.shared.cachedStrokesSync(for: character) {
+                strokePaths = cached
+                return
+            }
+            strokePaths = nil
+            do {
+                let paths = try await HanziStrokeRepository.shared.strokes(for: character)
+                guard !Task.isCancelled else { return }
+                strokePaths = paths
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                didFail = true
+            }
+        }
     }
 }
 
