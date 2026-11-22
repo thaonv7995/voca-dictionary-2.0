@@ -21,101 +21,220 @@ enum AppCache {
     private static let version = 1
     private static let userKey = "current-user"
     private static let fileManager = FileManager.default
-    private static let lock = NSLock()
+    /// Protects fast in-memory state only (`memoryRecords`, generations, user scope).
+    /// Never hold `memoryLock` while acquiring `ioLock` or performing disk I/O.
+    private static let memoryLock = NSLock()
+    /// Serializes disk reads, writes and directory cleanup.
+    /// Lock ordering invariant: `ioLock` may acquire `memoryLock`, never the reverse.
+    private static let ioLock = NSLock()
+    private static let diskQueue = DispatchQueue(label: "voca.cache.disk", qos: .userInitiated)
+    /// Decoded hot records (user, cards, due, stats) reused in memory after the first disk read.
+    private static var memoryRecords: [String: Any] = [:]
+    /// Bounded cache for large A4 HTML sheets so memory auto-evicts under pressure.
+    private static let htmlCache: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 24
+        return cache
+    }()
+    private static var cachedUserId: Int?
+    private static var clearGeneration: UInt64 = 0
+    private static var currentSessionEpoch: UInt64 = 0
+    private static var keyGenerations: [String: UInt64] = [:]
+
+    /// Monotonically increments whenever the cache is cleared or switches to another user.
+    /// Services use this to avoid coalescing or writing stale responses across sessions.
+    static var sessionEpoch: UInt64 {
+        withMemoryLock { currentSessionEpoch }
+    }
 
     static func loadUser() -> User? {
-        withLock { load(userKey, as: User.self) }
+        load(userKey, as: User.self)
     }
 
     static func saveUser(_ user: User) {
-        withLock { save(user, key: userKey) }
+        let switchedUser: Bool = withMemoryLock {
+            let previous = cachedUserId
+            cachedUserId = user.id
+            if let previous, previous != user.id {
+                memoryRecords.removeAll(keepingCapacity: false)
+                htmlCache.removeAllObjects()
+                currentSessionEpoch &+= 1
+                return true
+            }
+            return false
+        }
+        save(user, key: userKey)
+        if switchedUser {
+            notifyCardsDidChange()
+        }
     }
 
     static func loadCards() -> [Card] {
-        withLock { load(scoped("cards"), as: [Card].self) ?? [] }
+        load(scoped("cards"), as: [Card].self) ?? []
     }
 
     static func saveCards(_ cards: [Card]) {
-        withLock { save(cards, key: scoped("cards")) }
+        save(cards, key: scoped("cards"))
         notifyCardsDidChange()
     }
 
     static func upsertCard(_ card: Card) {
-        withLock {
-            var cards = load(scoped("cards"), as: [Card].self) ?? []
+        let key = scoped("cards")
+        // Warm cache from disk outside memoryLock if not yet loaded.
+        _ = loadRecord(key, as: [Card].self)
+        let (updated, clearGen, keyGen): (Record<[Card]>, UInt64, UInt64) = withMemoryLock {
+            var cards = (memoryRecords[key] as? Record<[Card]>)?.value ?? []
             if let index = cards.firstIndex(where: { $0.slug == card.slug }) {
                 cards[index] = card
             } else {
                 cards.insert(card, at: 0)
             }
-            save(cards, key: scoped("cards"))
+            let record = Record(version: version, savedAt: Date(), value: cards)
+            memoryRecords[key] = record
+            let nextGen = (keyGenerations[key] ?? 0) &+ 1
+            keyGenerations[key] = nextGen
+            return (record, clearGeneration, nextGen)
         }
+        enqueueDiskWrite(updated, key: key, clearGen: clearGen, keyGen: keyGen)
         notifyCardsDidChange()
     }
 
     static func removeCard(slug: String) {
-        withLock {
-            let cards = (load(scoped("cards"), as: [Card].self) ?? []).filter { $0.slug != slug }
-            save(cards, key: scoped("cards"))
-            if let url = fileURL(for: htmlKey(for: slug)) {
-                try? fileManager.removeItem(at: url)
+        let cardsKey = scoped("cards")
+        let dueKey = scoped("study-due")
+        let htmlStorageKey = htmlKey(for: slug)
+        _ = loadRecord(cardsKey, as: [Card].self)
+        _ = loadRecord(dueKey, as: DueResponse.self)
+
+        let pending: (
+            cards: (Record<[Card]>, UInt64, UInt64),
+            due: (Record<DueResponse>, UInt64, UInt64)?,
+            htmlDeleteGen: (UInt64, UInt64)
+        ) = withMemoryLock {
+            let remainingCards = ((memoryRecords[cardsKey] as? Record<[Card]>)?.value ?? [])
+                .filter { $0.slug != slug }
+            let cardsRecord = Record(version: version, savedAt: Date(), value: remainingCards)
+            memoryRecords[cardsKey] = cardsRecord
+            let cardsGen = (keyGenerations[cardsKey] ?? 0) &+ 1
+            keyGenerations[cardsKey] = cardsGen
+
+            htmlCache.removeObject(forKey: htmlStorageKey as NSString)
+            let htmlGen = (keyGenerations[htmlStorageKey] ?? 0) &+ 1
+            keyGenerations[htmlStorageKey] = htmlGen
+
+            var dueUpdate: (Record<DueResponse>, UInt64, UInt64)?
+            if let currentDue = (memoryRecords[dueKey] as? Record<DueResponse>)?.value {
+                let remainingDue = currentDue.cards.filter { $0.card.slug != slug }
+                if remainingDue.count != currentDue.cards.count {
+                    let updatedDue = DueResponse(count: max(0, remainingDue.count), cards: remainingDue)
+                    let dueRecord = Record(version: version, savedAt: Date(), value: updatedDue)
+                    memoryRecords[dueKey] = dueRecord
+                    let dueGen = (keyGenerations[dueKey] ?? 0) &+ 1
+                    keyGenerations[dueKey] = dueGen
+                    dueUpdate = (dueRecord, clearGeneration, dueGen)
+                }
             }
-            removeDueCardLocked(slug: slug)
+
+            return (
+                cards: (cardsRecord, clearGeneration, cardsGen),
+                due: dueUpdate,
+                htmlDeleteGen: (clearGeneration, htmlGen)
+            )
         }
+
+        enqueueDiskWrite(pending.cards.0, key: cardsKey, clearGen: pending.cards.1, keyGen: pending.cards.2)
+        if let due = pending.due {
+            enqueueDiskWrite(due.0, key: dueKey, clearGen: due.1, keyGen: due.2)
+        }
+        enqueueDiskDelete(key: htmlStorageKey, clearGen: pending.htmlDeleteGen.0, keyGen: pending.htmlDeleteGen.1)
         notifyCardsDidChange()
     }
 
     static func cardsMetadata() -> CacheMetadata {
-        withLock {
-            let record: Record<[Card]>? = loadRecord(scoped("cards"), as: [Card].self)
-            var bytes: Int64 = 0
+        let record: Record<[Card]>? = loadRecord(scoped("cards"), as: [Card].self)
+        let bytes: Int64 = withIOLock {
+            var total: Int64 = 0
             if let dir = directory,
                let enumerator = fileManager.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) {
                 for case let url as URL in enumerator {
                     if let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
                        let size = values.fileSize {
-                        bytes += Int64(size)
+                        total += Int64(size)
                     }
                 }
             }
-            return CacheMetadata(
-                cardCount: record?.value.count ?? 0,
-                savedAt: record?.savedAt,
-                totalBytes: bytes
-            )
+            return total
         }
+        return CacheMetadata(
+            cardCount: record?.value.count ?? 0,
+            savedAt: record?.savedAt,
+            totalBytes: bytes
+        )
     }
 
     static func loadHtml(slug: String) -> String? {
-        withLock { load(htmlKey(for: slug), as: String.self) }
+        let key = htmlKey(for: slug)
+        if let cached = htmlCache.object(forKey: key as NSString) {
+            return cached as String
+        }
+        guard let html = loadRecord(key, as: String.self, cacheInMemory: false)?.value else {
+            return nil
+        }
+        htmlCache.setObject(html as NSString, forKey: key as NSString)
+        return html
     }
 
     static func saveHtml(_ html: String, slug: String) {
-        withLock { save(html, key: htmlKey(for: slug)) }
+        let key = htmlKey(for: slug)
+        htmlCache.setObject(html as NSString, forKey: key as NSString)
+        save(html, key: key, cacheInMemory: false)
     }
 
     static func loadStudyStats() -> StudyStats? {
-        withLock { load(scoped("study-stats"), as: StudyStats.self) }
+        load(scoped("study-stats"), as: StudyStats.self)
     }
 
     static func saveStudyStats(_ stats: StudyStats) {
-        withLock { save(stats, key: scoped("study-stats")) }
+        save(stats, key: scoped("study-stats"))
     }
 
     static func loadDue() -> DueResponse? {
-        withLock { load(scoped("study-due"), as: DueResponse.self) }
+        load(scoped("study-due"), as: DueResponse.self)
     }
 
     static func saveDue(_ due: DueResponse) {
-        withLock { save(due, key: scoped("study-due")) }
+        save(due, key: scoped("study-due"))
     }
 
     static func removeDueCard(slug: String) {
-        withLock { removeDueCardLocked(slug: slug) }
+        let dueKey = scoped("study-due")
+        _ = loadRecord(dueKey, as: DueResponse.self)
+        let pending: (Record<DueResponse>, UInt64, UInt64)? = withMemoryLock {
+            guard let current = (memoryRecords[dueKey] as? Record<DueResponse>)?.value else { return nil }
+            let remaining = current.cards.filter { $0.card.slug != slug }
+            guard remaining.count != current.cards.count else { return nil }
+            let updated = DueResponse(count: max(0, remaining.count), cards: remaining)
+            let record = Record(version: version, savedAt: Date(), value: updated)
+            memoryRecords[dueKey] = record
+            let nextGen = (keyGenerations[dueKey] ?? 0) &+ 1
+            keyGenerations[dueKey] = nextGen
+            return (record, clearGeneration, nextGen)
+        }
+        if let pending {
+            enqueueDiskWrite(pending.0, key: dueKey, clearGen: pending.1, keyGen: pending.2)
+        }
     }
 
     static func clearAll() {
-        withLock {
+        withIOLock {
+            withMemoryLock {
+                clearGeneration &+= 1
+                currentSessionEpoch &+= 1
+                cachedUserId = nil
+                memoryRecords.removeAll(keepingCapacity: false)
+                keyGenerations.removeAll(keepingCapacity: false)
+                htmlCache.removeAllObjects()
+            }
             if let dir = primaryDirectory {
                 try? fileManager.removeItem(at: dir)
             }
@@ -132,14 +251,6 @@ enum AppCache {
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: cardsDidChangeNotification, object: nil)
         }
-    }
-
-    private static func removeDueCardLocked(slug: String) {
-        guard let current = load(scoped("study-due"), as: DueResponse.self) else { return }
-        let remaining = current.cards.filter { $0.card.slug != slug }
-        guard remaining.count != current.cards.count else { return }
-        let updated = DueResponse(count: max(0, remaining.count), cards: remaining)
-        save(updated, key: scoped("study-due"))
     }
 
     private static func htmlKey(for slug: String) -> String {
@@ -159,24 +270,99 @@ enum AppCache {
         loadRecord(key, as: type)?.value
     }
 
-    private static func loadRecord<Value: Codable>(_ key: String, as type: Value.Type) -> Record<Value>? {
-        for baseDir in [primaryDirectory, legacyCachesDirectory].compactMap({ $0 }) {
-            let url = baseDir.appendingPathComponent(key).appendingPathExtension("json")
-            guard let data = try? Data(contentsOf: url),
-                  let record = try? JSONDecoder().decode(Record<Value>.self, from: data),
-                  record.version == version
-            else { continue }
-            return record
+    private static func loadRecord<Value: Codable>(
+        _ key: String,
+        as type: Value.Type,
+        cacheInMemory: Bool = true
+    ) -> Record<Value>? {
+        let snapshot: (Record<Value>?, UInt64) = withMemoryLock {
+            if cacheInMemory,
+               let cached = memoryRecords[key] as? Record<Value>,
+               cached.version == version {
+                return (cached, clearGeneration)
+            }
+            return (nil, clearGeneration)
         }
-        return nil
+        if let cached = snapshot.0 {
+            return cached
+        }
+
+        let loaded: Record<Value>? = withIOLock {
+            for baseDir in [primaryDirectory, legacyCachesDirectory].compactMap({ $0 }) {
+                let url = baseDir.appendingPathComponent(key).appendingPathExtension("json")
+                guard let data = try? Data(contentsOf: url),
+                      let record = try? JSONDecoder().decode(Record<Value>.self, from: data),
+                      record.version == version
+                else { continue }
+                return record
+            }
+            return nil
+        }
+
+        guard let loaded else { return nil }
+
+        if cacheInMemory {
+            withMemoryLock {
+                if clearGeneration == snapshot.1, memoryRecords[key] == nil {
+                    memoryRecords[key] = loaded
+                    if key == userKey, let user = loaded.value as? User, cachedUserId == nil {
+                        cachedUserId = user.id
+                    }
+                }
+            }
+        }
+        return loaded
     }
 
-    private static func save<Value: Codable>(_ value: Value, key: String) {
-        guard let url = fileURL(for: key, createDirectory: true),
-              let data = try? JSONEncoder().encode(
-                Record(version: version, savedAt: Date(), value: value))
-        else { return }
-        try? data.write(to: url, options: .atomic)
+    private static func save<Value: Codable>(_ value: Value, key: String, cacheInMemory: Bool = true) {
+        let record = Record(version: version, savedAt: Date(), value: value)
+        let (clearGen, keyGen): (UInt64, UInt64) = withMemoryLock {
+            if cacheInMemory {
+                memoryRecords[key] = record
+            }
+            let nextGen = (keyGenerations[key] ?? 0) &+ 1
+            keyGenerations[key] = nextGen
+            return (clearGeneration, nextGen)
+        }
+        enqueueDiskWrite(record, key: key, clearGen: clearGen, keyGen: keyGen)
+    }
+
+    private static func isLatest(key: String, clearGen: UInt64, keyGen: UInt64) -> Bool {
+        withMemoryLock {
+            clearGeneration == clearGen && keyGenerations[key] == keyGen
+        }
+    }
+
+    private static func enqueueDiskWrite<Value: Codable>(
+        _ record: Record<Value>,
+        key: String,
+        clearGen: UInt64,
+        keyGen: UInt64
+    ) {
+        diskQueue.async {
+            guard isLatest(key: key, clearGen: clearGen, keyGen: keyGen),
+                  let data = try? JSONEncoder().encode(record)
+            else { return }
+
+            withIOLock {
+                guard isLatest(key: key, clearGen: clearGen, keyGen: keyGen),
+                      let url = fileURL(for: key, createDirectory: true)
+                else { return }
+                try? data.write(to: url, options: .atomic)
+            }
+        }
+    }
+
+    private static func enqueueDiskDelete(key: String, clearGen: UInt64, keyGen: UInt64) {
+        diskQueue.async {
+            withIOLock {
+                guard isLatest(key: key, clearGen: clearGen, keyGen: keyGen) else { return }
+                for baseDir in [primaryDirectory, legacyCachesDirectory].compactMap({ $0 }) {
+                    let url = baseDir.appendingPathComponent(key).appendingPathExtension("json")
+                    try? fileManager.removeItem(at: url)
+                }
+            }
+        }
     }
 
     private static var directory: URL? {
@@ -207,9 +393,15 @@ enum AppCache {
         return dir.appendingPathComponent(key).appendingPathExtension("json")
     }
 
-    private static func withLock<T>(_ work: () -> T) -> T {
-        lock.lock()
-        defer { lock.unlock() }
+    private static func withMemoryLock<T>(_ work: () -> T) -> T {
+        memoryLock.lock()
+        defer { memoryLock.unlock() }
+        return work()
+    }
+
+    private static func withIOLock<T>(_ work: () -> T) -> T {
+        ioLock.lock()
+        defer { ioLock.unlock() }
         return work()
     }
 }

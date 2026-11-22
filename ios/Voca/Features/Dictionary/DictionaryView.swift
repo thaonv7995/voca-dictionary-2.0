@@ -11,9 +11,25 @@ final class DictionaryStore {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
+    struct FilterQuery: Equatable {
+        let language: CardLanguage
+        let searchText: String
+        let favoritesOnly: Bool
+        let favoriteSlugs: Set<String>
+        let levelFilter: CardLevel?
+        let topicFilter: String?
+        let dateFilter: DateFilter
+        let sortOrder: DictionarySortOrder
+        let referenceDay: Date?
+    }
+
     private var cardsByLanguage: [CardLanguage: [Card]] = [:]
     private var topicsByLanguage: [CardLanguage: [String]] = [:]
     private var createdDatesBySlug: [String: Date] = [:]
+    @ObservationIgnored private var searchFieldsBySlug: [String: [String]] = [:]
+    @ObservationIgnored private var revision = 0
+    @ObservationIgnored private var cachedFilterKey: (revision: Int, query: FilterQuery)?
+    @ObservationIgnored private var cachedFilteredCards: [Card] = []
 
     private let service = CardsService()
 
@@ -41,11 +57,81 @@ final class DictionaryStore {
         createdDatesBySlug[card.slug]
     }
 
+    func filteredCards(
+        language: CardLanguage,
+        searchText: String,
+        favoritesOnly: Bool,
+        favoriteSlugs: Set<String>,
+        levelFilter: CardLevel?,
+        topicFilter: String?,
+        dateFilter: DateFilter,
+        sortOrder: DictionarySortOrder
+    ) -> [Card] {
+        let scoped = cardsByLanguage[language] ?? []
+        let normalizedQuery = Self.normalized(searchText)
+        let referenceDay: Date? = dateFilter == .all ? nil : Calendar.current.startOfDay(for: Date())
+        let query = FilterQuery(
+            language: language,
+            searchText: normalizedQuery,
+            favoritesOnly: favoritesOnly,
+            favoriteSlugs: favoritesOnly ? favoriteSlugs : [],
+            levelFilter: levelFilter,
+            topicFilter: topicFilter,
+            dateFilter: dateFilter,
+            sortOrder: sortOrder,
+            referenceDay: referenceDay
+        )
+
+        if let cached = cachedFilterKey,
+           cached.revision == revision,
+           cached.query == query {
+            return cachedFilteredCards
+        }
+
+        let hasActiveFilters = favoritesOnly || levelFilter != nil || topicFilter != nil || dateFilter != .all
+        let now = Date()
+        let matching: [Card] = if !hasActiveFilters && normalizedQuery.isEmpty {
+            scoped
+        } else {
+            scoped.filter { card in
+                if favoritesOnly && !favoriteSlugs.contains(card.slug) { return false }
+                if let levelFilter, CardLevel(card.level) != levelFilter { return false }
+                if let topicFilter, card.topic != topicFilter { return false }
+                if !matchesDate(card, filter: dateFilter, now: now) { return false }
+                guard !normalizedQuery.isEmpty else { return true }
+                return (searchFieldsBySlug[card.slug] ?? []).contains { $0.contains(normalizedQuery) }
+            }
+        }
+
+        let sorted: [Card]
+        switch sortOrder {
+        case .newest:
+            sorted = matching.sorted { lhs, rhs in
+                switch (createdDatesBySlug[lhs.slug], createdDatesBySlug[rhs.slug]) {
+                case let (l?, r?): return l > r
+                case (_?, nil): return true
+                case (nil, _?): return false
+                case (nil, nil): return false
+                }
+            }
+        case .alphabetical:
+            sorted = matching.sorted { $0.word.localizedCaseInsensitiveCompare($1.word) == .orderedAscending }
+        case .level:
+            sorted = matching.sorted { Self.levelRank($0.level) < Self.levelRank($1.level) }
+        }
+
+        cachedFilterKey = (revision, query)
+        cachedFilteredCards = sorted
+        return sorted
+    }
+
     private func rebuildIndexes() {
         var byLanguage: [CardLanguage: [Card]] = [:]
         var topicSets: [CardLanguage: Set<String>] = [:]
         var dates: [String: Date] = [:]
+        var searchFields: [String: [String]] = [:]
         dates.reserveCapacity(cards.count)
+        searchFields.reserveCapacity(cards.count)
 
         for card in cards {
             let lang = card.cardLanguage
@@ -57,11 +143,53 @@ final class DictionaryStore {
                let parsed = Self.isoFormatter.date(from: raw) ?? Self.isoFractionalFormatter.date(from: raw) {
                 dates[card.slug] = parsed
             }
+            let rawFields = [
+                card.word,
+                card.phonetic,
+                card.meaningVi,
+                card.meaningEn,
+                card.topic,
+                card.tags?.joined(separator: " ")
+            ]
+            searchFields[card.slug] = rawFields.compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return Self.normalized(value)
+            }
         }
 
         cardsByLanguage = byLanguage
         topicsByLanguage = topicSets.mapValues { $0.sorted() }
         createdDatesBySlug = dates
+        searchFieldsBySlug = searchFields
+        revision &+= 1
+        cachedFilterKey = nil
+        cachedFilteredCards = []
+    }
+
+    private func matchesDate(_ card: Card, filter: DateFilter, now: Date) -> Bool {
+        guard filter != .all else { return true }
+        guard let date = createdDatesBySlug[card.slug] else { return false }
+        switch filter {
+        case .all: return true
+        case .today: return Calendar.current.isDateInToday(date)
+        case .week: return date >= now.addingTimeInterval(-7 * 86_400)
+        case .month: return date >= now.addingTimeInterval(-30 * 86_400)
+        }
+    }
+
+    private static func levelRank(_ raw: String?) -> Int {
+        switch CardLevel(raw) {
+        case .new: return 0
+        case .learning: return 1
+        case .known: return 2
+        case .mastered: return 3
+        case nil: return 4
+        }
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func syncFromCache() {
@@ -128,6 +256,7 @@ struct DictionaryView: View {
 
     @State private var store = DictionaryStore()
     @State private var searchText = ""
+    @State private var debouncedSearchText = ""
     @State private var favoritesOnly = false
     @State private var levelFilter: CardLevel?
     @State private var topicFilter: String?
@@ -157,77 +286,17 @@ struct DictionaryView: View {
         store.cards(for: language)
     }
 
-    private var filterAnimationKey: Int {
-        var hasher = Hasher()
-        hasher.combine(sortOrder)
-        hasher.combine(favoritesOnly)
-        hasher.combine(levelFilter?.rawValue)
-        hasher.combine(topicFilter)
-        hasher.combine(dateFilter)
-        hasher.combine(searchText)
-        return hasher.finalize()
-    }
-
     private var filteredCards: [Card] {
-        let query = normalized(searchText)
-        let scoped = languageCards
-        let matching = if !hasActiveFilters && query.isEmpty {
-            scoped
-        } else {
-            scoped.filter { card in
-                if favoritesOnly && !learner.isFavorite(card.slug) { return false }
-                if let levelFilter, CardLevel(card.level) != levelFilter { return false }
-                if let topicFilter, card.topic != topicFilter { return false }
-                if !matchesDate(card) { return false }
-                guard !query.isEmpty else { return true }
-                let fields = [card.word, card.phonetic, card.meaningVi, card.meaningEn,
-                              card.topic, card.tags?.joined(separator: " ")]
-                return fields.compactMap { $0 }.contains { normalized($0).contains(query) }
-            }
-        }
-
-        switch sortOrder {
-        case .newest:
-            return matching.sorted { lhs, rhs in
-                switch (store.createdDate(for: lhs), store.createdDate(for: rhs)) {
-                case let (l?, r?): return l > r
-                case (_?, nil): return true
-                case (nil, _?): return false
-                case (nil, nil): return false
-                }
-            }
-        case .alphabetical:
-            return matching.sorted { $0.word.localizedCaseInsensitiveCompare($1.word) == .orderedAscending }
-        case .level:
-            return matching.sorted { levelRank($0.level) < levelRank($1.level) }
-        }
-    }
-
-    private func levelRank(_ raw: String?) -> Int {
-        switch CardLevel(raw) {
-        case .new: return 0
-        case .learning: return 1
-        case .known: return 2
-        case .mastered: return 3
-        case nil: return 4
-        }
-    }
-
-    private func normalized(_ value: String) -> String {
-        value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func matchesDate(_ card: Card) -> Bool {
-        guard dateFilter != .all else { return true }
-        guard let date = store.createdDate(for: card) else { return false }
-        let now = Date()
-        switch dateFilter {
-        case .all: return true
-        case .today: return Calendar.current.isDateInToday(date)
-        case .week: return date >= now.addingTimeInterval(-7 * 86_400)
-        case .month: return date >= now.addingTimeInterval(-30 * 86_400)
-        }
+        store.filteredCards(
+            language: language,
+            searchText: debouncedSearchText,
+            favoritesOnly: favoritesOnly,
+            favoriteSlugs: favoritesOnly ? learner.favoriteSlugs : [],
+            levelFilter: levelFilter,
+            topicFilter: topicFilter,
+            dateFilter: dateFilter,
+            sortOrder: sortOrder
+        )
     }
 
     private func resetFilters() {
@@ -293,6 +362,7 @@ struct DictionaryView: View {
                 A4SheetView(card: card)
             }
             .onAppear {
+                learner.reloadIfNeeded()
                 store.syncFromCache()
             }
             .task {
@@ -313,7 +383,17 @@ struct DictionaryView: View {
             }
             .onChange(of: languageRaw) { _, _ in
                 if !searchText.isEmpty { searchText = "" }
+                debouncedSearchText = ""
                 if hasActiveFilters { resetFilters() }
+            }
+            .task(id: searchText) {
+                if searchText.isEmpty {
+                    debouncedSearchText = ""
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(180))
+                guard !Task.isCancelled else { return }
+                debouncedSearchText = searchText
             }
         }
     }
@@ -360,8 +440,9 @@ struct DictionaryView: View {
                     }
                     .frame(maxHeight: .infinity)
                 } else {
-                    filterBar
-                    cardList
+                    let visibleCards = filteredCards
+                    filterBar(filteredCount: visibleCards.count)
+                    cardList(visibleCards)
                 }
             }
         }
@@ -374,8 +455,7 @@ struct DictionaryView: View {
             .padding(.bottom, 6)
     }
 
-    @ViewBuilder private var cardList: some View {
-        let visibleCards = filteredCards
+    @ViewBuilder private func cardList(_ visibleCards: [Card]) -> some View {
         Group {
             if horizontalSizeClass == .regular {
                 ScrollView {
@@ -393,7 +473,6 @@ struct DictionaryView: View {
                     .padding(20)
                     .frame(maxWidth: 1100)
                     .frame(maxWidth: .infinity)
-                    .animation(.spring(response: 0.28, dampingFraction: 0.86), value: filterAnimationKey)
                 }
                 .id(language)
                 .refreshable { await store.refresh() }
@@ -421,14 +500,13 @@ struct DictionaryView: View {
                 .id(language)
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
-                .animation(.spring(response: 0.28, dampingFraction: 0.86), value: filterAnimationKey)
                 .refreshable { await store.refresh() }
             }
         }
         .overlay {
             if visibleCards.isEmpty {
-                if !searchText.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
+                if !debouncedSearchText.isEmpty {
+                    ContentUnavailableView.search(text: debouncedSearchText)
                 } else {
                     ContentUnavailableView {
                         Label("Không có thẻ phù hợp", systemImage: "line.3.horizontal.decrease.circle")
@@ -438,9 +516,7 @@ struct DictionaryView: View {
                         if hasActiveFilters {
                             Button("Xóa bộ lọc") {
                                 Haptics.selection()
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                                    resetFilters()
-                                }
+                                resetFilters()
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(Brand.green)
@@ -529,10 +605,10 @@ struct DictionaryView: View {
         .tint(Brand.green)
     }
 
-    private var filterBar: some View {
+    private func filterBar(filteredCount: Int) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                Text("\(filteredCards.count)/\(languageCards.count)")
+                Text("\(filteredCount)/\(languageCards.count)")
                     .font(.caption.weight(.bold))
                     .monospacedDigit()
                     .contentTransition(.numericText())
@@ -543,7 +619,7 @@ struct DictionaryView: View {
 
                 Button {
                     Haptics.selection()
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) { favoritesOnly.toggle() }
+                    favoritesOnly.toggle()
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: favoritesOnly ? "star.fill" : "star")
@@ -566,7 +642,7 @@ struct DictionaryView: View {
                 if hasActiveFilters {
                     Button {
                         Haptics.selection()
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { resetFilters() }
+                        resetFilters()
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "xmark.circle.fill")
@@ -579,7 +655,6 @@ struct DictionaryView: View {
                         .background(Color(.tertiarySystemFill), in: Capsule())
                     }
                     .buttonStyle(PressableScaleStyle(scale: 0.94))
-                    .transition(.opacity.combined(with: .scale))
                 }
             }
             .padding(.horizontal)

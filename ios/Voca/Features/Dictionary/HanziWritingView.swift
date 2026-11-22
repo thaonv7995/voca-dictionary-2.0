@@ -4,19 +4,69 @@ import WebKit
 private actor HanziStrokeRepository {
     static let shared = HanziStrokeRepository()
 
+    private struct InFlight {
+        let id: UUID
+        let task: Task<Data, Error>
+    }
+
+    private let memoryCache: NSCache<NSString, NSData> = {
+        let cache = NSCache<NSString, NSData>()
+        cache.countLimit = 256
+        return cache
+    }()
+    private var inFlight: [String: InFlight] = [:]
+
     func data(for character: String) async throws -> Data {
+        if let cached = memoryCache.object(forKey: character as NSString) {
+            return cached as Data
+        }
+
+        if let existing = inFlight[character] {
+            return try await existing.task.value
+        }
+
         let cache = try cacheURL(for: character)
-        if let data = try? Data(contentsOf: cache), !data.isEmpty { return data }
+        if let data = try? Data(contentsOf: cache), !data.isEmpty {
+            memoryCache.setObject(data as NSData, forKey: character as NSString)
+            return data
+        }
 
         guard let escaped = character.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let url = URL(string: "https://cdn.jsdelivr.net/npm/hanzi-writer-data@2.0.1/\(escaped).json")
         else { throw URLError(.badURL) }
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              (try? JSONSerialization.jsonObject(with: data)) != nil
-        else { throw URLError(.cannotParseResponse) }
-        try data.write(to: cache, options: .atomic)
-        return data
+
+        let id = UUID()
+        let task = Task.detached(priority: .userInitiated) { [weak self] () throws -> Data in
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode),
+                      !data.isEmpty,
+                      (try? JSONSerialization.jsonObject(with: data)) != nil
+                else { throw URLError(.cannotParseResponse) }
+                try? data.write(to: cache, options: .atomic)
+                await self?.finish(id: id, for: character, data: data)
+                return data
+            } catch {
+                await self?.clearIfCurrent(id: id, for: character)
+                throw error
+            }
+        }
+        inFlight[character] = InFlight(id: id, task: task)
+        return try await task.value
+    }
+
+    private func finish(id: UUID, for character: String, data: Data) {
+        memoryCache.setObject(data as NSData, forKey: character as NSString)
+        if inFlight[character]?.id == id {
+            inFlight[character] = nil
+        }
+    }
+
+    private func clearIfCurrent(id: UUID, for character: String) {
+        if inFlight[character]?.id == id {
+            inFlight[character] = nil
+        }
     }
 
     private func cacheURL(for character: String) throws -> URL {
@@ -149,6 +199,8 @@ private struct HanziCharacterPractice: View {
                     borderWidth: 1,
                     cornerRadius: Int(canvasRadius),
                     isDark: colorScheme == .dark,
+                    isInteractive: false,
+                    handlesScriptMessages: false,
                     command: nil,
                     onStatus: { _ in }
                 )
@@ -190,6 +242,8 @@ private struct HanziCharacterPractice: View {
                         borderWidth: compact ? 1 : (displayOnly ? 2 : 1.5),
                         cornerRadius: Int(canvasRadius),
                         isDark: colorScheme == .dark,
+                        isInteractive: !compact && !displayOnly,
+                        handlesScriptMessages: true,
                         command: command,
                         onStatus: { status = $0 }
                     )
@@ -314,12 +368,16 @@ private struct HanziMiGridOverlay: Shape {
 }
 
 private struct HanziWriterWebView: UIViewRepresentable {
+    private static let sharedDataStore = WKWebsiteDataStore.nonPersistent()
+
     let character: String
     let strokeJSON: String
     let size: Int
     let borderWidth: Double
     let cornerRadius: Int
     let isDark: Bool
+    let isInteractive: Bool
+    let handlesScriptMessages: Bool
     let command: HanziCommand?
     let onStatus: (String) -> Void
 
@@ -327,12 +385,19 @@ private struct HanziWriterWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let controller = WKUserContentController()
-        controller.add(context.coordinator, name: "hanzi")
+        if handlesScriptMessages {
+            controller.add(context.coordinator, name: "hanzi")
+        }
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
+        configuration.websiteDataStore = Self.sharedDataStore
+        configuration.suppressesIncrementalRendering = true
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.scrollView.isScrollEnabled = false
+        view.scrollView.bounces = false
+        view.scrollView.contentInsetAdjustmentBehavior = .never
+        view.isUserInteractionEnabled = isInteractive
         view.isOpaque = false
         view.backgroundColor = .clear
         context.coordinator.lastIsDark = isDark
@@ -342,6 +407,9 @@ private struct HanziWriterWebView: UIViewRepresentable {
 
     func updateUIView(_ view: WKWebView, context: Context) {
         context.coordinator.onStatus = onStatus
+        if view.isUserInteractionEnabled != isInteractive {
+            view.isUserInteractionEnabled = isInteractive
+        }
         if context.coordinator.lastIsDark != isDark {
             context.coordinator.lastIsDark = isDark
             context.coordinator.resetReady()
@@ -351,6 +419,12 @@ private struct HanziWriterWebView: UIViewRepresentable {
         guard let command, command.id != context.coordinator.lastCommandID else { return }
         context.coordinator.lastCommandID = command.id
         context.coordinator.run(command, in: view)
+    }
+
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        uiView.stopLoading()
+        uiView.navigationDelegate = nil
+        uiView.configuration.userContentController.removeScriptMessageHandler(forName: "hanzi")
     }
 
     private var scriptURL: URL? {

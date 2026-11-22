@@ -75,24 +75,14 @@ struct VocaThemeBackground: View {
         ZStack {
             Brand.canvasBackground(for: colorScheme)
 
-            RadialGradient(
+            LinearGradient(
                 colors: [
-                    theme.accent.opacity(colorScheme == .dark ? 0.13 : 0.07),
-                    Color.clear
+                    theme.accent.opacity(colorScheme == .dark ? 0.08 : 0.035),
+                    Color.clear,
+                    theme.secondaryGlow.opacity(colorScheme == .dark ? 0.05 : 0.02)
                 ],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 420
-            )
-
-            RadialGradient(
-                colors: [
-                    theme.secondaryGlow.opacity(colorScheme == .dark ? 0.09 : 0.04),
-                    Color.clear
-                ],
-                center: .bottomLeading,
-                startRadius: 20,
-                endRadius: 400
+                startPoint: .topTrailing,
+                endPoint: .bottomLeading
             )
         }
         .ignoresSafeArea()
@@ -410,10 +400,12 @@ struct BrandCardModifier: ViewModifier {
                     )
             )
             .shadow(
-                color: Color.black.opacity(colorScheme == .dark ? 0.22 : (isHero ? 0.07 : 0.045)),
-                radius: isHero ? 14 : 9,
+                color: isHero
+                    ? Color.black.opacity(colorScheme == .dark ? 0.14 : 0.05)
+                    : .clear,
+                radius: isHero ? 7 : 0,
                 x: 0,
-                y: isHero ? 5 : 3
+                y: isHero ? 3 : 0
             )
     }
 }
@@ -516,7 +508,7 @@ struct PressableScaleStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? scale : 1)
             .opacity(configuration.isPressed ? 0.92 : 1)
-            .animation(.spring(response: 0.24, dampingFraction: 0.72), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -541,12 +533,12 @@ struct BrandCTAButtonStyle: ButtonStyle {
             )
             .shadow(
                 color: isEnabled ? Brand.green.opacity(configuration.isPressed ? 0.16 : 0.28) : .clear,
-                radius: configuration.isPressed ? 4 : 10,
-                y: configuration.isPressed ? 2 : 5
+                radius: configuration.isPressed ? 2 : 5,
+                y: configuration.isPressed ? 1 : 2
             )
             .opacity(isEnabled ? 1 : 0.48)
             .scaleEffect(configuration.isPressed ? 0.975 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.72), value: configuration.isPressed)
-            .animation(.easeInOut(duration: 0.2), value: isEnabled)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(.easeInOut(duration: 0.15), value: isEnabled)
     }
 }

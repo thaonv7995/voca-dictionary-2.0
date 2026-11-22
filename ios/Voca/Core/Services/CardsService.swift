@@ -1,5 +1,81 @@
 import Foundation
 
+/// Coalesces simultaneous `/api/cards` requests within the same session and
+/// mutation generation. Invalidation on card mutations or session/cache clear
+/// prevents stale pre-mutation or cross-account responses from being reused or
+/// overwriting fresher cache entries.
+private actor CardsListRequestPool {
+    static let shared = CardsListRequestPool()
+
+    private struct InFlight {
+        let id: UUID
+        let epoch: UInt64
+        let generation: UInt64
+        let task: Task<[Card], Error>
+    }
+
+    private var current: InFlight?
+    private var generation: UInt64 = 0
+
+    func invalidate() {
+        generation &+= 1
+        current = nil
+    }
+
+    func fetch(
+        epoch: UInt64,
+        operation: @escaping @Sendable () async throws -> [Card],
+        onSuccess: @escaping @Sendable ([Card]) -> Void
+    ) async throws -> [Card] {
+        if let existing = current,
+           existing.epoch == epoch,
+           existing.generation == generation {
+            return try await existing.task.value
+        }
+
+        let id = UUID()
+        let requestGeneration = generation
+        let task = Task<[Card], Error> {
+            do {
+                let cards = try await operation()
+                self.finish(
+                    id: id,
+                    epoch: epoch,
+                    generation: requestGeneration,
+                    cards: cards,
+                    onSuccess: onSuccess
+                )
+                return cards
+            } catch {
+                self.clearIfCurrent(id: id)
+                throw error
+            }
+        }
+        current = InFlight(id: id, epoch: epoch, generation: requestGeneration, task: task)
+        return try await task.value
+    }
+
+    private func finish(
+        id: UUID,
+        epoch: UInt64,
+        generation requestGeneration: UInt64,
+        cards: [Card],
+        onSuccess: @Sendable ([Card]) -> Void
+    ) {
+        if current?.id == id {
+            current = nil
+        }
+        guard requestGeneration == generation, AppCache.sessionEpoch == epoch else { return }
+        onSuccess(cards)
+    }
+
+    private func clearIfCurrent(id: UUID) {
+        if current?.id == id {
+            current = nil
+        }
+    }
+}
+
 /// Stateless wrapper over the `/api/cards` endpoints.
 struct CardsService {
     private let api = ApiClient.shared
@@ -8,9 +84,17 @@ struct CardsService {
     private struct DeleteResponse: Decodable { let ok: Bool?; let slug: String? }
 
     func list() async throws -> [Card] {
-        let res: ListResponse = try await api.get("/api/cards")
-        AppCache.saveCards(res.cards)
-        return res.cards
+        let epoch = AppCache.sessionEpoch
+        return try await CardsListRequestPool.shared.fetch(
+            epoch: epoch,
+            operation: {
+                let res: ListResponse = try await ApiClient.shared.get("/api/cards")
+                return res.cards
+            },
+            onSuccess: { cards in
+                AppCache.saveCards(cards)
+            }
+        )
     }
 
     func cachedList() -> [Card] { AppCache.loadCards() }
@@ -19,6 +103,7 @@ struct CardsService {
 
     func get(slug: String) async throws -> Card {
         let card: Card = try await api.get("/api/cards/\(encode(slug))")
+        await CardsListRequestPool.shared.invalidate()
         AppCache.upsertCard(card)
         return card
     }
@@ -29,6 +114,8 @@ struct CardsService {
             "word": word,
             "language": language.rawValue,
         ])
+        await CardsListRequestPool.shared.invalidate()
+        await StudyService.invalidatePendingRequests()
         AppCache.upsertCard(card)
         return card
     }
@@ -36,12 +123,16 @@ struct CardsService {
     func setLevel(slug: String, level: String) async throws -> Card {
         let card: Card = try await api.patch(
             "/api/cards/\(encode(slug))/level", body: ["level": level])
+        await CardsListRequestPool.shared.invalidate()
+        await StudyService.invalidatePendingRequests()
         AppCache.upsertCard(card)
         return card
     }
 
     func delete(slug: String) async throws {
         let _: DeleteResponse = try await api.delete("/api/cards/\(encode(slug))")
+        await CardsListRequestPool.shared.invalidate()
+        await StudyService.invalidatePendingRequests()
         AppCache.removeCard(slug: slug)
     }
 

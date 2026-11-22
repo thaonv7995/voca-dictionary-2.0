@@ -76,7 +76,18 @@ struct HomeView: View {
         }
     }
 
-    @ViewBuilder private func sectionView(_ section: HomeSection) -> some View {
+    private func sectionView(_ section: HomeSection) -> some View {
+        TabSectionHost(section: section).equatable()
+    }
+}
+
+/// Defers constructing each tab's view and view-models until SwiftUI first needs
+/// to display that section, while remaining `Equatable` so parent state updates
+/// (tab switching, theme updates, deep links) skip re-evaluating mounted tabs.
+private struct TabSectionHost: View, Equatable {
+    let section: HomeSection
+
+    var body: some View {
         switch section {
         case .today: TodayView()
         case .dictionary: DictionaryView()
