@@ -36,7 +36,8 @@ public class PracticeAttemptController {
         attempt.setCorrect(req.correct());
         attempt.setPayload(req.payload());
         if (req.cardSlug() != null && !req.cardSlug().isBlank()) {
-            cards.findFirstBySlugIgnoreCase(req.cardSlug()).ifPresent(c -> attempt.setCardId(c.getId()));
+            cards.findFirstByOwnerIdAndSlugIgnoreCase(principal.id(), req.cardSlug().trim())
+                    .ifPresent(c -> attempt.setCardId(c.getId()));
         }
         return attempts.save(attempt);
     }

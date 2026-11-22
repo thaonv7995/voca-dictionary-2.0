@@ -43,7 +43,7 @@ public class HtmlSheetService {
     }
 
     public Path pathFor(String slug) {
-        String clean = slug.replaceAll("[^a-zA-Z0-9_\\-\\u4e00-\\u9fa5]", "_");
+        String clean = slug.replaceAll("[^\\p{L}\\p{N}_\\-]", "_");
         return htmlDir.resolve(clean + ".html");
     }
 

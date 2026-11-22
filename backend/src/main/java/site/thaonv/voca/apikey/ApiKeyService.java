@@ -57,7 +57,7 @@ public class ApiKeyService {
             return Optional.empty();
         }
         ApiKey key = found.get();
-        if (!key.isActive()) {
+        if (!key.isActive() || key.getClient() == null || !"active".equalsIgnoreCase(key.getClient().getStatus())) {
             return Optional.empty();
         }
         key.setLastUsedAt(Instant.now()); // flushed by dirty checking on tx commit

@@ -6,12 +6,15 @@ import org.mockito.Mockito;
 import site.thaonv.voca.card.Card;
 import site.thaonv.voca.card.CardRepository;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -68,6 +71,29 @@ class PracticeSupportTest {
 
         verify(repo).findByOwnerIdAndLanguage(42L, "zh-CN");
         assertEquals(List.of("你好", "朋友", "谢谢"), result);
+    }
+
+    @Test
+    void vocabularyIndexNeverReadsAllUsersWhenOwnerIsNull() {
+        CardRepository repo = Mockito.mock(CardRepository.class);
+        LlmClient llm = Mockito.mock(LlmClient.class);
+        AiConfigResolver resolver = Mockito.mock(AiConfigResolver.class);
+
+        PracticeService service = new PracticeService(repo, llm, resolver);
+        assertEquals(List.of(), service.vocabularyIndex(null, "en", 10));
+        verify(repo, never()).findAll();
+    }
+
+    @Test
+    void ttsAudioPathPreservesDistinctChineseSlugs(@ org.junit.jupiter.api.io.TempDir Path tempDir) {
+        AiConfigResolver resolver = Mockito.mock(AiConfigResolver.class);
+        TtsService tts = new TtsService(resolver, tempDir.toString());
+
+        Path p1 = tts.pathFor("zh-学习");
+        Path p2 = tts.pathFor("zh-你好");
+        assertNotEquals(p1, p2);
+        assertTrue(p1.getFileName().toString().contains("学习"));
+        assertTrue(p2.getFileName().toString().contains("你好"));
     }
 
     private static Card card(String word, String level, long epochSeconds) {

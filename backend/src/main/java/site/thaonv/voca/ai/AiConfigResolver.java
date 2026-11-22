@@ -56,6 +56,7 @@ public class AiConfigResolver {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "LLM_NOT_CONFIGURED",
                     "No LLM base URL/API key configured (env app.llm.* or user settings).");
         }
+        validateBaseUrl(base, "LLM");
         return new LlmConfig(stripSlash(base), key, notBlank(model) ? model : "gpt-4o-mini");
     }
 
@@ -73,7 +74,27 @@ public class AiConfigResolver {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "TTS_NOT_CONFIGURED",
                     "No TTS base URL/API key configured (env app.tts.* or user settings).");
         }
+        validateBaseUrl(base, "TTS");
         return new TtsConfig(stripSlash(base), key, notBlank(model) ? model : "edge-tts/en-US-AndrewNeural");
+    }
+
+    private static void validateBaseUrl(String rawUrl, String kind) {
+        try {
+            java.net.URI uri = java.net.URI.create(rawUrl.trim());
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) || host == null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_BASE_URL", kind + " base URL must be http(s).");
+            }
+            String lowerHost = host.toLowerCase();
+            if ("169.254.169.254".equals(lowerHost)
+                    || "metadata.google.internal".equals(lowerHost)
+                    || lowerHost.startsWith("169.254.")) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "FORBIDDEN_BASE_URL", kind + " base URL host is not allowed.");
+            }
+        } catch (IllegalArgumentException ex) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_BASE_URL", kind + " base URL is malformed.");
+        }
     }
 
     private static boolean notBlank(String v) {

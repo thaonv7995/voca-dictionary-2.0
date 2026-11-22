@@ -3,6 +3,7 @@ package site.thaonv.voca.apikey;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import site.thaonv.voca.common.ApiException;
+import site.thaonv.voca.user.UserPrincipal;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -35,18 +37,20 @@ public class AdminApiKeyController {
         this.apiKeyService = apiKeyService;
     }
 
-    public record CreateClientRequest(@NotBlank String name, String description, String contactEmail) {
+    public record CreateClientRequest(@NotBlank String name, String description, String contactEmail, Long ownerUserId) {
     }
 
     public record IssueKeyRequest(String name, List<String> scopes, Instant expiresAt) {
     }
 
     @PostMapping("/api-clients")
-    public ApiClient createClient(@RequestBody @Valid CreateClientRequest req) {
+    public ApiClient createClient(@RequestBody @Valid CreateClientRequest req,
+                                  @AuthenticationPrincipal UserPrincipal principal) {
         ApiClient client = new ApiClient();
-        client.setName(req.name());
+        client.setName(req.name().trim());
         client.setDescription(req.description());
         client.setContactEmail(req.contactEmail());
+        client.setOwnerUserId(req.ownerUserId() != null ? req.ownerUserId() : (principal != null ? principal.id() : null));
         return clientRepo.save(client);
     }
 

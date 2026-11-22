@@ -51,7 +51,7 @@ public class PublicCardController {
     }
 
     @GetMapping("/cards/lookup")
-    @PreAuthorize("hasAuthority('SCOPE_cards:read')")
+    @PreAuthorize("hasAnyAuthority('SCOPE_cards:read', 'SCOPE_cards:lookup')")
     public Map<String, Object> lookup(@RequestParam(name = "word", required = false) String word,
                                       @AuthenticationPrincipal ApiKeyPrincipal principal) {
         if (word == null || word.isBlank()) {

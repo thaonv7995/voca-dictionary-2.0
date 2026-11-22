@@ -44,7 +44,8 @@ public class PracticeController {
     @PostMapping(value = "/practice/drills", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter drills(@RequestBody(required = false) DrillRequest req,
                              @AuthenticationPrincipal UserPrincipal principal) {
-        int count = req != null && req.count() != null ? req.count() : 5;
+        int rawCount = req != null && req.count() != null ? req.count() : 5;
+        int count = Math.max(1, Math.min(20, rawCount));
         String selected = req != null ? req.selectedWord() : null;
         String context = req != null && req.context() != null ? req.context() : DEFAULT_CONTEXT;
         String language = req != null ? req.language() : null;

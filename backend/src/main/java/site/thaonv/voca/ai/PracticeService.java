@@ -43,12 +43,11 @@ public class PracticeService {
 
     /** Per-user, per-language vocabulary index ordered by learning priority (new/learning first). */
     public List<String> vocabularyIndex(Long ownerId, String language, int limit) {
+        if (ownerId == null) {
+            return List.of();
+        }
         String normalizedLanguage = CardService.normalizeLanguage(language);
-        List<Card> source = ownerId != null
-                ? cards.findByOwnerIdAndLanguage(ownerId, normalizedLanguage)
-                : cards.findAll().stream()
-                        .filter(c -> normalizedLanguage.equals(CardService.normalizeLanguage(c.getLanguage())))
-                        .toList();
+        List<Card> source = cards.findByOwnerIdAndLanguage(ownerId, normalizedLanguage);
         List<Card> sorted = new ArrayList<>(source);
         sorted.sort(Comparator.comparingInt((Card c) -> levelRank(c.getLevel()))
                 .thenComparing(Card::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));

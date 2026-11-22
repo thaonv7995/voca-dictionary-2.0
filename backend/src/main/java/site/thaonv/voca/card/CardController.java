@@ -1,5 +1,6 @@
 package site.thaonv.voca.card;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import site.thaonv.voca.ai.HtmlSheetService;
+import site.thaonv.voca.common.ApiException;
 import site.thaonv.voca.user.UserPrincipal;
 
 import java.util.LinkedHashMap;
@@ -87,6 +89,10 @@ public class CardController {
                                                @RequestParam(name = "embed", required = false, defaultValue = "false") boolean embed,
                                                @AuthenticationPrincipal UserPrincipal principal) {
         Card card = cardService.requireCard(idOrSlug, principal.id());
+        if (!"zh-CN".equalsIgnoreCase(card.getLanguage())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "UNSUPPORTED_LANGUAGE",
+                    "A4 HTML study sheets are only supported for Chinese (zh-CN) cards.");
+        }
         if (!htmlSheetService.hasSheet(card.getSlug())) {
             htmlSheetService.generateSheet(card.getId());
         }
@@ -100,6 +106,10 @@ public class CardController {
     public Map<String, Object> generateHtmlSheet(@PathVariable String idOrSlug,
                                                  @AuthenticationPrincipal UserPrincipal principal) {
         Card card = cardService.requireCard(idOrSlug, principal.id());
+        if (!"zh-CN".equalsIgnoreCase(card.getLanguage())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "UNSUPPORTED_LANGUAGE",
+                    "A4 HTML study sheets are only supported for Chinese (zh-CN) cards.");
+        }
         htmlSheetService.generateSheet(card.getId());
         return Map.of(
                 "ok", true,

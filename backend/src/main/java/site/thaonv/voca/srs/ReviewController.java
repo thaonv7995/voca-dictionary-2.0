@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import site.thaonv.voca.common.ApiException;
@@ -39,12 +40,14 @@ public class ReviewController {
     }
 
     @GetMapping("/study/due")
-    public Map<String, Object> due(@AuthenticationPrincipal UserPrincipal principal) {
-        return reviewService.due(principal.id());
+    public Map<String, Object> due(@RequestParam(name = "language", required = false) String language,
+                                   @AuthenticationPrincipal UserPrincipal principal) {
+        return reviewService.due(principal.id(), language);
     }
 
     @GetMapping("/study/stats")
-    public Map<String, Object> stats(@AuthenticationPrincipal UserPrincipal principal) {
-        return reviewService.stats(principal.id());
+    public Map<String, Object> stats(@RequestParam(name = "language", required = false) String language,
+                                     @AuthenticationPrincipal UserPrincipal principal) {
+        return reviewService.stats(principal.id(), language);
     }
 }

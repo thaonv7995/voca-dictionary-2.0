@@ -49,8 +49,10 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public Map<String, Object> logout(@RequestBody RefreshRequest req) {
-        userService.logout(req.refreshToken());
+    public Map<String, Object> logout(@RequestBody(required = false) RefreshRequest req) {
+        if (req != null && req.refreshToken() != null && !req.refreshToken().isBlank()) {
+            userService.logout(req.refreshToken());
+        }
         return Map.of("ok", true);
     }
 

@@ -2,13 +2,17 @@ package site.thaonv.voca.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 
 import site.thaonv.voca.ai.AiConfigResolver.LlmConfig;
+import site.thaonv.voca.common.ApiException;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,15 +56,23 @@ public class LlmClient {
         body.put("model", cfg.model());
         body.put("messages", messages);
         body.put("stream", false);
-        JsonNode response = webClient.post()
-                .uri(cfg.baseUrl() + "/chat/completions")
-                .header("Authorization", "Bearer " + cfg.apiKey())
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .block();
-        return extractResponseText(response);
+        try {
+            JsonNode response = webClient.post()
+                    .uri(cfg.baseUrl() + "/chat/completions")
+                    .header("Authorization", "Bearer " + cfg.apiKey())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block(Duration.ofSeconds(60));
+            return extractResponseText(response);
+        } catch (WebClientResponseException ex) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "LLM_UPSTREAM_ERROR",
+                    "LLM provider returned HTTP " + ex.getStatusCode().value() + ".");
+        } catch (Exception ex) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "LLM_UPSTREAM_ERROR",
+                    "Failed to call LLM provider: " + ex.getClass().getSimpleName());
+        }
     }
 
     /** Streams the provider's raw SSE JSON chunks unchanged (for the v1-compatible /api/chat/completions proxy). */

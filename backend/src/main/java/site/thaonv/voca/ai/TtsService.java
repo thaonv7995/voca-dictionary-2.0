@@ -1,16 +1,20 @@
 package site.thaonv.voca.ai;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import site.thaonv.voca.ai.AiConfigResolver.TtsConfig;
+import site.thaonv.voca.common.ApiException;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -57,19 +61,27 @@ public class TtsService {
         body.put("input", text);
         body.put("response_format", "mp3");
 
-        return webClient.post()
-                .uri(cfg.baseUrl() + "/audio/speech")
-                .header("Authorization", "Bearer " + cfg.apiKey())
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(byte[].class)
-                .block();
+        try {
+            return webClient.post()
+                    .uri(cfg.baseUrl() + "/audio/speech")
+                    .header("Authorization", "Bearer " + cfg.apiKey())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(byte[].class)
+                    .block(Duration.ofSeconds(45));
+        } catch (WebClientResponseException ex) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "TTS_UPSTREAM_ERROR",
+                    "TTS provider returned HTTP " + ex.getStatusCode().value() + ".");
+        } catch (Exception ex) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "TTS_UPSTREAM_ERROR",
+                    "Failed to synthesize TTS audio: " + ex.getClass().getSimpleName());
+        }
     }
 
     /** Generates audio for the given text and caches it under the id (card slug). */
     public void generate(Long userId, String id, String text, String voiceModelOverride) {
-        byte[] audio = synthesize(userId, text, voiceModelOverride);
+        byte[] audio = synthesize(userId, id, text, voiceModelOverride);
         try {
             Files.write(pathFor(id), audio);
         } catch (IOException e) {
@@ -77,8 +89,15 @@ public class TtsService {
         }
     }
 
-    private Path pathFor(String id) {
-        String safe = id.replaceAll("[^a-zA-Z0-9._-]", "_");
+    private byte[] synthesize(Long userId, String id, String text, String voiceModelOverride) {
+        return synthesize(userId, text, voiceModelOverride);
+    }
+
+    Path pathFor(String id) {
+        String safe = id.replaceAll("[^\\p{L}\\p{N}._-]", "_");
+        if (!safe.equals(id)) {
+            safe = safe + "_" + Integer.toUnsignedString(id.hashCode(), 16);
+        }
         return audioDir.resolve(safe + ".mp3");
     }
 }

@@ -46,7 +46,7 @@ public class AudioController {
     public Map<String, Object> generatePublic(@PathVariable String id,
                                               @RequestBody(required = false) AudioRequest req,
                                               @AuthenticationPrincipal ApiKeyPrincipal principal) {
-        return generate(ApiKeyPrincipal.requireOwner(principal), id, req);
+        return generate(ApiKeyPrincipal.requireOwner(principal), id, req, "/v1/audio/");
     }
 
     // ---- App (JWT) ----
@@ -60,7 +60,7 @@ public class AudioController {
     public Map<String, Object> generateApp(@PathVariable String id,
                                            @RequestBody(required = false) AudioRequest req,
                                            @AuthenticationPrincipal UserPrincipal principal) {
-        return generate(principal != null ? principal.id() : null, id, req);
+        return generate(principal != null ? principal.id() : null, id, req, "/api/audio/");
     }
 
     private ResponseEntity<byte[]> serve(String id) {
@@ -70,16 +70,21 @@ public class AudioController {
         return ResponseEntity.ok().contentType(MediaType.parseMediaType("audio/mpeg")).body(tts.readCached(id));
     }
 
-    private Map<String, Object> generate(Long userId, String id, AudioRequest req) {
-        String text = req != null && req.text() != null && !req.text().isBlank() ? req.text() : cardWord(id);
+    private Map<String, Object> generate(Long userId, String id, AudioRequest req, String urlPrefix) {
+        String text = req != null && req.text() != null && !req.text().isBlank() ? req.text() : cardWord(userId, id);
         if (text == null || text.isBlank()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "No card '" + id + "' and no text provided.");
         }
         tts.generate(userId, id, text, req != null ? req.voiceModel() : null);
-        return Map.of("audioUrl", "/v1/audio/" + id, "id", id);
+        return Map.of("audioUrl", urlPrefix + id, "id", id);
     }
 
-    private String cardWord(String slug) {
+    private String cardWord(Long userId, String slug) {
+        if (userId != null) {
+            return cards.findFirstByOwnerIdAndSlugIgnoreCase(userId, slug)
+                    .map(c -> c.getWord())
+                    .orElse(null);
+        }
         return cards.findFirstBySlugIgnoreCase(slug).map(c -> c.getWord()).orElse(null);
     }
 }

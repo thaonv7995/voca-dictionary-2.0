@@ -43,10 +43,14 @@ public class SettingsService {
         UserSettings s = getOrCreate(userId);
         if (req.llmBaseUrl() != null) s.setLlmBaseUrl(blankToNull(req.llmBaseUrl()));
         if (req.llmModel() != null) s.setLlmModel(blankToNull(req.llmModel()));
-        if (req.llmApiKey() != null) s.setLlmApiKey(blankToNull(req.llmApiKey())); // only overwrite when provided
+        if (req.llmApiKey() != null && !req.llmApiKey().isBlank()) {
+            s.setLlmApiKey("__CLEAR__".equals(req.llmApiKey().trim()) ? null : req.llmApiKey().trim());
+        }
         if (req.ttsBaseUrl() != null) s.setTtsBaseUrl(blankToNull(req.ttsBaseUrl()));
         if (req.ttsModel() != null) s.setTtsModel(blankToNull(req.ttsModel()));
-        if (req.ttsApiKey() != null) s.setTtsApiKey(blankToNull(req.ttsApiKey()));
+        if (req.ttsApiKey() != null && !req.ttsApiKey().isBlank()) {
+            s.setTtsApiKey("__CLEAR__".equals(req.ttsApiKey().trim()) ? null : req.ttsApiKey().trim());
+        }
         if (req.voices() != null) s.setVoices(req.voices());
         if (req.featureFlags() != null) s.setFeatureFlags(req.featureFlags());
         s.setUpdatedAt(Instant.now());

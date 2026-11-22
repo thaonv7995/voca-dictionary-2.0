@@ -49,6 +49,7 @@ public class ReviewService {
         int elapsedDays = (state != null && state.getLastReview() != null)
                 ? (int) Duration.between(state.getLastReview(), now).toDays() : 0;
 
+        boolean wasNew = state == null || state.getState() == FsrsScheduler.STATE_NEW;
         FsrsScheduler.Computation c = scheduler.review(state, grade, now);
 
         if (state == null) {
@@ -62,10 +63,16 @@ public class ReviewService {
         state.setDue(c.due());
         state.setLastReview(now);
         state.setReps(state.getReps() + 1);
-        if (grade == 1) {
+        if (grade == 1 && !wasNew) {
             state.setLapses(state.getLapses() + 1);
         }
         states.save(state);
+
+        String derivedLevel = LevelMapper.levelFor(state);
+        if (!derivedLevel.equals(card.getLevel())) {
+            card.setLevel(derivedLevel);
+            cards.save(card);
+        }
 
         ReviewLog logEntry = new ReviewLog();
         logEntry.setUserId(userId);
@@ -78,9 +85,9 @@ public class ReviewService {
         logs.save(logEntry);
 
         Map<String, Object> res = new LinkedHashMap<>();
-        res.put("slug", slug);
+        res.put("slug", card.getSlug());
         res.put("grade", grade);
-        res.put("level", LevelMapper.levelFor(state));
+        res.put("level", derivedLevel);
         res.put("due", state.getDue());
         res.put("intervalDays", c.intervalDays());
         res.put("stability", round(state.getStability()));
@@ -92,12 +99,20 @@ public class ReviewService {
     }
 
     public Map<String, Object> due(Long userId) {
+        return due(userId, null);
+    }
+
+    public Map<String, Object> due(Long userId, String language) {
         Instant now = Instant.now();
         Map<Long, ReviewState> byCard = states.findByUserId(userId).stream()
                 .collect(Collectors.toMap(ReviewState::getCardId, Function.identity(), (a, b) -> a));
 
+        String filterLang = (language == null || language.isBlank()) ? null : CardService.normalizeLanguage(language);
         List<Map<String, Object>> out = new ArrayList<>();
         for (Card card : cards.findByOwnerIdOrderByCreatedAtDesc(userId)) {
+            if (filterLang != null && !filterLang.equals(CardService.normalizeLanguage(card.getLanguage()))) {
+                continue;
+            }
             ReviewState st = byCard.get(card.getId());
             boolean isDue = st == null || st.getDue() == null || !st.getDue().isAfter(now);
             if (isDue) {
@@ -111,18 +126,28 @@ public class ReviewService {
     }
 
     public Map<String, Object> stats(Long userId) {
+        return stats(userId, null);
+    }
+
+    public Map<String, Object> stats(Long userId, String language) {
         Instant now = Instant.now();
         Map<Long, ReviewState> byCard = states.findByUserId(userId).stream()
                 .collect(Collectors.toMap(ReviewState::getCardId, Function.identity(), (a, b) -> a));
 
+        String filterLang = (language == null || language.isBlank()) ? null : CardService.normalizeLanguage(language);
         Map<String, Integer> byLevel = new LinkedHashMap<>();
         for (String level : List.of("new", "learning", "known", "mastered")) {
             byLevel.put(level, 0);
         }
         int dueNow = 0;
+        int totalCards = 0;
         for (Card card : cards.findByOwnerIdOrderByCreatedAtDesc(userId)) {
+            if (filterLang != null && !filterLang.equals(CardService.normalizeLanguage(card.getLanguage()))) {
+                continue;
+            }
+            totalCards++;
             ReviewState st = byCard.get(card.getId());
-            String level = LevelMapper.levelFor(st);
+            String level = effectiveLevel(card, st);
             byLevel.merge(level, 1, Integer::sum);
             if (st == null || st.getDue() == null || !st.getDue().isAfter(now)) {
                 dueNow++;
@@ -130,7 +155,7 @@ public class ReviewService {
         }
 
         Map<String, Object> res = new LinkedHashMap<>();
-        res.put("totalCards", cards.countByOwnerId(userId));
+        res.put("totalCards", totalCards);
         res.put("totalReviews", logs.countByUserId(userId));
         res.put("dueNow", dueNow);
         res.put("byLevel", byLevel);
@@ -141,13 +166,24 @@ public class ReviewService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("card", cardService.toDto(card));
         Map<String, Object> review = new LinkedHashMap<>();
-        review.put("level", LevelMapper.levelFor(st));
+        review.put("level", effectiveLevel(card, st));
         review.put("due", st == null ? null : st.getDue());
         review.put("reps", st == null ? 0 : st.getReps());
         review.put("lapses", st == null ? 0 : st.getLapses());
         review.put("isNew", st == null);
         m.put("review", review);
         return m;
+    }
+
+    private static String effectiveLevel(Card card, ReviewState st) {
+        if (st != null) {
+            return LevelMapper.levelFor(st);
+        }
+        String cardLevel = card.getLevel();
+        if (cardLevel != null && List.of("new", "learning", "known", "mastered").contains(cardLevel)) {
+            return cardLevel;
+        }
+        return "new";
     }
 
     private static Double round(Double v) {

@@ -4,6 +4,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import site.thaonv.voca.ai.HtmlSheetService;
 import site.thaonv.voca.common.ApiException;
@@ -15,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -53,9 +56,18 @@ public class CardService {
 
     /** Signature the clients poll with ifChangedSince to avoid re-downloading unchanged data. */
     public String manifestVersion(Long ownerId) {
-        long count = cards.countByOwnerId(ownerId);
-        Instant max = cards.maxCreatedAtByOwner(ownerId);
-        return "cards:" + ownerId + ":" + count + ":" + (max == null ? 0 : max.toEpochMilli());
+        List<Card> list = cards.findByOwnerIdOrderByCreatedAtDesc(ownerId);
+        long count = list.size();
+        long maxCreated = 0L;
+        int stateHash = 1;
+        for (Card c : list) {
+            if (c.getCreatedAt() != null) {
+                maxCreated = Math.max(maxCreated, c.getCreatedAt().toEpochMilli());
+            }
+            stateHash = 31 * stateHash + Objects.hash(
+                    c.getId(), c.getLevel(), c.isHasHtml(), c.getMeaningVi(), c.getMeaningEn());
+        }
+        return "cards:" + ownerId + ":" + count + ":" + maxCreated + ":" + Integer.toUnsignedString(stateHash, 16);
     }
 
     public List<CardDto> listAll(Long ownerId) {
@@ -86,6 +98,7 @@ public class CardService {
     public int fillMeanings(List<Map<String, String>> updates, Long ownerId) {
         int count = 0;
         for (Map<String, String> u : updates) {
+            if (u == null) continue;
             String word = u.get("word");
             if (word == null || word.isBlank()) {
                 continue;
@@ -126,7 +139,7 @@ public class CardService {
                 source.getWord(), source.getSlug(), source.getLanguage(), source.getIpa(), source.getPronunciation(), source.getFrequency(),
                 source.getMeaningEn(), source.getMeaningVi(), source.getUseCases(), source.getExamples(), source.getMemoryTip(),
                 source.getToeicTrap(), source.getPartOfSpeech(), source.getTopic(), source.getTags(), source.getKeyword(),
-                source.getPracticePrompt(), source.getAnswer(), "new", source.getDeckId());
+                source.getPracticePrompt(), source.getAnswer(), "new", null);
         return create(input, ownerId);
     }
 
@@ -139,7 +152,9 @@ public class CardService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_WORD", "word is required.");
         }
         String language = normalizeLanguage(input.language());
-        String slug = input.slug() == null || input.slug().isBlank() ? slugFor(language, input.word()) : input.slug();
+        String slug = input.slug() == null || input.slug().isBlank()
+                ? slugFor(language, input.word())
+                : slugify(input.slug());
         if (cards.existsByOwnerIdAndLanguageAndWordIgnoreCase(ownerId, language, input.word().trim())
                 || cards.existsByOwnerIdAndSlugIgnoreCase(ownerId, slug)) {
             throw new ApiException(HttpStatus.CONFLICT, "CARD_EXISTS", "Từ '" + slug + "' đã có trong danh sách của bạn.");
@@ -168,7 +183,17 @@ public class CardService {
         card.setDeckId(input.deckId());
         cards.save(card);
         if ("zh-CN".equalsIgnoreCase(language)) {
-            htmlSheetService.generateSheetAsync(card.getId());
+            Long savedCardId = card.getId();
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        htmlSheetService.generateSheetAsync(savedCardId);
+                    }
+                });
+            } else {
+                htmlSheetService.generateSheetAsync(savedCardId);
+            }
         }
         return toDto(card);
     }
@@ -218,20 +243,24 @@ public class CardService {
                 c.getMeaningEn(), c.getMeaningVi(), c.getUseCases(), c.getExamples(), c.getMemoryTip(),
                 c.getToeicTrap(), c.getPartOfSpeech(), c.getTopic(), c.getTags(), c.getKeyword(),
                 c.getPracticePrompt(), c.getAnswer(), c.getLevel(),
-                "/v1/audio/" + c.getSlug(),
+                "/api/audio/" + c.getSlug(),
                 hasHtml,
                 htmlUrl,
                 c.getCreatedAt());
     }
 
     public Card requireCard(String idOrSlug, Long ownerId) {
-        if (idOrSlug.matches("\\d+")) {
+        Optional<Card> bySlug = cards.findFirstByOwnerIdAndSlugIgnoreCase(ownerId, idOrSlug);
+        if (bySlug.isPresent()) {
+            return bySlug.get();
+        }
+        if (idOrSlug.matches("\\d{1,18}")) {
             Long id = Long.parseLong(idOrSlug);
             return cards.findById(id)
                     .filter(c -> c.getOwnerId().equals(ownerId))
                     .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Card not found: " + idOrSlug));
         }
-        return requireBySlug(idOrSlug, ownerId);
+        throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", "Card not found: " + idOrSlug);
     }
 
     private Card requireBySlug(String slug, Long ownerId) {

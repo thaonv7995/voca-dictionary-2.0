@@ -40,13 +40,20 @@ public class UserService {
 
     @Transactional
     public AuthResult register(String email, String password, String displayName) {
-        if (users.existsByEmailIgnoreCase(email)) {
+        String normalizedEmail = email == null ? "" : email.trim();
+        if (normalizedEmail.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_EMAIL", "Email is required.");
+        }
+        if (password == null || password.trim().length() < 6) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "WEAK_PASSWORD", "Mật khẩu tối thiểu 6 ký tự.");
+        }
+        if (users.existsByEmailIgnoreCase(normalizedEmail)) {
             throw new ApiException(HttpStatus.CONFLICT, "EMAIL_TAKEN", "Email already registered.");
         }
         User user = new User();
-        user.setEmail(email.trim());
+        user.setEmail(normalizedEmail);
         user.setPasswordHash(encoder.encode(password));
-        user.setDisplayName(displayName);
+        user.setDisplayName(displayName == null || displayName.isBlank() ? null : displayName.trim());
         user.setAdmin(false);
         users.save(user);
         return issue(user);
@@ -54,7 +61,8 @@ public class UserService {
 
     @Transactional
     public AuthResult login(String email, String password) {
-        User user = users.findByEmailIgnoreCase(email)
+        String normalizedEmail = email == null ? "" : email.trim();
+        User user = users.findByEmailIgnoreCase(normalizedEmail)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Invalid email or password."));
         if (user.getPasswordHash() == null || !encoder.matches(password, user.getPasswordHash())) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Invalid email or password.");
@@ -62,7 +70,7 @@ public class UserService {
         return issue(user);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = ApiException.class)
     public AuthResult refresh(String refreshToken) {
         RefreshToken stored = refreshTokens.findByToken(refreshToken)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_REFRESH", "Invalid refresh token."));
@@ -78,7 +86,9 @@ public class UserService {
 
     @Transactional
     public void logout(String refreshToken) {
-        refreshTokens.deleteByToken(refreshToken);
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            refreshTokens.deleteByToken(refreshToken.trim());
+        }
     }
 
     public User requireUser(Long id) {
@@ -92,11 +102,12 @@ public class UserService {
         if (user.getPasswordHash() == null || !encoder.matches(currentPassword, user.getPasswordHash())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PASSWORD", "Mật khẩu hiện tại không đúng.");
         }
-        if (newPassword == null || newPassword.length() < 6) {
+        if (newPassword == null || newPassword.trim().length() < 6) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "WEAK_PASSWORD", "Mật khẩu mới tối thiểu 6 ký tự.");
         }
         user.setPasswordHash(encoder.encode(newPassword));
         users.save(user);
+        refreshTokens.deleteByUserId(userId);
     }
 
     @Transactional
