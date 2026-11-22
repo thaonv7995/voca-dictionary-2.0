@@ -7,6 +7,7 @@ export type TrapType =
   | "grammar_mismatch"
   | "collocation_mismatch"
   | "too_literal"
+  | "academic_register"
   | "wrong_question_type";
 
 export type ChallengeDrillKind =
@@ -85,7 +86,7 @@ export type ReadingQueue = Record<ReadingFormat, ReadingContext[]>;
 export type ArticlePractice = {
   type: "article_practice";
   title: string;
-  documentType: "article" | "email" | "notice" | "memo";
+  documentType: "article" | "email" | "notice" | "memo" | "chinese_article";
   passage: string[];
   targetWords: string[];
   questions: ReadingQuestion[];

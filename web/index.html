@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080809" />
-    <meta name="description" content="Voca Dictionary — luyện từ vựng TOEIC với spaced repetition (FSRS), phát âm và trợ lý AI." />
+    <meta name="description" content="Voca Dictionary — luyện từ vựng Anh – Trung với spaced repetition (FSRS), phát âm và trợ lý AI." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -18,7 +18,8 @@
     <script>
       (function () {
         try {
-          var t = localStorage.getItem("voca.theme");
+          var raw = localStorage.getItem("voca.theme");
+          var t = raw ? raw.replace(/^"|"$/g, "") : "";
           if (t !== "light" && t !== "dark") {
             t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
           }

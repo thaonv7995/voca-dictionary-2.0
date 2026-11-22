@@ -12,8 +12,10 @@ window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Re
   const res = await originalFetch(input, init);
   try {
     const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : (input as Request).url;
-    const path = new URL(rawUrl, window.location.origin).pathname;
-    const isApi = path.startsWith("/api/") || path.startsWith("/v1/");
+    const parsedUrl = new URL(rawUrl, window.location.origin);
+    const isSameOrigin = parsedUrl.origin === window.location.origin;
+    const path = parsedUrl.pathname;
+    const isApi = isSameOrigin && (path.startsWith("/api/") || path.startsWith("/v1/"));
     const contentType = res.headers.get("content-type") || "";
     if (isApi && contentType.includes("application/json")) {
       const env = await res.clone().json();

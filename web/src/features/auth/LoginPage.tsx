@@ -5,7 +5,7 @@ import type { AuthResponse } from "../../lib/types";
 
 export function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("admin@voca.local");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);

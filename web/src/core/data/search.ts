@@ -186,12 +186,15 @@ export function isCardInCreatedDateFilter(card: Pick<Card, "createdAt">, filter:
 
 export function filterCards(cards: Card[], filters: Filters): Card[] {
   const query = normalizeFilterValue(filters.query);
+  const compactQuery = query.replace(/\s+/g, "");
   return cards.filter((card) => {
     const word = normalizeFilterValue(card.word);
+    const haystack = normalizeFilterValue(card.searchText || card.word);
     const queryOk =
       !query ||
       word.includes(query) ||
-      word.replace(/\s+/g, "").includes(query.replace(/\s+/g, ""));
+      haystack.includes(query) ||
+      word.replace(/\s+/g, "").includes(compactQuery);
     const topicOk = filters.topic === "all" || canonicalTopic(card.topic) === filters.topic;
     const posOk = filters.partOfSpeech === "all" || canonicalPartOfSpeech(card.partOfSpeech) === filters.partOfSpeech;
     const dateOk = isCardInCreatedDateFilter(card, filters.createdDate);

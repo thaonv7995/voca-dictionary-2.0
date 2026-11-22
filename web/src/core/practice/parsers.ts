@@ -35,6 +35,7 @@ const trapTypes = new Set<TrapType>([
   "grammar_mismatch",
   "collocation_mismatch",
   "too_literal",
+  "academic_register",
   "wrong_question_type",
 ]);
 
@@ -239,7 +240,7 @@ export function parseReadingContext(value: string): ReadingContext {
             question.explanation.length >= 20 &&
             question.choices.some((choice) => normalizeAnswer(choice) === normalizeAnswer(question.answer)),
         )
-        .slice(0, isPart6 ? 4 : 8)
+        .slice(0, isPart6 ? 6 : 8)
     : [];
 
   if (!parsed.title || (!passage.length && !documents.length) || !questions.length) {
@@ -266,7 +267,7 @@ export function parseArticlePractice(value: string): ArticlePractice {
   if (parsed?.type !== "article_practice") {
     throw new Error("Invalid article practice response");
   }
-  const documentTypes = new Set(["article", "email", "notice", "memo"]);
+  const documentTypes = new Set(["article", "email", "notice", "memo", "chinese_article"]);
   const passage = Array.isArray(parsed.passage) ? parsed.passage.map((line) => String(line || "").trim()).filter(Boolean) : [];
   const targetWords = Array.isArray(parsed.targetWords) ? parsed.targetWords.map((word) => String(word || "").trim()).filter(Boolean) : [];
   const questions = Array.isArray(parsed.questions)
@@ -304,14 +305,14 @@ export function parseArticlePractice(value: string): ArticlePractice {
         .slice(0, 6)
     : [];
 
-  if (!parsed.title || passage.length < 6 || !targetWords.length || !questions.length || !vocabularyNotes.length) {
+  if (!parsed.title || passage.length < 2 || !targetWords.length || !questions.length || !vocabularyNotes.length) {
     throw new Error("Invalid article practice response");
   }
 
   return {
     type: "article_practice",
     title: String(parsed.title).trim(),
-    documentType: documentTypes.has(parsed.documentType) ? parsed.documentType : "article",
+    documentType: (documentTypes.has(parsed.documentType) ? parsed.documentType : "article") as ArticlePractice["documentType"],
     passage,
     targetWords,
     questions: questions.map((question, index) => ({

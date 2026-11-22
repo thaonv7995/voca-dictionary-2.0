@@ -58,7 +58,7 @@ import { type Card, type CardLanguage, slugify } from "@voca/core/data/schema";
 import { visibleTags } from "@voca/core/data/tags";
 import { useManifest } from "./hooks/useManifest";
 import { readJson, useStoredState, writeJson } from "./lib/storage";
-import { api, apiFetch, ApiError } from "./lib/api";
+import { api, apiFetch, ApiError, logoutSession } from "./lib/api";
 import { bridgeAuthorizationHeader, defaultVocaApiToken, patchBridgeCardLevel, resolvedLocalBridgeOrigin } from "./local-bridge";
 import {
   maybeParseQuickQuiz,
@@ -692,9 +692,33 @@ function cardPronunciation(card: Card): string {
 let activeSpeechAudio: HTMLAudioElement | null = null;
 let activeSpeechStop: (() => void) | null = null;
 const speechAudioUrlCache = new Map<string, string>();
+const SPEECH_CACHE_LIMIT = 120;
 
 function speechCacheKey(text: string, model: string): string {
   return `${model}::${text.trim()}`;
+}
+
+function cacheSpeechAudioUrl(key: string, url: string) {
+  const existing = speechAudioUrlCache.get(key);
+  if (existing && existing !== url) {
+    if (existing.startsWith("blob:")) URL.revokeObjectURL(existing);
+    speechAudioUrlCache.delete(key);
+  }
+  while (speechAudioUrlCache.size >= SPEECH_CACHE_LIMIT) {
+    const oldestKey = speechAudioUrlCache.keys().next().value;
+    if (!oldestKey) break;
+    const oldestUrl = speechAudioUrlCache.get(oldestKey);
+    if (oldestUrl?.startsWith("blob:")) URL.revokeObjectURL(oldestUrl);
+    speechAudioUrlCache.delete(oldestKey);
+  }
+  speechAudioUrlCache.set(key, url);
+}
+
+function clearSpeechAudioCache() {
+  for (const url of speechAudioUrlCache.values()) {
+    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+  }
+  speechAudioUrlCache.clear();
 }
 
 function stopCurrentSpeech() {
@@ -831,11 +855,9 @@ async function speakEnglish(text: string, settings?: AiSettings, options?: { tts
       });
       if (!response.ok) throw new Error(`TTS failed: ${response.status}`);
       const audioUrl = URL.createObjectURL(await response.blob());
-      speechAudioUrlCache.set(speechCacheKey(cleanText, model), audioUrl);
+      cacheSpeechAudioUrl(speechCacheKey(cleanText, model), audioUrl);
       const audio = new Audio(audioUrl);
       activeSpeechAudio = audio;
-      audio.addEventListener("ended", () => URL.revokeObjectURL(audioUrl), { once: true });
-      audio.addEventListener("error", () => URL.revokeObjectURL(audioUrl), { once: true });
       const ended = options?.waitForEnd ? waitForAudioEnd(audio) : Promise.resolve();
       await audio.play();
       await ended;
@@ -868,38 +890,13 @@ async function prefetchEnglishAudioUrl(text: string, settings: AiSettings, ttsMo
   const apiSettings = settings.useApiTts !== false ? { ...settings, ttsModel: model } : null;
   if (!apiSettings) return null;
 
-  try {
-    const bridgeOrigin = resolvedLocalBridgeOrigin(settings.localBridgeOrigin);
-    // Legacy v1 local-bridge route (not under /api) — plain fetch, no 401 refresh path.
-    const response = await fetch(`${bridgeOrigin}/tts-cache`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...bridgeAuthorizationHeader(settings.bridgeApiToken),
-      },
-      body: JSON.stringify({ text: cleanText, settings: apiSettings }),
-    });
-    if (!response.ok) throw new Error(`TTS cache failed: ${response.status}`);
-    const payload = await response.json();
-    if (payload.audioUrl) {
-      const audioUrl = `${bridgeOrigin}${payload.audioUrl}`;
-      speechAudioUrlCache.set(cacheKey, audioUrl);
-      const audio = new Audio(audioUrl);
-      audio.preload = "auto";
-      audio.load();
-      return audioUrl;
-    }
-  } catch {
-    // Fall back to direct TTS below when the local bridge cache is unavailable.
-  }
-
   const response = await apiFetch("/api/tts", {
     method: "POST",
     body: JSON.stringify({ text: cleanText, voiceModel: model }),
   });
   if (!response.ok) throw new Error(`TTS failed: ${response.status}`);
   const audioUrl = URL.createObjectURL(await response.blob());
-  speechAudioUrlCache.set(cacheKey, audioUrl);
+  cacheSpeechAudioUrl(cacheKey, audioUrl);
   const audio = new Audio(audioUrl);
   audio.preload = "auto";
   audio.load();
@@ -1628,13 +1625,21 @@ export function App() {
   // The API key lives server-side per user; hydrate the (non-secret) LLM base URL + model
   // from the server on load so the agent recognises the config on any device / fresh browser.
   useEffect(() => {
-    void api<{ llmBaseUrl?: string; llmModel?: string; voices?: Record<string, unknown> }>("/api/user/settings")
+    void api<{
+      llmBaseUrl?: string;
+      llmModel?: string;
+      ttsBaseUrl?: string;
+      ttsModel?: string;
+      voices?: Record<string, unknown>;
+    }>("/api/user/settings")
       .then((s) => {
         if (!s) return;
         setSettings((prev) => ({
           ...prev,
           baseURL: s.llmBaseUrl || prev.baseURL,
           model: s.llmModel || prev.model,
+          ttsEndpoint: s.ttsBaseUrl ? `${s.ttsBaseUrl.replace(/\/+$/, "")}/audio/speech` : prev.ttsEndpoint,
+          ttsModel: s.ttsModel || prev.ttsModel,
           conversationVoiceA: (s.voices?.a as string) || prev.conversationVoiceA,
           conversationVoiceB: (s.voices?.b as string) || prev.conversationVoiceB,
           conversationVoiceC: (s.voices?.c as string) || prev.conversationVoiceC,
@@ -1642,6 +1647,10 @@ export function App() {
           chineseConversationVoiceB: (s.voices?.chineseB as string) || prev.chineseConversationVoiceB,
           chineseConversationVoiceC: (s.voices?.chineseC as string) || prev.chineseConversationVoiceC,
           chineseTtsModel: (s.voices?.chineseModel as string) || prev.chineseTtsModel,
+          conversationAutoSelectVoices:
+            typeof s.voices?.autoSelect === "boolean"
+              ? s.voices.autoSelect
+              : prev.conversationAutoSelectVoices,
         }));
       })
       .catch(() => {});
@@ -1811,14 +1820,6 @@ export function App() {
   const createMissingCard = async (word: string) => {
     const normalizedWord = word.trim();
     if (!normalizedWord || createCardState.status === "creating") return;
-    if (!settings.baseURL || !settings.model) {
-      setCreateCardState({
-        word: normalizedWord,
-        status: "error",
-        message: "Configure LLM settings first.",
-      });
-      return;
-    }
 
     const mainTaskId = `task-${normalizedWord}-${Date.now()}`;
     const searchModeIsIdioms = settings.searchMode === "idioms";
@@ -1834,99 +1835,52 @@ export function App() {
     ]);
     setTasksOpen(true);
 
-    setCreateCardState({ word: normalizedWord, status: "creating", message: "Preparing card..." });
+    setCreateCardState({ word: normalizedWord, status: "creating", message: "Đang tạo thẻ với AI..." });
     const bridgeOrigin = resolvedLocalBridgeOrigin(settings.localBridgeOrigin);
 
     try {
       const response = await apiFetch(`${bridgeOrigin}/api/cards/create`, {
         method: "POST",
-        body: JSON.stringify({ word: normalizedWord, language: activeLanguage, settings }),
+        body: JSON.stringify({ word: normalizedWord, language: activeLanguage }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || `Create card failed (${response.status})`);
+        const errMessage =
+          typeof payload?.error === "string"
+            ? payload.error
+            : payload?.error?.message || payload?.message || `Không thể tạo thẻ (${response.status})`;
+        throw new Error(errMessage);
       }
-      if (!response.body) {
-        throw new Error("Create card response did not include a progress stream.");
-      }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let finalMessage = "";
-      const handleLine = (line: string) => {
-        const trimmed = line.trim();
-        if (!trimmed) return;
-        let event: CreateCardEvent;
-        try {
-          event = JSON.parse(trimmed);
-        } catch {
-          event = { type: "log", message: trimmed };
-        }
-        if (event.type === "error") {
-          throw new Error(event.message || "Cannot create card.");
-        }
-        if (event.type === "done") {
-          finalMessage = event.message || "Completed";
-          return;
-        }
-        if (event.type === "progress" && event.message) {
-          setCreateCardState({
-            word: normalizedWord,
-            status: "creating",
-            message: event.message,
-          });
 
-          const match = event.message.match(/^\[(.*?)\]\s*(.*)$/);
-          if (match) {
-            const taskWord = match[1];
-            const taskMsg = match[2];
-            setTasks((prev) => {
-              const taskIndex = prev.findIndex((t) => t.word === taskWord && t.status === "processing");
-              if (taskIndex >= 0) {
-                return prev.map((t, idx) =>
-                  idx === taskIndex ? { ...t, message: taskMsg, updatedAt: Date.now() } : t
-                );
-              } else {
-                return [
-                  ...prev,
-                  {
-                    id: `sub-${taskWord}-${Date.now()}`,
-                    word: taskWord,
-                    status: "processing",
-                    message: taskMsg,
-                    updatedAt: Date.now(),
-                  },
-                ];
-              }
-            });
-          } else {
-            const currentMsg = event.message || "";
-            setTasks((prev) =>
-              prev.map((t) =>
-                t.id === mainTaskId ? { ...t, message: currentMsg, updatedAt: Date.now() } : t
-              )
-            );
+      const rawText = await response.text();
+      let finalMessage = "Đã tạo thẻ thành công.";
+      const trimmedText = rawText.trim();
+      if (trimmedText) {
+        for (const line of trimmedText.split(/\r?\n/)) {
+          const t = line.trim();
+          if (!t) continue;
+          try {
+            const parsed = JSON.parse(t);
+            if (parsed?.type === "error") {
+              throw new Error(parsed.message || "Không thể tạo thẻ.");
+            }
+            if (parsed?.type === "done" && parsed.message) {
+              finalMessage = parsed.message;
+            } else if (parsed?.word) {
+              finalMessage = `Đã tạo thẻ "${parsed.word}".`;
+            }
+          } catch (e) {
+            if (e instanceof Error && e.message !== "Unexpected end of JSON input" && !e.message.includes("JSON")) {
+              throw e;
+            }
           }
         }
-      };
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split(/\r?\n/);
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          handleLine(line);
-        }
       }
-      buffer += decoder.decode();
-      handleLine(buffer);
 
       setCreateCardState({
         word: normalizedWord,
         status: "done",
-        message: finalMessage || "Card creation complete.",
+        message: finalMessage,
       });
 
       setTasks((prev) =>
@@ -1941,11 +1895,9 @@ export function App() {
       setFilters((current) => ({ ...current, query: normalizedWord }));
     } catch (error) {
       const errMsg =
-        error instanceof Error && error.message.includes("Failed to fetch")
-          ? "Open or relaunch VocaMenuBar to enable card creation. Fallback: npm run voca:api."
-          : error instanceof Error
-            ? error.message
-            : "Cannot create card.";
+        error instanceof Error
+          ? error.message
+          : "Không thể tạo thẻ.";
 
       setCreateCardState({
         word: normalizedWord,
@@ -2149,7 +2101,11 @@ export function App() {
             <button
               className="icon-button"
               type="button"
-              onClick={() => useAuthStore.getState().clear()}
+              onClick={() => {
+                stopCurrentSpeech();
+                clearSpeechAudioCache();
+                void logoutSession();
+              }}
               aria-label="Đăng xuất"
               title="Đăng xuất"
             >
@@ -2644,12 +2600,12 @@ function AppSettingsPanel({
       setKeyInput("");
       onSettingsChange({ ...settings, apiKey: "" }); // never keep the key in the browser
       setAiSaved(true);
-      // Quick connection test (config resolves server-side → the stream starts with 200).
+      // Quick connection test (non-streaming so no SSE body is left open).
       setTestStatus("testing");
       try {
         const t = await apiFetch("/api/chat/completions", {
           method: "POST",
-          body: JSON.stringify({ messages: [{ role: "user", content: "ping" }] }),
+          body: JSON.stringify({ stream: false, messages: [{ role: "user", content: "ping" }] }),
         });
         setTestStatus(t.ok ? "ok" : "fail");
       } catch {
@@ -3315,6 +3271,12 @@ ${batch.map((c) => `- Word: "${c.word}", Part of speech: "${c.partOfSpeech}", To
               </section>
             </>
           )}
+          <div className="settings-test-row" style={{ marginTop: 12 }}>
+            <button type="button" className="primary" onClick={saveAiToServer} disabled={savingAi}>
+              {savingAi ? "Đang lưu…" : "Lưu cấu hình giọng đọc lên server"}
+            </button>
+            {aiSaved && <span style={{ color: "var(--accent)", fontSize: 13 }}>✓ Đã đồng bộ lên server</span>}
+          </div>
           </>
           )}
           {settingsTab === "learning" && (
@@ -4477,22 +4439,24 @@ function FlashcardPanel({
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showMeaning, setShowMeaning] = useState(false);
   
+  const safeIndex = Math.min(currentIndex, Math.max(0, cards.length - 1));
+
   useEffect(() => {
     setShowMeaning(false);
-  }, [currentIndex]);
+  }, [safeIndex]);
 
   const handleNext = () => {
-    if (currentIndex < cards.length - 1) setCurrentIndex((i) => i + 1);
+    if (safeIndex < cards.length - 1) setCurrentIndex(safeIndex + 1);
   };
   
   const handlePrev = () => {
-    if (currentIndex > 0) setCurrentIndex((i) => i - 1);
+    if (safeIndex > 0) setCurrentIndex(safeIndex - 1);
   };
   
   const handleKnown = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!cards.length) return;
-    onLevelChange(cards[currentIndex], "known");
+    onLevelChange(cards[safeIndex], "known");
     handleNext();
   };
 
@@ -4525,12 +4489,22 @@ function FlashcardPanel({
   // Also support keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        setShowMeaning((v) => !v);
+        return;
+      }
       if (e.key === "ArrowRight" || e.key === "ArrowDown") handleNext();
       if (e.key === "ArrowLeft" || e.key === "ArrowUp") handlePrev();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentIndex, cards.length]);
+  }, [safeIndex, cards.length, onClose]);
 
   if (!cards.length) {
     return (
@@ -4541,7 +4515,7 @@ function FlashcardPanel({
     );
   }
 
-  const card = cards[currentIndex];
+  const card = cards[safeIndex];
 
   return (
     <div 
@@ -4552,7 +4526,7 @@ function FlashcardPanel({
     >
       <button className="flashcard-close" onClick={onClose} aria-label="Close flashcards"><X /></button>
       
-      <div className="flashcard-content">
+      <div className="flashcard-content" onClick={() => setShowMeaning((v) => !v)} style={{ cursor: "pointer" }}>
         <h1 className="flashcard-word">{card.word}</h1>
         
         <div className="flashcard-ipa-row" onClick={(e) => e.stopPropagation()}>
@@ -4561,7 +4535,9 @@ function FlashcardPanel({
         </div>
 
         <div className="flashcard-meaning">
-          {card.meaningVi || card.meaningEn || "No meaning available"}
+          {showMeaning
+            ? (card.meaningVi || card.meaningEn || "No meaning available")
+            : "Chạm hoặc nhấn Space để xem nghĩa"}
         </div>
       </div>
 
@@ -4572,7 +4548,7 @@ function FlashcardPanel({
       </div>
       
       <div className="flashcard-progress">
-        {currentIndex + 1} / {cards.length}
+        {safeIndex + 1} / {cards.length}
       </div>
     </div>
   );
@@ -5182,12 +5158,6 @@ function GlobalAgentPanel({
   const modeStorageKey = isChinese ? "voca.globalAgent.mode.zh" : "voca.globalAgent.mode";
   const [mode, setMode] = useStoredState<AgentMode>(modeStorageKey, "assistant");
 
-  useEffect(() => {
-    if (isChinese && (mode === "reading" || mode === "article")) {
-      setMode("drills");
-    }
-  }, [isChinese, mode, setMode]);
-
   const [input, setInput] = useState("");
   const messagesStorageKey = isChinese ? "voca.globalAgent.messages.zh" : "voca.globalAgent.messages";
   const [messages, setMessages] = useStoredState<ChatMessage[]>(messagesStorageKey, []);
@@ -5530,7 +5500,10 @@ function GlobalAgentPanel({
       model: settings.model,
       temperature: 0.35,
       stream: options.stream ?? false,
-      messages: [{ role: "system", content: drillPrompt(activeVocabularyIndex, contextualSelectedWord, count, contextDescription, practiceWeaknessPrompt(), language) }],
+      messages: [
+        { role: "system", content: drillPrompt(activeVocabularyIndex, contextualSelectedWord, count, contextDescription, practiceWeaknessPrompt(), language) },
+        { role: "user", content: "Generate the requested NDJSON drills now." },
+      ],
     });
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
 
@@ -5629,7 +5602,10 @@ function GlobalAgentPanel({
       model: settings.model,
       stream: false,
       temperature: 0.2,
-      messages: [{ role: "system", content: revisePracticePrompt(kind, content, report, language) }],
+      messages: [
+        { role: "system", content: revisePracticePrompt(kind, content, report, language) },
+        { role: "user", content: "Revise and return the corrected practice output now." },
+      ],
     });
     if (!response.ok) throw new Error(`Revision failed: ${response.status}`);
     const data = await response.json();
@@ -5707,7 +5683,10 @@ function GlobalAgentPanel({
       model: settings.model,
       stream: false,
       temperature: 0.35,
-      messages: [{ role: "system", content: readingPrompt(activeVocabularyIndex, contextualSelectedWord, format, contextDescription, practiceWeaknessPrompt(), language) }],
+      messages: [
+        { role: "system", content: readingPrompt(activeVocabularyIndex, contextualSelectedWord, format, contextDescription, practiceWeaknessPrompt(), language) },
+        { role: "user", content: "Generate the requested reading JSON now." },
+      ],
     });
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
     const data = await response.json();
@@ -5724,7 +5703,10 @@ function GlobalAgentPanel({
       model: settings.model,
       stream: false,
       temperature: 0.35,
-      messages: [{ role: "system", content: articlePracticePrompt(activeVocabularyIndex, contextualSelectedWord, contextDescription, practiceWeaknessPrompt(), language) }],
+      messages: [
+        { role: "system", content: articlePracticePrompt(activeVocabularyIndex, contextualSelectedWord, contextDescription, practiceWeaknessPrompt(), language) },
+        { role: "user", content: "Generate the requested article JSON now." },
+      ],
     });
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
     const data = await response.json();
@@ -5835,6 +5817,7 @@ function GlobalAgentPanel({
                 `Available voices JSON: ${JSON.stringify(availableVoices)}`,
               ].join("\n"),
         },
+        { role: "user", content: "Generate the requested conversation JSON now." },
       ],
     });
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
@@ -5858,17 +5841,6 @@ function GlobalAgentPanel({
         recentUsedVocabularyRef.current = next;
         return next;
       });
-      const bridgeOrigin = resolvedLocalBridgeOrigin(settings.localBridgeOrigin);
-      // /v1/** is the API-key realm, not the JWT one: a 401 here means "no API key", so this must
-      // stay a plain fetch — routing it through apiFetch would clear a perfectly good session.
-      fetch(`${bridgeOrigin}/v1/listen/record-used-words`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...bridgeAuthorizationHeader(settings.bridgeApiToken),
-        },
-        body: JSON.stringify({ words: usedWords }),
-      }).catch((err) => console.warn("Failed to record used words on bridge:", err));
     }
 
     return nextConversation;
@@ -6307,6 +6279,12 @@ function GlobalAgentPanel({
               </button>
               <button className={mode === "drills" ? "active" : ""} type="button" onClick={() => setMode("drills")}>
                 Luyện nhớ
+              </button>
+              <button className={mode === "reading" ? "active" : ""} type="button" onClick={() => setMode("reading")}>
+                Đọc hiểu
+              </button>
+              <button className={mode === "article" ? "active" : ""} type="button" onClick={() => setMode("article")}>
+                Bài đọc
               </button>
               <button className={mode === "conversation" ? "active" : ""} type="button" onClick={() => setMode("conversation")}>
                 Hội thoại
