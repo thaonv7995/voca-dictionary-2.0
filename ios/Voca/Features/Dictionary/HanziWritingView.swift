@@ -1,6 +1,10 @@
 import SwiftUI
 import WebKit
 
+private struct HanziStrokePayload: Decodable {
+    let strokes: [String]
+}
+
 private actor HanziStrokeRepository {
     static let shared = HanziStrokeRepository()
 
@@ -14,7 +18,22 @@ private actor HanziStrokeRepository {
         cache.countLimit = 256
         return cache
     }()
+    private let strokesCache: NSCache<NSString, NSArray> = {
+        let cache = NSCache<NSString, NSArray>()
+        cache.countLimit = 256
+        return cache
+    }()
     private var inFlight: [String: InFlight] = [:]
+
+    func strokes(for character: String) async throws -> [String] {
+        if let cached = strokesCache.object(forKey: character as NSString) as? [String] {
+            return cached
+        }
+        let raw = try await data(for: character)
+        let payload = try JSONDecoder().decode(HanziStrokePayload.self, from: raw)
+        strokesCache.setObject(payload.strokes as NSArray, forKey: character as NSString)
+        return payload.strokes
+    }
 
     func data(for character: String) async throws -> Data {
         if let cached = memoryCache.object(forKey: character as NSString) {
@@ -135,10 +154,12 @@ struct HanziWritingView: View {
 
     private var characterStrip: some View {
         HStack(spacing: compact ? 6 : 14) {
-            ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
+            ForEach(Array(characters.enumerated()), id: \.offset) { offset, character in
+                let tileID = "\(offset)-\(character)"
                 if compact, let onCharacterFocus {
                     HanziCharacterPractice(character: character, compact: true,
                                            displayOnly: displayOnly)
+                        .id(tileID)
                         .contentShape(Rectangle())
                         .highPriorityGesture(
                             TapGesture().onEnded { onCharacterFocus(character) }
@@ -149,6 +170,7 @@ struct HanziWritingView: View {
                 } else {
                     HanziCharacterPractice(character: character, compact: compact,
                                            displayOnly: displayOnly)
+                        .id(tileID)
                 }
             }
         }
@@ -162,6 +184,7 @@ private struct HanziCharacterPractice: View {
     let compact: Bool
     let displayOnly: Bool
     @State private var strokeJSON: String?
+    @State private var strokePaths: [String]?
     @State private var errorMessage: String?
     @State private var command: HanziCommand?
     @State private var status = ""
@@ -177,6 +200,10 @@ private struct HanziCharacterPractice: View {
         colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.12)
     }
 
+    private var strokeInkColor: Color {
+        colorScheme == .dark ? Color(red: 0.945, green: 0.961, blue: 0.976) : Color(red: 0.067, green: 0.094, blue: 0.153)
+    }
+
     var body: some View {
         if compact {
             compactDetailTile
@@ -185,36 +212,34 @@ private struct HanziCharacterPractice: View {
         }
     }
 
-    /// Dùng cùng dữ liệu nét và HanziWriter như ô detail, thay vì thay thế chữ bằng font.
-    /// Nhờ vậy hình dáng chữ trong danh sách khớp chính xác với ô luyện viết chi tiết.
+    /// Vẽ trực tiếp từ mảng nét SVG của `hanzi-writer-data` bằng SwiftUI `Canvas` thuần
+    /// (không tạo WKWebView cho từng dòng danh sách), vừa khớp hình dáng nét 100% với ô detail
+    /// vừa nhẹ RAM và mượt cuộn trên iPhone/iPad.
     private var compactDetailTile: some View {
         ZStack {
             canvasSurfaceColor
 
-            if let strokeJSON {
-                HanziWriterWebView(
-                    character: character,
-                    strokeJSON: strokeJSON,
-                    size: Int(canvasSize),
-                    borderWidth: 1,
-                    cornerRadius: Int(canvasRadius),
-                    isDark: colorScheme == .dark,
-                    isInteractive: false,
-                    handlesScriptMessages: false,
-                    command: nil,
-                    onStatus: { _ in }
+            HanziMiGridOverlay()
+                .stroke(
+                    colorScheme == .dark
+                        ? Color(red: 0.58, green: 0.64, blue: 0.72).opacity(0.34)
+                        : Color(red: 0.663, green: 0.729, blue: 0.827).opacity(0.65),
+                    style: StrokeStyle(lineWidth: 1, dash: [3, 3])
                 )
+
+            if let strokePaths, !strokePaths.isEmpty {
+                Canvas { context, size in
+                    let side = min(size.width, size.height)
+                    for svg in strokePaths {
+                        if let path = HanziSVGPathBuilder.path(from: svg, size: side) {
+                            context.fill(path, with: .color(strokeInkColor))
+                        }
+                    }
+                }
             } else {
-                HanziMiGridOverlay()
-                    .stroke(
-                        colorScheme == .dark
-                            ? Color(red: 0.58, green: 0.64, blue: 0.72).opacity(0.34)
-                            : Color(red: 0.663, green: 0.729, blue: 0.827).opacity(0.65),
-                        style: StrokeStyle(lineWidth: 1, dash: [3, 3])
-                    )
                 Text(character)
-                    .font(.custom("STSongti-SC-Regular", fixedSize: 30))
-                    .foregroundStyle(.secondary.opacity(0.35))
+                    .font(VocaTypography.hanziFont(size: 30, weight: .regular, isCalligraphic: theme.hanziCalligraphic))
+                    .foregroundStyle(errorMessage != nil ? Color.primary : Color.secondary.opacity(0.35))
             }
         }
         .frame(width: canvasSize, height: canvasSize)
@@ -251,37 +276,46 @@ private struct HanziCharacterPractice: View {
                 } else if errorMessage != nil {
                     VStack(spacing: 8) {
                         Text(character)
-                            .font(VocaTypography.hanziFont(size: compact ? 28 : 84, weight: .semibold, isCalligraphic: ThemeStore.shared.hanziCalligraphic))
+                            .font(VocaTypography.hanziFont(size: compact ? 28 : 84, weight: .semibold, isCalligraphic: theme.hanziCalligraphic))
                         if !compact {
                             Button("Tải lại") { load() }.font(.caption)
                         }
                     }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: canvasRadius, style: .continuous)
-                            .strokeBorder(gridBorderColor, lineWidth: compact ? 1 : 1.5)
-                    )
                 } else {
                     Text(character)
-                        .font(VocaTypography.hanziFont(size: compact ? 26 : (displayOnly ? 120 : 86), weight: .regular, isCalligraphic: ThemeStore.shared.hanziCalligraphic))
+                        .font(VocaTypography.hanziFont(size: compact ? 26 : (displayOnly ? 120 : 86), weight: .regular, isCalligraphic: theme.hanziCalligraphic))
                         .foregroundStyle(.secondary.opacity(0.32))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: canvasRadius, style: .continuous)
-                                .strokeBorder(gridBorderColor, lineWidth: compact ? 1 : 1.5)
-                        )
                 }
             }
             .frame(width: canvasSize, height: canvasSize)
             .clipShape(RoundedRectangle(cornerRadius: canvasRadius, style: .continuous))
+            .overlay {
+                if strokeJSON == nil {
+                    RoundedRectangle(cornerRadius: canvasRadius, style: .continuous)
+                        .strokeBorder(gridBorderColor, lineWidth: compact ? 1 : (displayOnly ? 2 : 1.5))
+                }
+            }
             .shadow(
                 color: displayOnly ? .black.opacity(colorScheme == .dark ? 0.3 : 0.1) : .clear,
                 radius: displayOnly ? 16 : 0,
                 y: displayOnly ? 6 : 0
             )
             .animation(.easeOut(duration: 0.22), value: strokeJSON != nil)
+            .contentShape(RoundedRectangle(cornerRadius: canvasRadius, style: .continuous))
             .onTapGesture {
                 guard displayOnly, strokeJSON != nil else { return }
                 Haptics.selection()
                 command = HanziCommand(kind: .animate)
+            }
+            .accessibilityElement(children: displayOnly ? .combine : .contain)
+            .accessibilityLabel(displayOnly ? "Chữ \(character)" : "")
+            .accessibilityHint(displayOnly ? "Chạm đúp để xem thứ tự nét" : "")
+            .accessibilityAddTraits(displayOnly ? .isButton : [])
+
+            if displayOnly {
+                Label("Chạm vào chữ để xem thứ tự nét", systemImage: "hand.tap")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
             }
 
             if !compact && !displayOnly {
@@ -290,10 +324,12 @@ private struct HanziCharacterPractice: View {
                         Haptics.selection()
                         command = HanziCommand(kind: .animate)
                     }
+                    .disabled(strokeJSON == nil)
                     iconButton("pencil.and.scribble", title: "Tự viết", label: "Luyện viết") {
                         Haptics.selection()
                         command = HanziCommand(kind: .quiz)
                     }
+                    .disabled(strokeJSON == nil)
                 }
                 if !status.isEmpty {
                     Text(status)
@@ -336,17 +372,82 @@ private struct HanziCharacterPractice: View {
     private func load() {
         errorMessage = nil
         strokeJSON = nil
+        strokePaths = nil
+        status = ""
+        command = nil
         Task { await loadData() }
     }
 
     @MainActor private func loadData() async {
+        errorMessage = nil
+        strokeJSON = nil
+        strokePaths = nil
+        status = ""
+        command = nil
+        let targetCharacter = character
         do {
-            let data = try await HanziStrokeRepository.shared.data(for: character)
-            guard let json = String(data: data, encoding: .utf8) else { throw URLError(.cannotDecodeContentData) }
-            strokeJSON = json
+            if compact {
+                let paths = try await HanziStrokeRepository.shared.strokes(for: targetCharacter)
+                guard !Task.isCancelled, character == targetCharacter else { return }
+                strokePaths = paths
+            } else {
+                let data = try await HanziStrokeRepository.shared.data(for: targetCharacter)
+                guard !Task.isCancelled, character == targetCharacter else { return }
+                guard let json = String(data: data, encoding: .utf8) else { throw URLError(.cannotDecodeContentData) }
+                strokeJSON = json
+            }
+        } catch is CancellationError {
+            return
         } catch {
+            guard !Task.isCancelled, character == targetCharacter else { return }
             errorMessage = "Không tải được dữ liệu nét"
         }
+    }
+}
+
+private enum HanziSVGPathBuilder {
+    static func path(from source: String, size: CGFloat) -> Path? {
+        let tokens = source.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let margin = size * 0.08
+        let scale = (size - margin * 2) / 1024
+        var index = 0
+        var path = Path()
+
+        func point(_ x: Double, _ y: Double) -> CGPoint {
+            CGPoint(x: margin + CGFloat(x) * scale,
+                    y: margin + CGFloat(900 - y) * scale)
+        }
+
+        func number(_ offset: Int) -> Double? {
+            guard index + offset < tokens.count else { return nil }
+            return Double(tokens[index + offset])
+        }
+
+        while index < tokens.count {
+            switch tokens[index] {
+            case "M":
+                guard let x = number(1), let y = number(2) else { return nil }
+                path.move(to: point(x, y)); index += 3
+            case "L":
+                guard let x = number(1), let y = number(2) else { return nil }
+                path.addLine(to: point(x, y)); index += 3
+            case "Q":
+                guard let cx = number(1), let cy = number(2),
+                      let x = number(3), let y = number(4) else { return nil }
+                path.addQuadCurve(to: point(x, y), control: point(cx, cy)); index += 5
+            case "C":
+                guard let c1x = number(1), let c1y = number(2),
+                      let c2x = number(3), let c2y = number(4),
+                      let x = number(5), let y = number(6) else { return nil }
+                path.addCurve(to: point(x, y), control1: point(c1x, c1y),
+                              control2: point(c2x, c2y)); index += 7
+            case "Z":
+                path.closeSubpath(); index += 1
+            default:
+                return nil
+            }
+        }
+        return path
     }
 }
 
@@ -383,6 +484,10 @@ private struct HanziWriterWebView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(onStatus: onStatus) }
 
+    private var renderKey: String {
+        "\(character)|\(size)|\(borderWidth)|\(cornerRadius)|\(isDark)|\(strokeJSON.count)|\(strokeJSON.prefix(32))"
+    }
+
     func makeUIView(context: Context) -> WKWebView {
         let controller = WKUserContentController()
         if handlesScriptMessages {
@@ -400,7 +505,11 @@ private struct HanziWriterWebView: UIViewRepresentable {
         view.isUserInteractionEnabled = isInteractive
         view.isOpaque = false
         view.backgroundColor = .clear
-        context.coordinator.lastIsDark = isDark
+        context.coordinator.lastRenderKey = renderKey
+        if let command {
+            context.coordinator.lastCommandID = command.id
+            context.coordinator.run(command, in: view)
+        }
         view.loadHTMLString(html, baseURL: scriptURL?.deletingLastPathComponent())
         return view
     }
@@ -410,9 +519,15 @@ private struct HanziWriterWebView: UIViewRepresentable {
         if view.isUserInteractionEnabled != isInteractive {
             view.isUserInteractionEnabled = isInteractive
         }
-        if context.coordinator.lastIsDark != isDark {
-            context.coordinator.lastIsDark = isDark
+        let key = renderKey
+        if context.coordinator.lastRenderKey != key {
+            context.coordinator.lastRenderKey = key
             context.coordinator.resetReady()
+            onStatus("")
+            if let command, command.id != context.coordinator.lastCommandID {
+                context.coordinator.lastCommandID = command.id
+                context.coordinator.run(command, in: view)
+            }
             view.loadHTMLString(html, baseURL: scriptURL?.deletingLastPathComponent())
             return
         }
@@ -434,6 +549,10 @@ private struct HanziWriterWebView: UIViewRepresentable {
 
     private var html: String {
         let encodedCharacter = (try? String(data: JSONEncoder().encode(character), encoding: .utf8)) ?? "\"\""
+        let safeStrokeJSON = strokeJSON
+            .replacingOccurrences(of: "</", with: "<\\/")
+            .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+            .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
         let inset = Int(ceil(borderWidth * 2))
         let targetSize = max(size - inset, 16)
         let writerPadding = size <= 64 ? 4 : 8
@@ -453,7 +572,7 @@ private struct HanziWriterWebView: UIViewRepresentable {
         #target{position:relative;z-index:1;width:\(targetSize)px;height:\(targetSize)px}
         </style></head><body><div id="grid"><div id="target"></div></div>
         <script src="hanzi-writer.min.js"></script><script>
-        const character=\(encodedCharacter), characterData=\(strokeJSON);
+        const character=\(encodedCharacter), characterData=\(safeStrokeJSON);
         const writer=HanziWriter.create('target',character,{width:\(targetSize),height:\(targetSize),padding:\(writerPadding),
           showOutline:true,strokeColor:'\(strokeColor)',outlineColor:'\(outlineColor)',strokeAnimationSpeed:1,
           delayBetweenStrokes:180,charDataLoader:()=>Promise.resolve(characterData)});
@@ -468,7 +587,7 @@ private struct HanziWriterWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onStatus: (String) -> Void
         var lastCommandID: UUID?
-        var lastIsDark: Bool?
+        var lastRenderKey: String?
         private var isReady = false
         private var pending: HanziCommand?
 
@@ -476,6 +595,7 @@ private struct HanziWriterWebView: UIViewRepresentable {
 
         func resetReady() {
             isReady = false
+            pending = nil
         }
 
         func run(_ command: HanziCommand, in view: WKWebView) {
@@ -487,6 +607,18 @@ private struct HanziWriterWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             isReady = true
             if let pending { self.pending = nil; run(pending, in: webView) }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            if navigationAction.navigationType == .other {
+                decisionHandler(.allow)
+            } else {
+                decisionHandler(.cancel)
+            }
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {

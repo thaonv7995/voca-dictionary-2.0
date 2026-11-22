@@ -12,6 +12,7 @@ struct CardAgentView: View {
     @State private var input = ""
     @State private var isStreaming = false
     @State private var copiedId: UUID?
+    @State private var streamTask: Task<Void, Never>?
     @FocusState private var inputFocused: Bool
 
     private let assistant = AssistantService()
@@ -45,9 +46,13 @@ struct CardAgentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Đóng") { dismiss() }
+                    Button("Đóng") {
+                        stopStreaming()
+                        dismiss()
+                    }
                 }
             }
+            .onDisappear { stopStreaming() }
         }
     }
 
@@ -77,7 +82,6 @@ struct CardAgentView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: messages.count) { _, _ in scrollToBottom(proxy) }
-            .onChange(of: messages.last?.text) { _, _ in scrollToBottom(proxy) }
         }
     }
 
@@ -118,7 +122,7 @@ struct CardAgentView: View {
                     .disabled(isStreaming)
                     .onSubmit { send(input) }
 
-                ChatSendButton(isStreaming: isStreaming, canSend: canSend) {
+                ChatSendButton(isStreaming: isStreaming, canSend: canSend, onStop: stopStreaming) {
                     send(input)
                 }
                 .padding(4)
@@ -171,6 +175,12 @@ struct CardAgentView: View {
         }
     }
 
+    private func stopStreaming() {
+        streamTask?.cancel()
+        streamTask = nil
+        isStreaming = false
+    }
+
     private func send(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
@@ -184,8 +194,10 @@ struct CardAgentView: View {
         }
         isStreaming = true
 
-        Task {
+        streamTask?.cancel()
+        streamTask = Task {
             var acc = ""
+            var lastFlush = Date.distantPast
             do {
                 for try await chunk in assistant.cardChat(
                     word: card.word,
@@ -194,17 +206,33 @@ struct CardAgentView: View {
                     pronunciation: card.phonetic,
                     meaningVi: card.meaningVi
                 ) {
+                    if Task.isCancelled { break }
                     acc += chunk
+                    let now = Date()
+                    if now.timeIntervalSince(lastFlush) >= 0.06 {
+                        lastFlush = now
+                        updateMessage(id: replyId, text: acc, isError: false)
+                    }
+                }
+                if Task.isCancelled {
+                    if !acc.isEmpty {
+                        updateMessage(id: replyId, text: acc, isError: false)
+                    }
+                } else if acc.isEmpty {
+                    updateMessage(id: replyId, text: "Không có phản hồi.", isError: false)
+                } else {
                     updateMessage(id: replyId, text: acc, isError: false)
                 }
-                if acc.isEmpty {
-                    updateMessage(id: replyId, text: "Không có phản hồi.", isError: false)
+            } catch is CancellationError {
+                if !acc.isEmpty {
+                    updateMessage(id: replyId, text: acc, isError: false)
                 }
             } catch {
                 let message = (error as? ApiError)?.message ?? error.localizedDescription
                 updateMessage(id: replyId, text: message, isError: true)
             }
             isStreaming = false
+            streamTask = nil
         }
     }
 
@@ -269,7 +297,7 @@ private struct CardChatBubble: View {
                 TypingIndicator().padding(.vertical, 4)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    if isUser || message.isError {
+                    if isUser || message.isError || isStreaming {
                         Text(message.text)
                             .textSelection(.enabled)
                             .multilineTextAlignment(.leading)
@@ -279,21 +307,25 @@ private struct CardChatBubble: View {
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        if !isStreaming {
-                            Divider().opacity(0.45)
-                            HStack(spacing: 12) {
-                                Button(action: onCopy) {
-                                    Label(isCopied ? "Đã chép" : "Sao chép", systemImage: isCopied ? "checkmark" : "doc.on.doc")
-                                        .font(.caption2.weight(.semibold))
-                                        .foregroundStyle(isCopied ? Brand.semanticSuccess : .secondary)
-                                }
-                                .buttonStyle(.plain)
+                        Divider().opacity(0.45)
+                        HStack(spacing: 12) {
+                            Button(action: onCopy) {
+                                Label(isCopied ? "Đã chép" : "Sao chép", systemImage: isCopied ? "checkmark" : "doc.on.doc")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(isCopied ? Brand.semanticSuccess : .secondary)
+                                    .padding(.vertical, 6)
+                                    .padding(.horizontal, 4)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
 
+                            let spoken = MarkdownText.plainTextForSpeech(from: message.text)
+                            if !spoken.isEmpty {
                                 PronounceButton(
-                                    text: message.text,
-                                    language: message.text.hasChineseCharacters ? .chinese : language,
-                                    size: 24,
-                                    font: .caption
+                                    text: spoken,
+                                    language: spoken.hasChineseCharacters ? .chinese : language,
+                                    size: 34,
+                                    font: .subheadline
                                 )
                             }
                         }

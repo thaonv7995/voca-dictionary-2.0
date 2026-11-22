@@ -1,4 +1,6 @@
 import AVFoundation
+import ImageIO
+import NaturalLanguage
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -16,6 +18,7 @@ final class ScanWordsModel {
     /// Where the flow currently is (drives which section the view shows).
     enum Phase {
         case empty        // no image picked yet
+        case loadingImage // loading/decoding picked photo off main thread
         case recognizing  // running Vision OCR
         case results      // candidate words ready
         case noWords      // OCR finished but produced nothing usable
@@ -38,24 +41,68 @@ final class ScanWordsModel {
     private(set) var progressText: String?
     private(set) var results: [WordResult] = []
     private(set) var finished = false
+    private(set) var loadError: String?
 
     private let cards = CardsService()
+    @ObservationIgnored private var ocrTask: Task<Void, Never>?
+    @ObservationIgnored private var createTask: Task<Void, Never>?
 
     var selectedCount: Int { selected.count }
     var allSelected: Bool { !words.isEmpty && selected.count == words.count }
+    var failedWords: [String] { results.filter { !$0.success }.map(\.word) }
 
     // MARK: OCR
 
+    func beginLoadingPhoto() {
+        ocrTask?.cancel()
+        loadError = nil
+        phase = .loadingImage
+    }
+
+    func setLoadFailure(_ message: String) {
+        loadError = message
+        phase = image == nil ? .empty : (words.isEmpty ? .noWords : .results)
+    }
+
+    /// Downsamples picked photo data off-main and runs Vision OCR.
+    func recognize(imageData: Data, language: CardLanguage) {
+        ocrTask?.cancel()
+        loadError = nil
+        phase = .loadingImage
+        ocrTask = Task { [weak self] in
+            let prepared = await Task.detached(priority: .userInitiated) {
+                Self.downsampledImage(from: imageData, maxPixelSize: 2048)
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            guard let prepared else {
+                self.setLoadFailure("Không thể đọc tệp ảnh đã chọn. Hãy thử ảnh khác.")
+                return
+            }
+            await self.runRecognition(prepared, language: language)
+        }
+    }
+
     /// Recognises text in `image` and turns it into candidate words.
-    func recognize(_ image: UIImage, language: CardLanguage) async {
+    func recognize(_ image: UIImage, language: CardLanguage) {
+        ocrTask?.cancel()
+        loadError = nil
+        ocrTask = Task { [weak self] in
+            guard let self else { return }
+            await self.runRecognition(image, language: language)
+        }
+    }
+
+    private func runRecognition(_ image: UIImage, language: CardLanguage) async {
         self.image = image
         words = []
         selected = []
         results = []
         finished = false
+        loadError = nil
         phase = .recognizing
 
         let found = await Self.recognizeText(image, language: language)
+        guard !Task.isCancelled else { return }
         words = found
         phase = found.isEmpty ? .noWords : .results
     }
@@ -68,6 +115,7 @@ final class ScanWordsModel {
         } else {
             selected.insert(word)
         }
+        finished = false
     }
 
     func toggleSelectAll() {
@@ -76,13 +124,34 @@ final class ScanWordsModel {
         } else {
             selected = Set(words)
         }
+        finished = false
+    }
+
+    func selectFailedForRetry() {
+        let retrySet = Set(failedWords)
+        guard !retrySet.isEmpty else { return }
+        selected = retrySet
+        finished = false
     }
 
     // MARK: Card creation
 
+    func cancelCreation() {
+        createTask?.cancel()
+        createTask = nil
+    }
+
+    func cancelAll() {
+        ocrTask?.cancel()
+        ocrTask = nil
+        createTask?.cancel()
+        createTask = nil
+    }
+
     /// Creates one card per selected word, sequentially, reporting progress and
     /// a per-word success/failure list. Calls `onCreated` if at least one succeeded.
-    func create(language: CardLanguage, onCreated: @escaping () -> Void) async {
+    func create(language: CardLanguage, onCreated: @escaping () -> Void) {
+        guard !isCreating else { return }
         // Preserve chip order rather than Set order.
         let queue = words.filter { selected.contains($0) }
         guard !queue.isEmpty else { return }
@@ -91,31 +160,84 @@ final class ScanWordsModel {
         finished = false
         results = []
 
-        for (index, word) in queue.enumerated() {
-            progressText = "Đang tạo \(index + 1)/\(queue.count)…"
-            do {
-                _ = try await cards.createWithAI(word: word, language: language)
-                results.append(WordResult(word: word, success: true, message: nil))
-            } catch {
-                let message = (error as? ApiError)?.message ?? error.localizedDescription
-                results.append(WordResult(word: word, success: false, message: message))
+        createTask = Task { [weak self] in
+            guard let self else { return }
+            for (index, word) in queue.enumerated() {
+                if Task.isCancelled { break }
+                progressText = "Đang tạo \(index + 1)/\(queue.count)…"
+                do {
+                    let created = try await cards.createWithAI(word: word, language: language)
+                    AudioPrefetchManager.shared.cacheCardInBackgroundIfEnabled(created)
+                    results.append(WordResult(word: word, success: true, message: nil))
+                } catch is CancellationError {
+                    break
+                } catch {
+                    let message = (error as? ApiError)?.message ?? error.localizedDescription
+                    results.append(WordResult(word: word, success: false, message: message))
+                }
             }
-        }
 
-        progressText = nil
-        isCreating = false
-        finished = true
+            let cancelled = Task.isCancelled
+            progressText = nil
+            isCreating = false
+            createTask = nil
+            finished = !cancelled && !results.isEmpty
 
-        if results.contains(where: { $0.success }) {
-            onCreated()
+            if results.contains(where: { $0.success }) {
+                onCreated()
+            }
         }
     }
 
-    // MARK: - Vision (off the main thread)
+    // MARK: - Vision & Image helpers (off the main thread)
+
+    nonisolated private static func downsampledImage(from data: Data, maxPixelSize: CGFloat) -> UIImage? {
+        let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        let thumbOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbOptions as CFDictionary) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    nonisolated private static func cgOrientation(for orientation: UIImage.Orientation) -> CGImagePropertyOrientation {
+        switch orientation {
+        case .up: return .up
+        case .down: return .down
+        case .left: return .left
+        case .right: return .right
+        case .upMirrored: return .upMirrored
+        case .downMirrored: return .downMirrored
+        case .leftMirrored: return .leftMirrored
+        case .rightMirrored: return .rightMirrored
+        @unknown default: return .up
+        }
+    }
 
     /// Runs `VNRecognizeTextRequest` on a background queue and returns candidate words.
     nonisolated private static func recognizeText(_ image: UIImage, language: CardLanguage) async -> [String] {
-        guard let cgImage = image.cgImage else { return [] }
+        let cgImage: CGImage?
+        let orientation: CGImagePropertyOrientation
+        if let direct = image.cgImage {
+            cgImage = direct
+            orientation = cgOrientation(for: image.imageOrientation)
+        } else if let ciImage = image.ciImage {
+            cgImage = CIContext().createCGImage(ciImage, from: ciImage.extent)
+            orientation = cgOrientation(for: image.imageOrientation)
+        } else {
+            cgImage = nil
+            orientation = .up
+        }
+        guard let cgImage else { return [] }
+
         return await withCheckedContinuation { (continuation: CheckedContinuation<[String], Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 var didResume = false
@@ -128,7 +250,7 @@ final class ScanWordsModel {
                 let request = VNRecognizeTextRequest { request, _ in
                     let text = (request.results as? [VNRecognizedTextObservation] ?? [])
                         .compactMap { $0.topCandidates(1).first?.string }
-                        .joined(separator: " ")
+                        .joined(separator: "\n")
                     resume(tokenize(text, language: language))
                 }
                 request.recognitionLevel = .accurate
@@ -136,7 +258,7 @@ final class ScanWordsModel {
                 request.recognitionLanguages = language == .chinese ? ["zh-Hans"] : ["en-US"]
 
                 do {
-                    try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                    try VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:]).perform([request])
                 } catch {
                     resume([])
                 }
@@ -157,21 +279,48 @@ final class ScanWordsModel {
         "those", "because", "while", "where",
     ]
 
-    /// Lowercases, splits on non-letters, drops short tokens and stop-words,
-    /// dedupes (preserving order) and caps the list.
+    /// Uses `NLTokenizer(unit: .word)` so Chinese sentences segment cleanly into vocabulary words
+    /// rather than full clauses, and filters tokens strictly by script and stop-words.
     nonisolated private static func tokenize(_ text: String, language: CardLanguage) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
 
-        for token in text.lowercased().components(separatedBy: CharacterSet.letters.inverted) {
-            guard language == .chinese ? !token.isEmpty : token.count >= 3 else { continue }
-            guard language == .chinese || !stopWords.contains(token) else { continue }
-            guard !seen.contains(token) else { continue }
-            seen.insert(token)
-            result.append(token)
-            if result.count >= 24 { break }
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+        tokenizer.setLanguage(language == .chinese ? .simplifiedChinese : .english)
+
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            let raw = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty else { return true }
+
+            let token: String
+            if language == .chinese {
+                let hanziOnly = String(raw.unicodeScalars.filter { Self.isHanziScalar($0) }.map(Character.init))
+                guard !hanziOnly.isEmpty, hanziOnly.count <= 6 else { return true }
+                token = hanziOnly
+            } else {
+                let lowered = raw.lowercased()
+                let isLatinWord = lowered.unicodeScalars.allSatisfy {
+                    ($0.value >= 0x61 && $0.value <= 0x7A) || $0 == "-" || $0 == "'"
+                }
+                guard isLatinWord, lowered.count >= 3, !stopWords.contains(lowered) else { return true }
+                token = lowered
+            }
+
+            if seen.insert(token).inserted {
+                result.append(token)
+            }
+            return result.count < 24
         }
+
         return result
+    }
+
+    nonisolated private static func isHanziScalar(_ scalar: UnicodeScalar) -> Bool {
+        (0x3400...0x4DBF).contains(scalar.value)
+            || (0x4E00...0x9FFF).contains(scalar.value)
+            || (0xF900...0xFAFF).contains(scalar.value)
+            || (0x20000...0x323AF).contains(scalar.value)
     }
 }
 
@@ -191,6 +340,7 @@ struct ScanWordsView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var showLibrary = false
     @State private var showCamera = false
+    @State private var showCameraPermissionAlert = false
 
     var body: some View {
         NavigationStack {
@@ -201,11 +351,20 @@ struct ScanWordsView: View {
                     }
                     sourceButtons
 
+                    if let loadError = model.loadError {
+                        Text(loadError)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .brandCard(padding: 12, cornerRadius: 12)
+                    }
+
                     switch model.phase {
-                    case .empty:       emptyPrompt
-                    case .recognizing: recognizingView
-                    case .noWords:     noWordsView
-                    case .results:     resultsSection
+                    case .empty:        emptyPrompt
+                    case .loadingImage: loadingPhotoView
+                    case .recognizing:  recognizingView
+                    case .noWords:      noWordsView
+                    case .results:      resultsSection
                     }
 
                     if !model.results.isEmpty {
@@ -218,27 +377,51 @@ struct ScanWordsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(model.finished ? "Xong" : "Hủy") { dismiss() }
-                        .disabled(model.isCreating)
+                    Button(model.isCreating ? "Dừng" : (model.finished ? "Xong" : "Hủy")) {
+                        if model.isCreating {
+                            model.cancelCreation()
+                        } else {
+                            dismiss()
+                        }
+                    }
                 }
             }
             .interactiveDismissDisabled(model.isCreating)
+            .onDisappear { model.cancelAll() }
             .photosPicker(isPresented: $showLibrary, selection: $pickerItem, matching: .images)
             .fullScreenCover(isPresented: $showCamera) {
                 CameraPicker { image in
-                    Task { await model.recognize(image, language: language) }
+                    model.recognize(image, language: language)
                 }
                 .ignoresSafeArea()
             }
             .onChange(of: pickerItem) { _, newItem in
                 guard let newItem else { return }
+                model.beginLoadingPhoto()
                 Task {
-                    if let data = try? await newItem.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        await model.recognize(image, language: language)
+                    do {
+                        guard let data = try await newItem.loadTransferable(type: Data.self) else {
+                            model.setLoadFailure("Không thể đọc dữ liệu ảnh từ thư viện.")
+                            pickerItem = nil
+                            return
+                        }
+                        model.recognize(imageData: data, language: language)
+                    } catch {
+                        model.setLoadFailure("Không tải được ảnh: \(error.localizedDescription)")
                     }
                     pickerItem = nil
                 }
+            }
+            .alert("Chưa có quyền truy cập Camera", isPresented: $showCameraPermissionAlert) {
+                Button("Mở Cài đặt") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("Chọn từ thư viện") { showLibrary = true }
+                Button("Hủy", role: .cancel) {}
+            } message: {
+                Text("Hãy cấp quyền Camera cho Voca trong Cài đặt hoặc chọn ảnh từ thư viện.")
             }
         }
     }
@@ -258,7 +441,7 @@ struct ScanWordsView: View {
         }
         .buttonStyle(.bordered)
         .tint(Brand.green)
-        .disabled(model.isCreating || model.phase == .recognizing)
+        .disabled(model.isCreating || model.phase == .recognizing || model.phase == .loadingImage)
     }
 
     private func thumbnail(_ image: UIImage) -> some View {
@@ -287,6 +470,17 @@ struct ScanWordsView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    private var loadingPhotoView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("Đang tải ảnh…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
@@ -366,25 +560,50 @@ struct ScanWordsView: View {
 
     @ViewBuilder private var createButton: some View {
         if model.finished {
-            Button { dismiss() } label: {
-                Text("Xong").frame(maxWidth: .infinity)
+            VStack(spacing: 8) {
+                if !model.failedWords.isEmpty {
+                    Button {
+                        model.selectFailedForRetry()
+                        model.create(language: language, onCreated: onCreated)
+                    } label: {
+                        Text("Thử lại \(model.failedWords.count) từ lỗi")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
+                }
+
+                Button { dismiss() } label: {
+                    Text("Xong").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Brand.green)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Brand.green)
             .padding(.top, 4)
         } else {
-            Button {
-                Task { await model.create(language: language, onCreated: onCreated) }
-            } label: {
-                HStack {
-                    if model.isCreating { ProgressView().padding(.trailing, 4) }
-                    Text(model.progressText ?? "Tạo \(model.selectedCount) thẻ")
+            VStack(spacing: 8) {
+                Button {
+                    model.create(language: language, onCreated: onCreated)
+                } label: {
+                    HStack {
+                        if model.isCreating { ProgressView().padding(.trailing, 4) }
+                        Text(model.progressText ?? "Tạo \(model.selectedCount) thẻ")
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.borderedProminent)
+                .tint(Brand.green)
+                .disabled(model.selectedCount == 0 || model.isCreating)
+
+                if model.isCreating {
+                    Button(role: .destructive) {
+                        model.cancelCreation()
+                    } label: {
+                        Text("Dừng tạo thẻ").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Brand.green)
-            .disabled(model.selectedCount == 0 || model.isCreating)
             .padding(.top, 4)
         }
     }
@@ -431,12 +650,11 @@ struct ScanWordsView: View {
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { granted in
                 Task { @MainActor in
-                    if granted { showCamera = true } else { showLibrary = true }
+                    if granted { showCamera = true } else { showCameraPermissionAlert = true }
                 }
             }
         default:
-            // Denied / restricted → gracefully fall back to the library.
-            showLibrary = true
+            showCameraPermissionAlert = true
         }
     }
 }

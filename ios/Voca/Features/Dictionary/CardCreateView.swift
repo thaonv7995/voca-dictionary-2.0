@@ -12,6 +12,7 @@ struct CardCreateView: View {
     @State private var isCreating = false
     @State private var errorMessage: String?
     @State private var showScan = false
+    @State private var createTask: Task<Void, Never>?
     @FocusState private var fieldFocused: Bool
 
     private let cards = CardsService()
@@ -21,7 +22,7 @@ struct CardCreateView: View {
     }
 
     private var canSubmit: Bool {
-        !isCreating && !word.trimmingCharacters(in: .whitespaces).isEmpty
+        !isCreating && !word.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -32,6 +33,7 @@ struct CardCreateView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         CardLanguagePicker(selection: $languageRaw)
+                            .disabled(isCreating)
 
                         VStack(alignment: .leading, spacing: 14) {
                             HStack(spacing: 10) {
@@ -112,30 +114,40 @@ struct CardCreateView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Hủy") { dismiss() }.disabled(isCreating)
+                    Button("Hủy") {
+                        createTask?.cancel()
+                        dismiss()
+                    }
                 }
             }
-            .interactiveDismissDisabled(isCreating)
             .onAppear { fieldFocused = true }
+            .onDisappear { createTask?.cancel() }
             .sheet(isPresented: $showScan) {
-                ScanWordsView(language: language, onCreated: onCreated)
+                ScanWordsView(language: language) {
+                    onCreated()
+                    dismiss()
+                }
             }
         }
     }
 
     private func create() {
+        let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isCreating else { return }
         isCreating = true
         errorMessage = nil
         Haptics.impact(.light)
-        Task {
+        let targetLanguage = language
+        createTask = Task {
             do {
-                let created = try await cards.createWithAI(
-                    word: word.trimmingCharacters(in: .whitespacesAndNewlines),
-                    language: language)
+                let created = try await cards.createWithAI(word: trimmed, language: targetLanguage)
+                guard !Task.isCancelled else { return }
                 AudioPrefetchManager.shared.cacheCardInBackgroundIfEnabled(created)
                 Haptics.notify(.success)
                 onCreated()
                 dismiss()
+            } catch is CancellationError {
+                isCreating = false
             } catch {
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
                 Haptics.notify(.error)

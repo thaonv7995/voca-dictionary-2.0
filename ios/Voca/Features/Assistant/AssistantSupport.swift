@@ -63,9 +63,22 @@ struct PracticeChoicesView: View {
     var whyWrong: [String: String]? = nil
     var speakChoices: Bool = false
     var language: CardLanguage = .english
+    var externalSelection: Binding<String?>? = nil
     var onAnswered: ((Bool) -> Void)? = nil
 
-    @State private var selected: String?
+    @State private var localSelected: String?
+
+    private var selected: String? {
+        externalSelection?.wrappedValue ?? localSelected
+    }
+
+    private func setSelected(_ value: String) {
+        if let externalSelection {
+            externalSelection.wrappedValue = value
+        } else {
+            localSelected = value
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -95,6 +108,13 @@ struct PracticeChoicesView: View {
         let answered = selected != nil
         let correct = AnswerMatcher.isCorrect(choice: choice, index: index, answer: answer)
         let isPicked = selected == choice
+        let accessibilityState: String = {
+            guard answered else { return "" }
+            if isPicked && correct { return ", đã chọn, đúng" }
+            if isPicked && !correct { return ", đã chọn, sai" }
+            if correct { return ", đáp án đúng" }
+            return ""
+        }()
 
         return Button {
             if selected == nil {
@@ -103,7 +123,7 @@ struct PracticeChoicesView: View {
                 } else {
                     Haptics.notify(.error)
                 }
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.72)) { selected = choice }
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.72)) { setSelected(choice) }
                 onAnswered?(correct)
             }
         } label: {
@@ -143,7 +163,8 @@ struct PracticeChoicesView: View {
         .foregroundStyle(.primary)
         .animation(.easeInOut(duration: 0.22), value: selected)
         .allowsHitTesting(!answered)
-        .accessibilityLabel("\(choiceLetter(index)) \(choice)")
+        .accessibilityLabel("\(choiceLetter(index)) \(choice)\(accessibilityState)")
+        .accessibilityAddTraits(isPicked ? .isSelected : [])
     }
 
     private var reveal: some View {
@@ -228,21 +249,32 @@ struct TypingIndicator: View {
 
 // MARK: - Chat send button
 
-/// Circular send button sitting inside the rounded chat composer.
+/// Circular send/stop button sitting inside the rounded chat composer.
 struct ChatSendButton: View {
     var isStreaming: Bool
     var canSend: Bool
+    var onStop: (() -> Void)? = nil
     var action: () -> Void
+
+    private var canStop: Bool { isStreaming && onStop != nil }
 
     var body: some View {
         Button {
             Haptics.impact(.light)
-            action()
+            if canStop {
+                onStop?()
+            } else {
+                action()
+            }
         } label: {
             ZStack {
                 Circle()
-                    .fill(canSend || isStreaming ? Brand.green : Color.secondary.opacity(0.35))
-                if isStreaming {
+                    .fill(canStop ? Color.red : (canSend || isStreaming ? Brand.green : Color.secondary.opacity(0.35)))
+                if canStop {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white)
+                } else if isStreaming {
                     ProgressView()
                         .controlSize(.small)
                         .tint(.white)
@@ -253,11 +285,11 @@ struct ChatSendButton: View {
                 }
             }
             .frame(width: 36, height: 36)
-            .animation(.easeInOut(duration: 0.18), value: canSend)
+            .animation(.easeInOut(duration: 0.18), value: canSend || canStop)
         }
         .buttonStyle(PressableScaleStyle(scale: 0.88))
-        .disabled(!canSend)
-        .accessibilityLabel("Gửi")
+        .disabled(!canSend && !canStop)
+        .accessibilityLabel(canStop ? "Dừng" : "Gửi")
     }
 }
 

@@ -27,7 +27,12 @@ struct MarkdownText: View {
         case paragraph(String)
     }
 
+    private static let numberedListRegex = try? NSRegularExpression(pattern: #"^\d{1,2}\.\s+"#)
+
     static func blocks(from text: String) -> [Block] {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
         var blocks: [Block] = []
         var paragraph: [String] = []
         var bullets: [String] = []
@@ -50,7 +55,7 @@ struct MarkdownText: View {
         }
         func flushAll() { flushParagraph(); flushBullets(); flushTable() }
 
-        for rawLine in text.components(separatedBy: "\n") {
+        for rawLine in normalized.components(separatedBy: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
 
             if line.hasPrefix("```") {
@@ -83,13 +88,16 @@ struct MarkdownText: View {
                 flushTable()
             }
 
-            // Heading: #, ##, ###…
+            // Heading: #, ##, ###… (requires whitespace after '#' so #hashtags stay plain text).
             if line.hasPrefix("#") {
-                flushParagraph(); flushBullets()
                 let level = line.prefix(while: { $0 == "#" }).count
-                let title = line.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
-                blocks.append(.heading(min(level, 3), title))
-                continue
+                let remainder = line.dropFirst(level)
+                if level <= 6, let first = remainder.first, first.isWhitespace {
+                    flushParagraph(); flushBullets()
+                    let title = remainder.trimmingCharacters(in: .whitespaces)
+                    blocks.append(.heading(min(level, 3), title))
+                    continue
+                }
             }
 
             // Bullet / numbered list item.
@@ -98,10 +106,14 @@ struct MarkdownText: View {
                 bullets.append(String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces))
                 continue
             }
-            if let match = line.range(of: #"^\d{1,2}\.\s+"#, options: .regularExpression) {
-                flushParagraph()
-                bullets.append(String(line[match.upperBound...]))
-                continue
+            if let regex = numberedListRegex {
+                let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
+                if let match = regex.firstMatch(in: line, range: nsRange),
+                   let swiftRange = Range(match.range, in: line) {
+                    flushParagraph()
+                    bullets.append(String(line[swiftRange.upperBound...]))
+                    continue
+                }
             }
 
             flushBullets()
@@ -110,6 +122,19 @@ struct MarkdownText: View {
         if inCode, !codeLines.isEmpty { blocks.append(.code(codeLines.joined(separator: "\n"))) }
         flushAll()
         return blocks
+    }
+
+    /// Strips basic Markdown formatting markers before sending text to TTS.
+    static func plainTextForSpeech(from markdown: String) -> String {
+        let normalized = markdown
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        return normalized
+            .replacingOccurrences(of: "```[\\s\\S]*?```", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"(?m)^#{1,6}\s+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"[*_`~|]+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Rendering

@@ -15,6 +15,7 @@ struct A4SheetView: View {
     @State private var errorMessage: String?
     @State private var pdfShareItem: PDFShareItem?
     @State private var showRegenerateConfirm = false
+    @State private var loadGeneration = 0
     @StateObject private var webState = A4WebState()
 
     private let cardsService = CardsService()
@@ -70,6 +71,7 @@ struct A4SheetView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Đóng") { dismiss() }
+                        .disabled(isRegenerating || isExportingPDF)
                 }
 
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -104,6 +106,18 @@ struct A4SheetView: View {
                     }
                 }
             }
+            .interactiveDismissDisabled(isRegenerating || isExportingPDF)
+            .alert(
+                "Không thể hoàn tất",
+                isPresented: Binding(
+                    get: { errorMessage != nil && htmlContent != nil },
+                    set: { if !$0 { errorMessage = nil } }
+                )
+            ) {
+                Button("Đóng", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
             .confirmationDialog(
                 "Tạo lại phiếu học A4?",
                 isPresented: $showRegenerateConfirm,
@@ -129,6 +143,9 @@ struct A4SheetView: View {
 
     @MainActor
     private func loadSheet() async {
+        loadGeneration &+= 1
+        let expectedGeneration = loadGeneration
+
         if let cached = cardsService.cachedHtml(slug: card.slug) {
             self.htmlContent = cached
             self.isLoading = false
@@ -138,26 +155,38 @@ struct A4SheetView: View {
         errorMessage = nil
         do {
             let html = try await cardsService.getHtml(slug: card.slug)
+            guard loadGeneration == expectedGeneration, !Task.isCancelled else { return }
             self.htmlContent = html
+        } catch is CancellationError {
+            return
         } catch {
+            guard loadGeneration == expectedGeneration else { return }
             if self.htmlContent == nil {
                 self.errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
             }
         }
-        isLoading = false
+        if loadGeneration == expectedGeneration {
+            isLoading = false
+        }
     }
 
     @MainActor
     private func regenerateSheet() async {
+        loadGeneration &+= 1
+        let expectedGeneration = loadGeneration
         isRegenerating = true
         errorMessage = nil
         do {
             let html = try await cardsService.generateHtml(slug: card.slug)
+            guard loadGeneration == expectedGeneration else { return }
             self.htmlContent = html
         } catch {
+            guard loadGeneration == expectedGeneration else { return }
             self.errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
         }
-        isRegenerating = false
+        if loadGeneration == expectedGeneration {
+            isRegenerating = false
+        }
     }
 
     @MainActor
@@ -173,7 +202,9 @@ struct A4SheetView: View {
         printController.printFormatter = webView.viewPrintFormatter()
         printController.present(animated: true) { _, _, error in
             if let error {
-                errorMessage = "Lỗi in: \(error.localizedDescription)"
+                Task { @MainActor in
+                    errorMessage = "Lỗi in: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -185,16 +216,42 @@ struct A4SheetView: View {
         defer { isExportingPDF = false }
 
         do {
-            let config = WKPDFConfiguration()
-            let pdfData = try await webView.pdf(configuration: config)
-            let sanitizedWord = card.word.replacingOccurrences(of: "/", with: "_")
-            let fileName = "Phieu_hoc_\(sanitizedWord).pdf"
+            let pdfData = renderA4PDF(from: webView)
+            guard !pdfData.isEmpty else {
+                throw ApiError(status: 0, code: "PDF_EMPTY", message: "Không tạo được dữ liệu PDF.")
+            }
+            let safeChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+            let sanitizedWord = String(card.word.unicodeScalars.map { safeChars.contains($0) ? Character($0) : "_" })
+                .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+            let label = sanitizedWord.isEmpty ? "voca" : sanitizedWord
+            let fileName = "Phieu_hoc_\(label).pdf"
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
             try pdfData.write(to: tempURL, options: .atomic)
             self.pdfShareItem = PDFShareItem(url: tempURL)
         } catch {
             self.errorMessage = "Không thể xuất file PDF: \(error.localizedDescription)"
         }
+    }
+
+    /// Renders clean A4 print PDF (activating `@media print`, stripping screen backdrop/shadows).
+    @MainActor
+    private func renderA4PDF(from webView: WKWebView) -> Data {
+        let a4Rect = CGRect(x: 0, y: 0, width: 595.28, height: 841.89) // 210mm × 297mm @ 72dpi
+        let renderer = UIPrintPageRenderer()
+        renderer.addPrintFormatter(webView.viewPrintFormatter(), startingAtPageAt: 0)
+        renderer.setValue(NSValue(cgRect: a4Rect), forKey: "paperRect")
+        renderer.setValue(NSValue(cgRect: a4Rect), forKey: "printableRect")
+
+        let data = NSMutableData()
+        UIGraphicsBeginPDFContextToData(data, a4Rect, nil)
+        let pageCount = max(1, renderer.numberOfPages)
+        renderer.prepare(forDrawingPages: NSRange(location: 0, length: pageCount))
+        for pageIndex in 0..<pageCount {
+            UIGraphicsBeginPDFPage()
+            renderer.drawPage(at: pageIndex, in: UIGraphicsGetPDFContextBounds())
+        }
+        UIGraphicsEndPDFContext()
+        return data as Data
     }
 }
 
@@ -211,6 +268,8 @@ private final class A4WebState: ObservableObject {
 }
 
 private struct A4WebView: UIViewRepresentable {
+    private static let sharedDataStore = WKWebsiteDataStore.nonPersistent()
+
     let html: String
     @ObservedObject var webState: A4WebState
 
@@ -220,6 +279,8 @@ private struct A4WebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        config.websiteDataStore = Self.sharedDataStore
+        config.defaultWebpagePreferences.allowsContentJavaScript = false
         let view = WKWebView(frame: .zero, configuration: config)
         view.navigationDelegate = context.coordinator
         view.isOpaque = false
@@ -236,26 +297,36 @@ private struct A4WebView: UIViewRepresentable {
         scroll.showsVerticalScrollIndicator = true
 
         context.coordinator.webState.webView = view
-        load(html: html, into: view)
+        load(html: html, into: view, coordinator: context.coordinator)
         return view
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
         context.coordinator.webState.webView = uiView
         if context.coordinator.lastLoadedHtml != html {
-            load(html: html, into: uiView)
+            load(html: html, into: uiView, coordinator: context.coordinator)
         }
     }
 
-    private func load(html: String, into view: WKWebView) {
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        uiView.stopLoading()
+        uiView.navigationDelegate = nil
+        if coordinator.webState.webView === uiView {
+            coordinator.webState.webView = nil
+        }
+    }
+
+    private func load(html: String, into view: WKWebView, coordinator: Coordinator) {
+        coordinator.lastLoadedHtml = html
+
         // Prepare HTML for mobile viewing:
-        // 1. Ensure viewport tag fits 794px width (standard 210mm A4) on screen and supports zoom.
-        // 2. Add light paper backdrop for screen viewing.
+        // 1. Fit 794px width (210mm A4) automatically on iPhone while supporting pinch-to-zoom.
+        // 2. Add light paper backdrop for `@media screen` only (`@media print` stays clean).
         var processed = html
         if !processed.contains("viewport-fit") {
             processed = processed.replacingOccurrences(
                 of: "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">",
-                with: "<meta name=\"viewport\" content=\"width=794, initial-scale=1.0, minimum-scale=0.2, maximum-scale=5.0, user-scalable=yes\">"
+                with: "<meta name=\"viewport\" content=\"width=794, minimum-scale=0.2, maximum-scale=5.0, user-scalable=yes\">"
             )
         }
 
@@ -285,7 +356,7 @@ private struct A4WebView: UIViewRepresentable {
             processed.insert(contentsOf: "\n" + screenStyle + "\n", at: headEnd.lowerBound)
         }
 
-        view.loadHTMLString(processed, baseURL: AppConfig.baseURL)
+        view.loadHTMLString(processed, baseURL: nil)
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
@@ -299,6 +370,25 @@ private struct A4WebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             webState.webView = webView
         }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            if navigationAction.navigationType == .other,
+               navigationAction.request.url?.absoluteString == "about:blank" {
+                decisionHandler(.allow)
+                return
+            }
+            if navigationAction.navigationType == .linkActivated,
+               let url = navigationAction.request.url,
+               let scheme = url.scheme?.lowercased(),
+               scheme == "http" || scheme == "https" {
+                UIApplication.shared.open(url)
+            }
+            decisionHandler(.cancel)
+        }
     }
 }
 
@@ -307,12 +397,16 @@ private struct A4ActivityView: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let controller = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootVC = windowScene.windows.first?.rootViewController {
-            controller.popoverPresentationController?.sourceView = rootVC.view
+        let activeScene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })
+            ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
+        if let window = activeScene?.windows.first(where: \.isKeyWindow) ?? activeScene?.windows.first,
+           let anchorView = window.rootViewController?.view {
+            controller.popoverPresentationController?.sourceView = anchorView
             controller.popoverPresentationController?.sourceRect = CGRect(
-                x: rootVC.view.bounds.midX,
-                y: rootVC.view.bounds.midY,
+                x: anchorView.bounds.midX,
+                y: anchorView.bounds.midY,
                 width: 0,
                 height: 0
             )

@@ -343,6 +343,7 @@ struct DictionaryView: View {
             }
             .navigationDestination(for: Card.self) { card in
                 CardDetailView(card: card, onDeleted: { Task { await store.load() } })
+                    .id(card.slug)
             }
             .sheet(isPresented: $showCreate) {
                 CardCreateView { Task { await store.load() } }
@@ -364,22 +365,33 @@ struct DictionaryView: View {
             .onAppear {
                 learner.reloadIfNeeded()
                 store.syncFromCache()
+                openPendingCardIfAvailable()
             }
             .task {
+                openPendingCardIfAvailable()
                 if store.cards.isEmpty {
                     await store.load()
                 } else {
                     await store.refresh()
                 }
-                openPendingCardIfAvailable()
+                openPendingCardIfAvailable(clearIfMissing: true)
             }
             .task(id: "cache-sync") {
                 for await _ in NotificationCenter.default.notifications(named: AppCache.cardsDidChangeNotification) {
                     store.syncFromCache()
+                    openPendingCardIfAvailable()
                 }
             }
-            .onChange(of: router.pendingCardSlug) { _, _ in
-                openPendingCardIfAvailable()
+            .onChange(of: router.pendingCardSlug) { _, slug in
+                guard let slug else { return }
+                if !openPendingCardIfAvailable() {
+                    Task {
+                        await store.refresh()
+                        if router.pendingCardSlug == slug {
+                            openPendingCardIfAvailable(clearIfMissing: true)
+                        }
+                    }
+                }
             }
             .onChange(of: languageRaw) { _, _ in
                 if !searchText.isEmpty { searchText = "" }
@@ -398,14 +410,20 @@ struct DictionaryView: View {
         }
     }
 
-    private func openPendingCardIfAvailable() {
-        guard let slug = router.pendingCardSlug,
-              let card = store.cards.first(where: { $0.slug == slug })
-        else { return }
+    @discardableResult
+    private func openPendingCardIfAvailable(clearIfMissing: Bool = false) -> Bool {
+        guard let slug = router.pendingCardSlug else { return false }
+        guard let card = store.cards.first(where: { $0.slug == slug }) else {
+            if clearIfMissing {
+                router.pendingCardSlug = nil
+            }
+            return false
+        }
         languageRaw = card.cardLanguage.rawValue
         navigationPath = NavigationPath()
         navigationPath.append(card)
         router.pendingCardSlug = nil
+        return true
     }
 
     @ViewBuilder private var content: some View {
@@ -885,6 +903,8 @@ struct LevelBadge: View {
     var body: some View {
         Text(level.label)
             .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(level.tint.opacity(0.15), in: Capsule())

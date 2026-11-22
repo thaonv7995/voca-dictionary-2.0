@@ -8,6 +8,7 @@ struct CardDetailView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(LocalLearnerStore.self) private var learner
 
+    private let initialCard: Card
     var onDeleted: () -> Void = {}
 
     @State private var card: Card
@@ -23,6 +24,7 @@ struct CardDetailView: View {
     private let cards = CardsService()
 
     init(card: Card, onDeleted: @escaping () -> Void = {}) {
+        self.initialCard = card
         _card = State(initialValue: card)
         _selectedLevel = State(initialValue: CardLevel(card.level) ?? .new)
         self.onDeleted = onDeleted
@@ -93,6 +95,10 @@ struct CardDetailView: View {
         }
         .sheet(isPresented: $showA4Sheet) {
             A4SheetView(card: card)
+        }
+        .onChange(of: initialCard) { _, updated in
+            card = updated
+            selectedLevel = CardLevel(updated.level) ?? .new
         }
     }
 
@@ -259,7 +265,9 @@ struct CardDetailView: View {
     }
 
     private var chineseInfoCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let hasMeaning = !(card.meaningVi ?? "").isEmpty
+        let hasChips = !(card.partOfSpeech ?? "").isEmpty || !(card.topic ?? "").isEmpty
+        return VStack(alignment: .leading, spacing: 12) {
             if let meaning = card.meaningVi, !meaning.isEmpty {
                 HStack(alignment: .top, spacing: 12) {
                     VocaIconBadge(systemImage: "character.book.closed.fill", size: 34, iconSize: 15)
@@ -273,11 +281,21 @@ struct CardDetailView: View {
                 }
             }
 
-            Divider().opacity(0.6)
+            if hasMeaning {
+                Divider().opacity(0.6)
+            }
+
+            if hasChips {
+                VocaFlowLayout(spacing: 8) {
+                    if let pos = card.partOfSpeech, !pos.isEmpty { metaChip(pos) }
+                    if let topic = card.topic, !topic.isEmpty { Badge(text: topic) }
+                }
+            }
 
             HStack(spacing: 8) {
-                if let pos = card.partOfSpeech, !pos.isEmpty { metaChip(pos) }
-                if let topic = card.topic, !topic.isEmpty { Badge(text: topic) }
+                Label("Cấp độ ghi nhớ", systemImage: "chart.bar.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
                 Spacer(minLength: 4)
                 if isUpdatingLevel { ProgressView().controlSize(.small) }
                 Picker("Cấp độ", selection: $selectedLevel) {
@@ -310,6 +328,7 @@ struct CardDetailView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                             PronounceButton(text: example.hanzi, language: .chinese, size: 30, font: .subheadline, tintedCapsule: true)
+                                .id("zh-ex-\(index)-\(example.hanzi)")
                         }
                         if let pinyin = example.pinyin {
                             Text(pinyin)
@@ -347,6 +366,7 @@ struct CardDetailView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                         PronounceButton(text: spoken, language: card.cardLanguage, size: 28, font: .footnote, tintedCapsule: true)
+                            .id("en-ex-\(index)-\(spoken)")
                     }
                     if index < examples.count - 1 {
                         Divider().opacity(0.4)
@@ -359,7 +379,7 @@ struct CardDetailView: View {
     }
 
     @ViewBuilder private var useCasesSection: some View {
-        let useCases = (card.useCases ?? []).filter { !$0.isEmpty }
+        let useCases = Self.uniqueNonEmpty(card.useCases)
         if !useCases.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeader("Cách dùng", icon: "list.bullet")
@@ -377,7 +397,7 @@ struct CardDetailView: View {
     }
 
     @ViewBuilder private var tagsSection: some View {
-        let tags = (card.tags ?? []).filter { !$0.isEmpty }
+        let tags = Self.uniqueNonEmpty(card.tags)
         if !tags.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 sectionHeader("Thẻ", icon: "tag")
@@ -388,6 +408,17 @@ struct CardDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .brandCard()
         }
+    }
+
+    private static func uniqueNonEmpty(_ items: [String]?) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for raw in items ?? [] {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
+            result.append(trimmed)
+        }
+        return result
     }
 
     // MARK: - Delete
@@ -472,7 +503,8 @@ struct CardDetailView: View {
     }
 
     private func updateLevel(to newValue: CardLevel) {
-        guard CardLevel(card.level) != newValue else { return }
+        let currentLevel = CardLevel(card.level) ?? .new
+        guard currentLevel != newValue else { return }
         isUpdatingLevel = true
         errorMessage = nil
         Haptics.selection()
@@ -481,7 +513,7 @@ struct CardDetailView: View {
                 card = try await cards.setLevel(slug: card.slug, level: newValue.rawValue)
             } catch {
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
-                selectedLevel = CardLevel(card.level) ?? selectedLevel
+                selectedLevel = CardLevel(card.level) ?? .new
             }
             isUpdatingLevel = false
         }
