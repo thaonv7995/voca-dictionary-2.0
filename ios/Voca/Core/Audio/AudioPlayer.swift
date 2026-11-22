@@ -18,6 +18,7 @@ final class AudioPlayer: NSObject {
     private var activeUtterance: AVSpeechUtterance?
     private var finishContinuation: CheckedContinuation<AudioPlaybackResult, Never>?
     private var interruptionObserver: NSObjectProtocol?
+    var keepSessionActiveInBackground = false
 
     private static var cachedSpeechVoices: [AVSpeechSynthesisVoice]?
 
@@ -139,7 +140,50 @@ final class AudioPlayer: NSObject {
     }
 
     func stop() {
-        stop(deactivateSession: true)
+        stop(deactivateSession: !keepSessionActiveInBackground)
+    }
+
+    /// Plays an in-memory silent PCM WAV buffer for `duration` seconds.
+    /// Keeps `AVAudioPlayer` and `AVAudioSession` actively running in hardware during background
+    /// thinking pauses so iOS never suspends the process while the screen is locked.
+    @discardableResult
+    func playSilenceAndWait(duration: TimeInterval) async -> AudioPlaybackResult {
+        let clamped = max(0.15, min(15.0, duration))
+        let wavData = Self.makeSilentWavData(duration: clamped)
+        return await playAndWait(wavData)
+    }
+
+    private static func makeSilentWavData(duration: TimeInterval) -> Data {
+        let sampleRate: UInt32 = 8000
+        let numSamples = max(1, UInt32((duration * Double(sampleRate)).rounded()))
+        let dataSize = numSamples * 2 // 16-bit mono
+        let totalFileSize = 36 + dataSize
+
+        var header = Data(capacity: 44 + Int(dataSize))
+        header.append(contentsOf: [0x52, 0x49, 0x46, 0x46]) // "RIFF"
+        var chunkSizeLE = totalFileSize.littleEndian
+        header.append(Data(bytes: &chunkSizeLE, count: 4))
+        header.append(contentsOf: [0x57, 0x41, 0x56, 0x45]) // "WAVE"
+        header.append(contentsOf: [0x66, 0x6D, 0x74, 0x20]) // "fmt "
+        var subchunk1Size = UInt32(16).littleEndian
+        header.append(Data(bytes: &subchunk1Size, count: 4))
+        var audioFormat = UInt16(1).littleEndian // PCM
+        header.append(Data(bytes: &audioFormat, count: 2))
+        var numChannels = UInt16(1).littleEndian // Mono
+        header.append(Data(bytes: &numChannels, count: 2))
+        var sampleRateLE = sampleRate.littleEndian
+        header.append(Data(bytes: &sampleRateLE, count: 4))
+        var byteRateLE = (sampleRate * 2).littleEndian
+        header.append(Data(bytes: &byteRateLE, count: 4))
+        var blockAlign = UInt16(2).littleEndian
+        header.append(Data(bytes: &blockAlign, count: 2))
+        var bitsPerSample = UInt16(16).littleEndian
+        header.append(Data(bytes: &bitsPerSample, count: 2))
+        header.append(contentsOf: [0x64, 0x61, 0x74, 0x61]) // "data"
+        var subchunk2Size = dataSize.littleEndian
+        header.append(Data(bytes: &subchunk2Size, count: 4))
+        header.append(Data(count: Int(dataSize)))
+        return header
     }
 
     private func stop(deactivateSession: Bool) {
@@ -158,7 +202,13 @@ final class AudioPlayer: NSObject {
     private func makeUtterance(_ text: String, languageCode: String) -> AVSpeechUtterance {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = Self.bestSystemVoice(forLanguageCode: languageCode)
-        utterance.rate = languageCode.hasPrefix("zh") ? 0.45 : AVSpeechUtteranceDefaultSpeechRate
+        if languageCode.hasPrefix("zh") {
+            utterance.rate = 0.45
+        } else if languageCode.hasPrefix("vi") {
+            utterance.rate = 0.50
+        } else {
+            utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        }
         return utterance
     }
 
@@ -176,7 +226,7 @@ final class AudioPlayer: NSObject {
 
     private static func bestSystemVoice(forLanguageCode languageCode: String) -> AVSpeechSynthesisVoice? {
         let preferredCode = languageCode.lowercased()
-        let prefix = preferredCode.hasPrefix("zh") ? "zh" : "en"
+        let prefix = String(preferredCode.split(separator: "-").first ?? Substring(preferredCode.prefix(2)))
         let allVoices = cachedSpeechVoices ?? {
             let loaded = AVSpeechSynthesisVoice.speechVoices()
             cachedSpeechVoices = loaded
@@ -208,11 +258,16 @@ final class AudioPlayer: NSObject {
     }
 
     private func prepareSession() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try? AVAudioSession.sharedInstance().setCategory(
+            .playback,
+            mode: .spokenAudio,
+            options: [.allowBluetoothA2DP, .allowAirPlay]
+        )
         try? AVAudioSession.sharedInstance().setActive(true)
     }
 
     private func deactivateSessionIfIdle() {
+        guard !keepSessionActiveInBackground else { return }
         guard player == nil, activeUtterance == nil, !synthesizer.isSpeaking else { return }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }

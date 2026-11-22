@@ -61,6 +61,8 @@ targets:
         UIAppFonts:
           - NotoSerifSC-Regular.otf
           - NotoSerifSC-Bold.otf
+        UIBackgroundModes:
+          - audio
         # Allow cleartext HTTP to the local dev backend (http://localhost:22052).
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

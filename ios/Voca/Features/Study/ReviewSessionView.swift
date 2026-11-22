@@ -23,6 +23,7 @@ struct ReviewSessionView: View {
     @State private var gradeBreakdown: [ReviewGrade: Int] = [:]
     @State private var reverseMode = ThemeStore.shared.reverseFlashcardMode
     @State private var autoSpeak = ThemeStore.shared.autoSpeakFlashcard
+    @State private var showRadioSheet = false
 
     init(items: [DueItem]) {
         self.mode = .dueReview
@@ -73,6 +74,11 @@ struct ReviewSessionView: View {
             }
         }
         .tint(Brand.green)
+        .sheet(isPresented: $showRadioSheet) {
+            VocabRadioSheet()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Active session
@@ -173,6 +179,27 @@ struct ReviewSessionView: View {
                         theme.autoSpeakFlashcard = autoSpeak
                     }
 
+                    headerIconButton(
+                        "headphones",
+                        active: VocabRadioPlayer.shared.isActive,
+                        label: "Đài phát từ vựng chạy nền"
+                    ) {
+                        Haptics.impact(.light)
+                        theme.autoAdvanceFlashcard = false
+                        let cardsToPlay: [Card]
+                        let radioTitle: String
+                        switch mode {
+                        case .dueReview:
+                            cardsToPlay = dueItems.map(\.card)
+                            radioTitle = "Ôn tập FSRS"
+                        case .freeBrowse(let title):
+                            cardsToPlay = browseCards
+                            radioTitle = title
+                        }
+                        VocabRadioPlayer.shared.start(cards: cardsToPlay, title: radioTitle, shuffle: false)
+                        showRadioSheet = true
+                    }
+
                     if activeCount > 1 {
                         headerIconButton(
                             theme.autoAdvanceFlashcard ? "pause.fill" : "play.fill",
@@ -245,7 +272,9 @@ struct ReviewSessionView: View {
 
     private var closeButton: some View {
         Button {
-            AudioPlayer.shared.stop()
+            if !VocabRadioPlayer.shared.isActive {
+                AudioPlayer.shared.stop()
+            }
             dismiss()
         } label: {
             Image(systemName: "xmark")

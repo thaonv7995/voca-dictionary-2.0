@@ -10,6 +10,7 @@ struct VocaApp: App {
     init() {
         let authStore = AuthStore()
         authStore.onDidSignOut = {
+            VocabRadioPlayer.shared.stop()
             AudioPlayer.shared.stop()
             AudioPrefetchManager.shared.cancel()
             VoiceSettingsStore.shared.reset()

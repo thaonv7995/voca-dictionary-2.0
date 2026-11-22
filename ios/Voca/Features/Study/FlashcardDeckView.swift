@@ -433,7 +433,9 @@ struct FlashcardDeckView: View {
     private func stopSpeech() {
         speakTask?.cancel()
         speakTask = nil
-        AudioPlayer.shared.stop()
+        if !VocabRadioPlayer.shared.isActive {
+            AudioPlayer.shared.stop()
+        }
     }
 
     private func prepareNextCycleIfNeeded() {
@@ -1207,7 +1209,9 @@ struct FreeFlashcardDeckView: View {
     private func stopSpeech() {
         speakTask?.cancel()
         speakTask = nil
-        AudioPlayer.shared.stop()
+        if !VocabRadioPlayer.shared.isActive {
+            AudioPlayer.shared.stop()
+        }
     }
 }
 

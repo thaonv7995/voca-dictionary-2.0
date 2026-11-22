@@ -6,6 +6,8 @@ struct HomeView: View {
     @Environment(AppRouter.self) private var router
     @Environment(ThemeStore.self) private var theme
     @State private var selectedSection: HomeSection? = .today
+    @State private var radio = VocabRadioPlayer.shared
+    @State private var showGlobalRadioSheet = false
 
     var body: some View {
         Group {
@@ -44,6 +46,20 @@ struct HomeView: View {
             }
         }
         .tint(theme.accent)
+        .sheet(isPresented: $showGlobalRadioSheet) {
+            VocabRadioSheet()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .safeAreaInset(edge: .bottom) {
+            if radio.isActive && selectedSection != .study {
+                VocabRadioMiniBar {
+                    showGlobalRadioSheet = true
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, horizontalSizeClass == .regular ? 12 : 56)
+            }
+        }
         .onChange(of: router.pendingCardSlug) { _, slug in
             if slug != nil { selectedSection = .dictionary }
         }

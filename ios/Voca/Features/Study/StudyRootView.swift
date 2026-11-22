@@ -12,8 +12,10 @@ struct StudyRootView: View {
     @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
 
     @State private var model = StudyModel()
+    @State private var radio = VocabRadioPlayer.shared
     @State private var showReviewSession = false
     @State private var activeBrowseSession: BrowseWrapper?
+    @State private var showRadioSheet = false
     @State private var showPreferences = false
     @State private var showAllTopics = false
     @State private var dayRefreshToken = UUID()
@@ -140,6 +142,20 @@ struct StudyRootView: View {
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $showRadioSheet) {
+                VocabRadioSheet()
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
+            .safeAreaInset(edge: .bottom) {
+                if radio.isActive {
+                    VocabRadioMiniBar {
+                        showRadioSheet = true
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                }
+            }
             .fullScreenCover(isPresented: $showReviewSession, onDismiss: {
                 Task { await model.load() }
             }) {
@@ -177,6 +193,7 @@ struct StudyRootView: View {
                     HStack(alignment: .top, spacing: 20) {
                         VStack(spacing: 20) {
                             fsrsHeroCard
+                            audioRadioCard
                             quickDecksSection
                         }
                         .frame(minWidth: 340, maxWidth: .infinity)
@@ -193,6 +210,7 @@ struct StudyRootView: View {
 
                     VStack(spacing: 18) {
                         fsrsHeroCard
+                        audioRadioCard
                         quickDecksSection
                         levelsSection
                         if !topicGroups.isEmpty {
@@ -214,6 +232,7 @@ struct StudyRootView: View {
                 }
 
                 fsrsHeroCard
+                audioRadioCard
                 quickDecksSection
                 levelsSection
                 if !topicGroups.isEmpty {
@@ -373,6 +392,116 @@ struct StudyRootView: View {
             }
         }
         .brandHeroCard(padding: 18, cornerRadius: 22)
+    }
+
+    // MARK: - 1b. Hands-Free Audio Radio Card
+
+    @ViewBuilder private var audioRadioCard: some View {
+        let dueCards = dueItems.map(\.card)
+
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                VocaIconBadge(systemImage: "headphones", tint: Brand.green, size: 42, iconSize: 19)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("Đài phát từ vựng (Audio Radio)")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(.primary)
+                        if radio.isActive {
+                            Text("ĐANG PHÁT")
+                                .font(.system(size: 9.5, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Brand.green, in: Capsule())
+                        }
+                    }
+                    Text("Đọc từ (\(radio.wordRepeatCount)x) → Nghỉ \(ThemeStore.formatDelay(radio.thinkingDelaySeconds, short: true)) nhẩm nghĩa → Nghĩa Việt → Ví dụ · Chạy nền & AirPods")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 4)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if !dueCards.isEmpty {
+                        radioLaunchChip(
+                            title: "Đến hạn (\(dueCards.count))",
+                            icon: "sparkles",
+                            primary: true
+                        ) {
+                            startRadio(cards: dueCards, title: "Đến hạn · \(language.label)")
+                        }
+                    }
+
+                    if !learningCards.isEmpty {
+                        radioLaunchChip(
+                            title: "Chưa vững (\(learningCards.count))",
+                            icon: "flame.fill",
+                            primary: dueCards.isEmpty
+                        ) {
+                            startRadio(cards: learningCards, title: "Chưa vững · \(language.label)")
+                        }
+                    }
+
+                    if !favoriteCards.isEmpty {
+                        radioLaunchChip(
+                            title: "Yêu thích (\(favoriteCards.count))",
+                            icon: "star.fill",
+                            primary: false
+                        ) {
+                            startRadio(cards: favoriteCards, title: "Yêu thích · \(language.label)")
+                        }
+                    }
+
+                    if !languageCards.isEmpty {
+                        radioLaunchChip(
+                            title: "Tất cả (\(languageCards.count))",
+                            icon: "rectangle.stack.fill",
+                            primary: dueCards.isEmpty && learningCards.isEmpty
+                        ) {
+                            startRadio(cards: languageCards, title: "Tất cả · \(language.label)")
+                        }
+                    }
+                }
+            }
+        }
+        .brandCard(padding: 15, cornerRadius: 18)
+    }
+
+    private func radioLaunchChip(
+        title: String,
+        icon: String,
+        primary: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.caption2.weight(.bold))
+                Text(title)
+                    .font(.caption.weight(.bold))
+            }
+            .foregroundStyle(primary ? .white : Brand.green)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                primary ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Brand.greenSoft),
+                in: Capsule()
+            )
+        }
+        .buttonStyle(PressableScaleStyle(scale: 0.95))
+    }
+
+    private func startRadio(cards: [Card], title: String) {
+        guard !cards.isEmpty else { return }
+        Haptics.impact(.medium)
+        radio.start(cards: cards, title: title)
+        showRadioSheet = true
     }
 
     // MARK: - 2. Quick Smart Decks Grid
