@@ -421,6 +421,7 @@ struct VocaWidgetEntryView: View {
 }
 
 private struct HanziWidgetGuide: View {
+    @Environment(\.colorScheme) private var colorScheme
     let word: String
     let size: CGFloat
     let strokes: [String: [String]]
@@ -434,10 +435,18 @@ private struct HanziWidgetGuide: View {
     }
 
     var body: some View {
+        let isDark = colorScheme == .dark
+        let tileFill = isDark ? Color(red: 0.14, green: 0.16, blue: 0.19) : Color.white
+        let borderColor = isDark ? Color.white.opacity(0.16) : Color(red: 0.82, green: 0.85, blue: 0.89)
+        let inkColor = isDark ? Color(red: 0.94, green: 0.96, blue: 0.98) : Color(red: 0.06, green: 0.09, blue: 0.15)
+        let guideColor = isDark
+            ? Color.white.opacity(0.22)
+            : Color(red: 0.55, green: 0.66, blue: 0.79).opacity(0.5)
+
         HStack(spacing: 4) {
             ForEach(Array(characters.enumerated()), id: \.offset) { _, character in
                 ZStack {
-                    RoundedRectangle(cornerRadius: size * 0.12).fill(.white)
+                    RoundedRectangle(cornerRadius: size * 0.12).fill(tileFill)
                     Canvas { context, canvasSize in
                         var horizontal = Path()
                         horizontal.move(to: CGPoint(x: 0, y: canvasSize.height / 2))
@@ -446,7 +455,6 @@ private struct HanziWidgetGuide: View {
                         vertical.move(to: CGPoint(x: canvasSize.width / 2, y: 0))
                         vertical.addLine(to: CGPoint(x: canvasSize.width / 2, y: canvasSize.height))
                         let style = StrokeStyle(lineWidth: 0.85, dash: [3, 3])
-                        let guideColor = Color(red: 0.55, green: 0.66, blue: 0.79).opacity(0.5)
                         context.stroke(horizontal, with: .color(guideColor), style: style)
                         context.stroke(vertical, with: .color(guideColor), style: style)
                     }
@@ -455,22 +463,21 @@ private struct HanziWidgetGuide: View {
                             for svgPath in paths {
                                 if let path = HanziSVGPathParser.path(
                                     from: svgPath, size: min(canvasSize.width, canvasSize.height)) {
-                                    context.fill(path, with: .color(
-                                        Color(red: 0.06, green: 0.09, blue: 0.15)))
+                                    context.fill(path, with: .color(inkColor))
                                 }
                             }
                         }
                     } else {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: max(11, size * 0.18), weight: .semibold))
-                            .foregroundStyle(Color.gray.opacity(0.45))
+                        Text(character)
+                            .font(.system(size: size * 0.68, weight: .bold, design: .serif))
+                            .foregroundStyle(inkColor)
                     }
                 }
                 .frame(width: size, height: size)
                 .clipShape(RoundedRectangle(cornerRadius: size * 0.12))
                 .overlay(RoundedRectangle(cornerRadius: size * 0.12)
-                    .stroke(Color(red: 0.82, green: 0.85, blue: 0.89), lineWidth: 1.5))
-                .shadow(color: .black.opacity(0.07), radius: 2, y: 1)
+                    .stroke(borderColor, lineWidth: 1.5))
+                .shadow(color: .black.opacity(isDark ? 0.22 : 0.07), radius: 2, y: 1)
             }
         }
     }

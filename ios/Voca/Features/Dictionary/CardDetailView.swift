@@ -95,6 +95,7 @@ struct CardDetailView: View {
         }
         .sheet(isPresented: $showA4Sheet) {
             A4SheetView(card: card)
+                .presentationDetents([.large])
         }
         .onChange(of: initialCard) { _, updated in
             card = updated

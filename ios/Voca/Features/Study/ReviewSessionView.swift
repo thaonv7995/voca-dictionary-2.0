@@ -196,6 +196,8 @@ struct ReviewSessionView: View {
             progressBar
         }
         .padding(.horizontal, 16)
+        .frame(maxWidth: 620)
+        .frame(maxWidth: .infinity)
     }
 
     private func shuffleActiveDeck() {

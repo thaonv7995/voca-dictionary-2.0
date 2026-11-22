@@ -361,6 +361,7 @@ struct DictionaryView: View {
             }
             .sheet(item: $a4Card) { card in
                 A4SheetView(card: card)
+                    .presentationDetents([.large])
             }
             .onAppear {
                 learner.reloadIfNeeded()
@@ -776,6 +777,7 @@ private struct CardRow: View {
                     if let level = CardLevel(card.level) {
                         LevelBadge(level: level)
                     }
+                    favoriteButton
                     PronounceButton(
                         text: card.word,
                         language: card.cardLanguage,
@@ -862,6 +864,7 @@ private struct CardRow: View {
                 if let level = CardLevel(card.level) {
                     LevelBadge(level: level)
                 }
+                favoriteButton
                 PronounceButton(
                     text: card.word,
                     language: card.cardLanguage,
@@ -875,6 +878,25 @@ private struct CardRow: View {
             }
             .fixedSize()
         }
+    }
+
+    private var favoriteButton: some View {
+        let isFav = learner.isFavorite(card.slug)
+        return Button {
+            Haptics.selection()
+            learner.toggleFavorite(card.slug)
+        } label: {
+            Image(systemName: isFav ? "star.fill" : "star")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(isFav ? Color.orange : Color.secondary)
+                .frame(width: 28, height: 28)
+                .background(
+                    isFav ? Color.orange.opacity(0.14) : Color(.tertiarySystemFill),
+                    in: Circle()
+                )
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(isFav ? "Bỏ yêu thích" : "Đánh dấu yêu thích")
     }
 }
 

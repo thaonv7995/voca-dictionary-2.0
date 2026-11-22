@@ -34,18 +34,18 @@ final class VocaSmokeUITests: XCTestCase {
 
         app.buttons["Đăng nhập"].tap()
 
-        // --- Signed in: the tab bar appears ---
-        let dictionaryTab = app.tabBars.buttons["Kho từ"]
-        XCTAssertTrue(dictionaryTab.waitForExistence(timeout: 25), "Did not reach the signed-in tab bar (login failed?)")
+        // --- Signed in: the tab bar or iPad sidebar appears ---
+        let dictionaryTab = navigationButton(in: app, title: "Kho từ")
+        XCTAssertTrue(dictionaryTab.waitForExistence(timeout: 25), "Did not reach the signed-in navigation (login failed?)")
 
         // Default tab is now "Hôm nay" — give the network a moment to load stats/cards.
         Thread.sleep(forTimeInterval: 3)
         snapshot(app, "01-today")
 
         tapTabAndSnapshot(app, tab: "Kho từ", name: "02-dictionary")
-        tapTabAndSnapshot(app, tab: "Học", name: "03-study")
+        tapTabAndSnapshot(app, tab: "Ôn tập", name: "03-study")
         // Enter the swipe-flashcard deck if there are due cards.
-        let startReview = app.buttons["Bắt đầu ôn tập"]
+        let startReview = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Bắt đầu ôn tập")).firstMatch
         if startReview.waitForExistence(timeout: 5), startReview.isEnabled {
             startReview.tap()
             Thread.sleep(forTimeInterval: 2)
@@ -53,7 +53,7 @@ final class VocaSmokeUITests: XCTestCase {
             let close = app.buttons["Đóng"].firstMatch
             if close.waitForExistence(timeout: 3) { close.tap(); Thread.sleep(forTimeInterval: 1) }
         }
-        tapTabAndSnapshot(app, tab: "Trợ lý", name: "04-assistant")
+        tapTabAndSnapshot(app, tab: "Trợ lý", fallbackTitle: "Trợ lý AI", name: "04-assistant")
         tapTabAndSnapshot(app, tab: "Hồ sơ", name: "05-profile")
     }
 
@@ -78,8 +78,9 @@ final class VocaSmokeUITests: XCTestCase {
             XCTAssertTrue(pass.waitForExistence(timeout: 5)); pass.tap(); pass.typeText(password)
             app.buttons["Đăng nhập"].tap()
         }
-        XCTAssertTrue(app.tabBars.buttons["Trợ lý"].waitForExistence(timeout: 25))
-        app.tabBars.buttons["Trợ lý"].tap()
+        let assistantTab = navigationButton(in: app, title: "Trợ lý", fallbackTitle: "Trợ lý AI")
+        XCTAssertTrue(assistantTab.waitForExistence(timeout: 25))
+        assistantTab.tap()
         Thread.sleep(forTimeInterval: 1)
 
         // 1. Chat
@@ -162,8 +163,22 @@ final class VocaSmokeUITests: XCTestCase {
         if element.waitForExistence(timeout: 5), element.isHittable { element.tap() }
     }
 
-    private func tapTabAndSnapshot(_ app: XCUIApplication, tab: String, name: String) {
-        let button = app.tabBars.buttons[tab]
+    private func navigationButton(in app: XCUIApplication, title: String, fallbackTitle: String? = nil) -> XCUIElement {
+        let tabButton = app.tabBars.buttons[title]
+        if tabButton.exists { return tabButton }
+        if let fallbackTitle {
+            let fallbackTab = app.tabBars.buttons[fallbackTitle]
+            if fallbackTab.exists { return fallbackTab }
+            let sidebarFallback = app.buttons[fallbackTitle]
+            if sidebarFallback.exists { return sidebarFallback }
+        }
+        let directButton = app.buttons[title]
+        if directButton.exists { return directButton }
+        return tabButton
+    }
+
+    private func tapTabAndSnapshot(_ app: XCUIApplication, tab: String, fallbackTitle: String? = nil, name: String) {
+        let button = navigationButton(in: app, title: tab, fallbackTitle: fallbackTitle)
         XCTAssertTrue(button.waitForExistence(timeout: 10), "Tab '\(tab)' not found")
         button.tap()
         Thread.sleep(forTimeInterval: 2)

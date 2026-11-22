@@ -256,7 +256,7 @@ struct SettingsRootView: View {
         } header: {
             Text("Giao diện & Chủ đề")
         } footer: {
-            Text("Thay đổi áp dụng ngay lập tức trên toàn bộ ứng dụng iOS.")
+            Text("Thay đổi áp dụng ngay lập tức trên toàn bộ ứng dụng.")
         }
     }
 
@@ -367,7 +367,7 @@ struct SettingsRootView: View {
 
                 ttsTestButtons
 
-                Text("Mẹo: Vào Cài đặt iPhone → Trợ năng → Nội dung được đọc → Giọng nói để tải giọng Enhanced / Premium.")
+                Text("Mẹo: Vào Cài đặt thiết bị → Trợ năng → Nội dung được đọc → Giọng nói để tải giọng Enhanced / Premium.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

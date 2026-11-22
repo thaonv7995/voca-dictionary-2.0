@@ -50,24 +50,24 @@ struct AssistantRootView: View {
             ZStack {
                 VocaThemeBackground()
 
-                GeometryReader { geo in
-                    if horizontalSizeClass == .regular && geo.size.width >= 700 {
-                        HStack(spacing: 0) {
-                            modeSidebar
-                            Divider()
-                            modeContent
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                    } else {
-                        VStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    if horizontalSizeClass == .regular {
+                        HStack(spacing: 12) {
                             CardLanguagePicker(selection: $languageRaw)
-                                .padding(.horizontal)
-                                .padding(.top, 8)
+                                .frame(width: 240)
                             modePicker
-                            Divider().opacity(0.6)
-                            modeContent
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 6)
+                    } else {
+                        CardLanguagePicker(selection: $languageRaw)
+                            .padding(.horizontal)
+                            .padding(.top, 8)
+                        modePicker
                     }
+                    Divider().opacity(0.6)
+                    modeContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .navigationTitle("Trợ lý AI")

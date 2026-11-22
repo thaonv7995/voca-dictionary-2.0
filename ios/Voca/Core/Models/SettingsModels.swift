@@ -25,6 +25,15 @@ enum VoicePreset {
         ("edge-tts/en-US-AndrewNeural", "Andrew (US · M)"),
         ("edge-tts/en-US-EmmaNeural", "Emma (US · F)"),
         ("edge-tts/en-US-BrianNeural", "Brian (US · M)"),
+        ("edge-tts/en-US-JennyNeural", "Jenny (US · F)"),
+        ("edge-tts/en-US-GuyNeural", "Guy (US · M)"),
+        ("edge-tts/en-US-AriaNeural", "Aria (US · F)"),
+        ("edge-tts/en-GB-SoniaNeural", "Sonia (UK · F)"),
+        ("edge-tts/en-GB-RyanNeural", "Ryan (UK · M)"),
+        ("edge-tts/en-GB-LibbyNeural", "Libby (UK · F)"),
+        ("edge-tts/en-AU-NatashaNeural", "Natasha (AU · F)"),
+        ("edge-tts/en-AU-WilliamNeural", "William (AU · M)"),
+        ("edge-tts/en-CA-ClaraNeural", "Clara (CA · F)"),
     ]
 }
 

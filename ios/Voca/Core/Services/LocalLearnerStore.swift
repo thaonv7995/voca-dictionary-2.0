@@ -70,6 +70,12 @@ final class LocalLearnerStore {
         favoriteSlugs.contains(slug)
     }
 
+    func removeFavorite(_ slug: String) {
+        reloadIfNeeded()
+        guard favoriteSlugs.remove(slug) != nil else { return }
+        defaults.set(Array(favoriteSlugs).sorted(), forKey: scopedKey("favorites"))
+    }
+
     @discardableResult
     func toggleFavorite(_ slug: String) -> Bool {
         reloadIfNeeded()

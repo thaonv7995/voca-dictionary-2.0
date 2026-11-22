@@ -47,6 +47,9 @@ struct HomeView: View {
         .onChange(of: router.pendingCardSlug) { _, slug in
             if slug != nil { selectedSection = .dictionary }
         }
+        .onChange(of: router.todayNavigationTrigger) { _, trigger in
+            if trigger != nil { selectedSection = .today }
+        }
         .onAppear {
             if router.pendingCardSlug != nil { selectedSection = .dictionary }
         }

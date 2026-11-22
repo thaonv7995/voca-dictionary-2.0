@@ -134,6 +134,11 @@ struct CardsService {
         await CardsListRequestPool.shared.invalidate()
         await StudyService.invalidatePendingRequests()
         AppCache.removeCard(slug: slug)
+        #if !os(macOS)
+        await MainActor.run {
+            LocalLearnerStore.shared.removeFavorite(slug)
+        }
+        #endif
     }
 
     /// Fetches the A4 study sheet HTML for the card, caching it offline and falling back to cache on error.

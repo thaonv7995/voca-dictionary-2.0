@@ -203,7 +203,7 @@ struct FlashcardDeckView: View {
                         isTop: false,
                         reverseMode: reverseMode
                     )
-                    .frame(maxWidth: 520)
+                    .frame(maxWidth: 520, maxHeight: 640)
                     .scaleEffect(0.95 + 0.05 * verticalProgress)
                     .offset(y: -pageHeight + verticalY)
                     .allowsHitTesting(false)
@@ -222,7 +222,7 @@ struct FlashcardDeckView: View {
                         isTop: false,
                         reverseMode: reverseMode
                     )
-                    .frame(maxWidth: 520)
+                    .frame(maxWidth: 520, maxHeight: 640)
                     .scaleEffect(nextScale)
                     .offset(y: nextY)
                     .allowsHitTesting(false)
@@ -238,7 +238,7 @@ struct FlashcardDeckView: View {
                         isTop: true,
                         reverseMode: reverseMode
                     )
-                    .frame(maxWidth: 520)
+                    .frame(maxWidth: 520, maxHeight: 640)
                     .overlay {
                         if let previewGrade {
                             RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -395,6 +395,8 @@ struct FlashcardDeckView: View {
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 10)
+        .frame(maxWidth: 560)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder private func errorBanner(_ message: String) -> some View {
@@ -695,6 +697,7 @@ struct FreeFlashcardDeckView: View {
     @State private var isAutoAdvancing = false
     @State private var nextCycleDeck: [Card] = []
     @State private var deckPageHeight: CGFloat = 560
+    @State private var deckPageWidth: CGFloat = 560
     @State private var autoFlipTask: Task<Void, Never>?
     @State private var autoAdvanceTask: Task<Void, Never>?
     @State private var transitionTask: Task<Void, Never>?
@@ -760,7 +763,7 @@ struct FreeFlashcardDeckView: View {
                             isTop: false,
                             reverseMode: reverseMode
                         )
-                        .frame(maxWidth: 520)
+                        .frame(maxWidth: 520, maxHeight: 640)
                         .scaleEffect(prevScale)
                         .offset(y: prevY)
                         .allowsHitTesting(false)
@@ -779,7 +782,7 @@ struct FreeFlashcardDeckView: View {
                             isTop: false,
                             reverseMode: reverseMode
                         )
-                        .frame(maxWidth: 520)
+                        .frame(maxWidth: 520, maxHeight: 640)
                         .scaleEffect(nextScale)
                         .offset(y: nextY)
                         .allowsHitTesting(false)
@@ -795,7 +798,7 @@ struct FreeFlashcardDeckView: View {
                             isTop: true,
                             reverseMode: reverseMode
                         )
-                        .frame(maxWidth: 520)
+                        .frame(maxWidth: 520, maxHeight: 640)
                         .scaleEffect(currentScale)
                         .offset(x: horizontalMode ? off.width : off.width * 0.18, y: verticalY)
                         .rotationEffect(.degrees(horizontalMode ? Double(off.width / 24) : 0))
@@ -820,14 +823,20 @@ struct FreeFlashcardDeckView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.horizontal, 20)
                 .clipped()
-                .onAppear { deckPageHeight = pageHeight }
+                .onAppear {
+                    deckPageHeight = pageHeight
+                    deckPageWidth = max(geo.size.width + 80, 560)
+                }
                 .onChange(of: pageHeight) { _, newHeight in deckPageHeight = newHeight }
+                .onChange(of: geo.size.width) { _, newWidth in deckPageWidth = max(newWidth + 80, 560) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             controlsBar
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
         }
         .onAppear {
             prepareNextCycleIfNeeded()
@@ -954,11 +963,11 @@ struct FreeFlashcardDeckView: View {
                     }
                 } else {
                     if (t.width < -65 || pred.width < -170) && cards.count > 1 {
-                        advanceNext(horizontalExit: -560)
+                        advanceNext(horizontalExit: -deckPageWidth)
                         return
                     }
                     if (t.width > 65 || pred.width > 170) && index > 0 {
-                        moveBackward(horizontalExit: 560)
+                        moveBackward(horizontalExit: deckPageWidth)
                         return
                     }
                 }

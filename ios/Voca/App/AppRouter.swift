@@ -5,6 +5,7 @@ import Observation
 @Observable
 final class AppRouter {
     var pendingCardSlug: String?
+    var todayNavigationTrigger: UUID?
     @ObservationIgnored private var speakTask: Task<Void, Never>?
 
     func open(_ url: URL) {
@@ -38,6 +39,7 @@ final class AppRouter {
 
         case "today":
             pendingCardSlug = nil
+            todayNavigationTrigger = UUID()
 
         default:
             break
