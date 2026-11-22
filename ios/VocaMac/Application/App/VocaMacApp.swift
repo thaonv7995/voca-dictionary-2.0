@@ -8,14 +8,14 @@ extension CardsService: @unchecked Sendable {}
 
 @main
 struct VocaMacApp: App {
-    @ViewState private var router = MacAppRouter()
-    @ViewState private var session = MacSessionStore()
-    @ViewState private var preferences = MacPreferencesStore()
+    @ViewState private var router: MacAppRouter
+    @ViewState private var session: MacSessionStore
+    @ViewState private var preferences: MacPreferencesStore
     @ViewState private var ledger: MacActivityLedger
     @ViewState private var vocabulary: MacVocabularyStore
     @ViewState private var review: MacReviewStore
     @ViewState private var today: MacTodayStore
-    @ViewState private var speech = MacSpeechService()
+    @ViewState private var speech: MacSpeechService
 
     init() {
         VocaDesign.ensureChineseFontsRegistered()
@@ -27,6 +27,15 @@ struct VocaMacApp: App {
         let initialReview = MacReviewStore(ledger: activityLedger)
         let initialToday = MacTodayStore(ledger: activityLedger)
         let initialSpeech = MacSpeechService()
+
+        initialSession.onDidSignOut = {
+            initialSpeech.stop()
+            MacQuickLookupPanelController.shared.dismissFloatingPanel()
+            activityLedger.resetInMemoryState()
+            initialVocabulary.resetForSignOut()
+            initialReview.resetForSignOut()
+            initialToday.resetForSignOut(dailyGoal: initialPreferences.dailyGoal)
+        }
 
         _router = State(initialValue: initialRouter)
         _session = State(initialValue: initialSession)
@@ -40,12 +49,14 @@ struct VocaMacApp: App {
         Task { @MainActor in
             MacQuickLookupPanelController.shared.configure(
                 router: initialRouter,
+                session: initialSession,
                 vocabulary: initialVocabulary,
                 speech: initialSpeech,
                 preferences: initialPreferences
             )
             await initialSession.bootstrap()
             if initialSession.isSignedIn {
+                activityLedger.reloadForCurrentAccount()
                 async let todayTask: Void = initialToday.load(
                     dailyGoal: initialPreferences.dailyGoal
                 )
@@ -216,6 +227,7 @@ struct VocaMacApp: App {
 
         Settings {
             MacSettingsView()
+                .environment(session)
                 .environment(preferences)
                 .environment(speech)
                 .tint(VocaDesign.brandGreen)
@@ -239,8 +251,12 @@ private struct MacRootView: View {
     @Environment(MacAppRouter.self) private var router
     @Environment(MacSessionStore.self) private var session
     @Environment(MacPreferencesStore.self) private var preferences
+    @Environment(MacActivityLedger.self) private var ledger
     @Environment(MacVocabularyStore.self) private var vocabulary
+    @Environment(MacReviewStore.self) private var review
+    @Environment(MacTodayStore.self) private var today
     @Environment(MacSpeechService.self) private var speech
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Group {
@@ -270,10 +286,24 @@ private struct MacRootView: View {
             MacSystemIntegrations.updateLaunchAtLogin(enabled: preferences.launchAtLogin)
             MacQuickLookupPanelController.shared.configure(
                 router: router,
+                session: session,
                 vocabulary: vocabulary,
                 speech: speech,
-                preferences: preferences
+                preferences: preferences,
+                openMainWorkspace: {
+                    openWindow(id: "main-workspace")
+                }
             )
+        }
+        .onChange(of: session.phase) { _, newPhase in
+            guard case .signedIn = newPhase else { return }
+            ledger.reloadForCurrentAccount()
+            Task {
+                async let todayTask: Void = today.load(dailyGoal: preferences.dailyGoal)
+                async let reviewTask: Void = review.load()
+                async let vocabTask: Void = vocabulary.load()
+                _ = await (todayTask, reviewTask, vocabTask)
+            }
         }
     }
 }
@@ -427,25 +457,12 @@ private struct MacLoginView: View {
                         .disabled(session.isSigningIn)
                         .keyboardShortcut(.return, modifiers: .command)
 
-                        HStack(spacing: 16) {
-                            Button("Chưa có tài khoản? Đăng ký") {
-                                showRegisterSheet = true
-                            }
-                            .buttonStyle(.plain)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(VocaDesign.brandGreen)
-
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-
-                            Button("Dùng thử Preview") {
-                                session.usePreviewAccount()
-                            }
-                            .buttonStyle(.plain)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .disabled(session.isSigningIn)
+                        Button("Chưa có tài khoản? Đăng ký") {
+                            showRegisterSheet = true
                         }
+                        .buttonStyle(.plain)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(VocaDesign.brandGreen)
                     }
 
                     Divider()
@@ -1980,21 +1997,45 @@ struct MacQuickLookupView: View {
                             .foregroundStyle(.secondary)
 
                         ForEach(Array(item.examples.prefix(2).enumerated()), id: \.offset) { _, example in
+                            let parsed = item.language == .chinese ? ChineseExample(example) : nil
+                            let spokenText = parsed?.hanzi ?? example
                             HStack(alignment: .top, spacing: 8) {
                                 RoundedRectangle(cornerRadius: 1.5)
                                     .fill(VocaDesign.brandGreen.opacity(0.65))
                                     .frame(width: 2.5)
 
-                                Text(example)
-                                    .font(.system(size: 12.5))
-                                    .foregroundStyle(.primary.opacity(0.88))
+                                if let parsed {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(parsed.hanzi)
+                                            .font(VocaDesign.hanziFont(size: 14, weight: .bold))
+                                            .foregroundStyle(.primary)
+                                            .textSelection(.enabled)
+                                        if let pinyin = parsed.pinyin {
+                                            Text(pinyin)
+                                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                                                .foregroundStyle(VocaDesign.brandGreen)
+                                                .textSelection(.enabled)
+                                        }
+                                        if let meaningVi = parsed.meaningVi {
+                                            Text(meaningVi)
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(.secondary)
+                                                .textSelection(.enabled)
+                                        }
+                                    }
                                     .fixedSize(horizontal: false, vertical: true)
-                                    .textSelection(.enabled)
+                                } else {
+                                    Text(example)
+                                        .font(.system(size: 12.5))
+                                        .foregroundStyle(.primary.opacity(0.88))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .textSelection(.enabled)
+                                }
 
                                 Spacer(minLength: 4)
 
                                 Button {
-                                    speech.toggle(example, language: item.language)
+                                    speech.toggle(spokenText, language: item.language)
                                 } label: {
                                     Image(systemName: "speaker.wave.2.fill")
                                         .font(.system(size: 10.5))
@@ -2364,6 +2405,7 @@ struct MacQuickLookupView: View {
 }
 
 private struct MacSettingsView: View {
+    @Environment(MacSessionStore.self) private var session
     @Environment(MacPreferencesStore.self) private var preferences
     @Environment(MacSpeechService.self) private var speech
 
@@ -2656,10 +2698,14 @@ private struct MacSettingsView: View {
                     .buttonStyle(VocaSecondaryButtonStyle())
 
                     Button("Dùng Production") {
+                        let previousURL = AppConfig.baseURL.absoluteString
                         AppConfig.resetToDefault()
                         serverURLInput = AppConfig.baseURL.absoluteString
                         serverCheckMessage = "Đã đặt về máy chủ chính thức (\(serverURLInput))."
                         isServerHealthy = true
+                        if previousURL != serverURLInput, session.isSignedIn {
+                            session.signOut()
+                        }
                     }
                     .buttonStyle(VocaSecondaryButtonStyle())
                 }
@@ -2684,9 +2730,13 @@ private struct MacSettingsView: View {
         serverCheckMessage = nil
 
         Task {
+            let previousURL = AppConfig.baseURL.absoluteString
             let result = await ApiClient.shared.checkHealth(for: serverURLInput)
-            if let validURL = try? AppConfig.setCustomURL(serverURLInput) {
+            if result.ok, let validURL = try? AppConfig.setCustomURL(serverURLInput) {
                 serverURLInput = validURL.absoluteString
+                if previousURL != serverURLInput, session.isSignedIn {
+                    session.signOut()
+                }
             }
             isTestingServer = false
             isServerHealthy = result.ok

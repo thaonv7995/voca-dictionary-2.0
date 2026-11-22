@@ -14,6 +14,7 @@ final class MacSpeechService: NSObject {
 
     private let synthesizer = AVSpeechSynthesizer()
     private var cachedVoices: [MacVocabularyItem.Language: AVSpeechSynthesisVoice] = [:]
+    private var activeUtterance: AVSpeechUtterance?
 
     override init() {
         super.init()
@@ -68,6 +69,7 @@ final class MacSpeechService: NSObject {
             : 0.48
         utterance.pitchMultiplier = 1
 
+        activeUtterance = utterance
         speakingText = normalizedText
         isSpeaking = true
         synthesizer.speak(utterance)
@@ -147,6 +149,7 @@ final class MacSpeechService: NSObject {
     }
 
     private func resetState() {
+        activeUtterance = nil
         speakingText = nil
         isSpeaking = false
     }
@@ -158,6 +161,7 @@ extension MacSpeechService: AVSpeechSynthesizerDelegate {
         didFinish utterance: AVSpeechUtterance
     ) {
         Task { @MainActor in
+            guard utterance === self.activeUtterance else { return }
             resetState()
         }
     }
@@ -167,6 +171,7 @@ extension MacSpeechService: AVSpeechSynthesizerDelegate {
         didCancel utterance: AVSpeechUtterance
     ) {
         Task { @MainActor in
+            guard utterance === self.activeUtterance else { return }
             resetState()
         }
     }

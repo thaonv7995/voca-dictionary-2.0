@@ -290,6 +290,16 @@ final class MacVocabularyStore {
         loadState = .loaded
     }
 
+    func resetForSignOut() {
+        items = []
+        mutatingItemIDs = []
+        loadState = .idle
+        WidgetSharedStore.clear()
+        #if canImport(WidgetKit)
+        WidgetCenter.shared.reloadAllTimelines()
+        #endif
+    }
+
     private func upsert(_ item: MacVocabularyItem) {
         if let index = items.firstIndex(where: {
             $0.id == item.id

@@ -131,6 +131,18 @@ final class MacTodayStore {
         loadState = .loaded
     }
 
+    func resetForSignOut(dailyGoal: Int = 20) {
+        snapshot = MacTodaySnapshot(
+            dueCount: 0,
+            completedToday: 0,
+            dailyGoal: max(dailyGoal, 0),
+            streakDays: 0,
+            difficultWordCount: 0,
+            recentlyAddedCount: 0
+        )
+        loadState = .idle
+    }
+
     private static func enrich(
         _ raw: MacTodaySnapshot,
         with ledger: MacActivityLedger

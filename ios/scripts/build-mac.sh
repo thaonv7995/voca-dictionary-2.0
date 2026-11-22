@@ -40,7 +40,16 @@ swiftc \
   -framework WidgetKit \
   "${ROOT_DIR}/Shared/WidgetSharedStore.swift" \
   $(find "${ROOT_DIR}/VocaMac" -name "*.swift") \
-  $(find "${ROOT_DIR}/Voca/Core/Auth" "${ROOT_DIR}/Voca/Core/Cache" "${ROOT_DIR}/Voca/Core/Models" "${ROOT_DIR}/Voca/Core/Networking" "${ROOT_DIR}/Voca/Core/Services" -name "*.swift") \
+  $(find "${ROOT_DIR}/Voca/Core/Auth" -name "*.swift") \
+  "${ROOT_DIR}/Voca/Core/Cache/AppCache.swift" \
+  "${ROOT_DIR}/Voca/Core/Models/Card.swift" \
+  "${ROOT_DIR}/Voca/Core/Models/StudyModels.swift" \
+  "${ROOT_DIR}/Voca/Core/Models/User.swift" \
+  $(find "${ROOT_DIR}/Voca/Core/Networking" -name "*.swift") \
+  "${ROOT_DIR}/Voca/Core/Services/AssistantService.swift" \
+  "${ROOT_DIR}/Voca/Core/Services/ClientPrompts.swift" \
+  "${ROOT_DIR}/Voca/Core/Services/CardsService.swift" \
+  "${ROOT_DIR}/Voca/Core/Services/StudyService.swift" \
   -o "${MACOS_DIR}/Voca"
 
 echo "==> Building Voca Widget Extension for macOS..."
@@ -76,7 +85,7 @@ cat << 'EOF' > "${WIDGET_CONTENTS}/Info.plist"
 	<key>CFBundleExecutable</key>
 	<string>VocaWidget</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.voca.mac.widget</string>
+	<string>site.thaonv.voca.widget</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -84,13 +93,13 @@ cat << 'EOF' > "${WIDGET_CONTENTS}/Info.plist"
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>2.3.1</string>
 	<key>CFBundleSupportedPlatforms</key>
 	<array>
 		<string>MacOSX</string>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>4</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSExtension</key>
@@ -116,10 +125,10 @@ fi
 sed \
   -e 's/$(DEVELOPMENT_LANGUAGE)/en/g' \
   -e 's/$(EXECUTABLE_NAME)/Voca/g' \
-  -e 's/$(PRODUCT_BUNDLE_IDENTIFIER)/com.voca.mac/g' \
+  -e 's/$(PRODUCT_BUNDLE_IDENTIFIER)/site.thaonv.voca.macos/g' \
   -e 's/$(PRODUCT_NAME)/Voca/g' \
   -e 's/$(MARKETING_VERSION)/2.3.1/g' \
-  -e 's/$(CURRENT_PROJECT_VERSION)/5/g' \
+  -e 's/$(CURRENT_PROJECT_VERSION)/4/g' \
   "${ROOT_DIR}/VocaMac/SupportingFiles/Info.plist" > "${CONTENTS_DIR}/Info.plist"
 
 printf "APPL????" > "${CONTENTS_DIR}/PkgInfo"

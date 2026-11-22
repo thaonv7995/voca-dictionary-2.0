@@ -40,6 +40,14 @@ final class MacRouteParserTests: XCTestCase {
             route,
             .vocabularyWord(id: "card_123-abc")
         )
+
+        let widgetCardRoute = try parser.parse(
+            try url("voca://card/card_123-abc")
+        )
+        XCTAssertEqual(
+            widgetCardRoute,
+            .vocabularyWord(id: "card_123-abc")
+        )
     }
 
     func testRejectsInvalidVocabularyIdentifier() throws {

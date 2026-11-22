@@ -1463,7 +1463,7 @@ struct MacVocabularyView: View {
 
                     // Use Cases (Cách dùng)
                     if !item.useCases.isEmpty {
-                        previewSectionCard(title: "CÁCH DÙNG (USE CASES)", icon: "Sparkles", tint: VocaDesign.accentSky) {
+                        previewSectionCard(title: "CÁCH DÙNG (USE CASES)", icon: "sparkles", tint: VocaDesign.accentSky) {
                             VStack(alignment: .leading, spacing: 6) {
                                 ForEach(Array(item.useCases.enumerated()), id: \.offset) { _, useCase in
                                     HStack(alignment: .top, spacing: 8) {
@@ -2528,6 +2528,7 @@ private struct MacWordAgentChatDrawer: View {
     @ViewState private var turns: [ChatTurn] = []
     @ViewState private var input = ""
     @ViewState private var isStreaming = false
+    @ViewState private var streamTask: Task<Void, Never>?
 
     private let assistantService = AssistantService()
 
@@ -2557,6 +2558,9 @@ private struct MacWordAgentChatDrawer: View {
 
                 if !turns.isEmpty {
                     Button {
+                        streamTask?.cancel()
+                        streamTask = nil
+                        isStreaming = false
                         turns.removeAll()
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
@@ -2718,7 +2722,15 @@ private struct MacWordAgentChatDrawer: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .onChange(of: item.id) { _, _ in
+            streamTask?.cancel()
+            streamTask = nil
+            isStreaming = false
             turns.removeAll()
+        }
+        .onDisappear {
+            streamTask?.cancel()
+            streamTask = nil
+            isStreaming = false
         }
     }
 
@@ -2728,33 +2740,39 @@ private struct MacWordAgentChatDrawer: View {
 
         input = ""
         turns.append(ChatTurn(isUser: true, text: trimmed))
-        let assistantTurnID = UUID()
         turns.append(ChatTurn(isUser: false, text: ""))
         let assistantIndex = turns.count - 1
         isStreaming = true
 
-        let contextualMessage = """
-        Từ vựng đang xem: "\(item.term)" (\(item.partOfSpeech ?? "word"), IPA/Pinyin: \(item.pronunciation ?? "N/A"), nghĩa: \(item.displayMeaningVi)).
-        Yêu cầu của người học: \(trimmed)
-        """
-        _ = assistantTurnID
-
-        Task {
+        let targetItem = item
+        streamTask?.cancel()
+        streamTask = Task {
             do {
-                let stream = assistantService.chat(message: contextualMessage)
+                let stream = assistantService.cardChat(
+                    word: targetItem.term,
+                    message: trimmed,
+                    language: targetItem.language == .chinese ? .chinese : .english,
+                    pronunciation: targetItem.pronunciation,
+                    meaningVi: targetItem.displayMeaningVi
+                )
                 var accumulated = ""
                 for try await delta in stream {
+                    try Task.checkCancellation()
                     accumulated += delta
                     if assistantIndex < turns.count {
                         turns[assistantIndex].text = accumulated
                     }
                 }
                 isStreaming = false
+                streamTask = nil
+            } catch is CancellationError {
+                isStreaming = false
             } catch {
                 if assistantIndex < turns.count {
                     turns[assistantIndex].text = "Không thể kết nối AI Agent: \(error.localizedDescription)"
                 }
                 isStreaming = false
+                streamTask = nil
             }
         }
     }

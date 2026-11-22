@@ -127,12 +127,14 @@ targets:
       - path: Voca/Core/Services/ClientPrompts.swift
       - path: Voca/Core/Services/CardsService.swift
       - path: Voca/Core/Services/StudyService.swift
+      - path: Voca/Resources/HanziWriter
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: site.thaonv.voca.macos
         PRODUCT_NAME: Voca
         PRODUCT_MODULE_NAME: VocaMac
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: VocaMac/SupportingFiles/VocaMac.entitlements
         ENABLE_APP_SANDBOX: "YES"
         ENABLE_HARDENED_RUNTIME: "YES"
         OTHER_LDFLAGS: "-lsqlite3"

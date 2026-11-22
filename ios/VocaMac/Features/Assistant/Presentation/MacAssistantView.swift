@@ -1135,7 +1135,8 @@ struct MacAssistantView: View {
         generationTask = Task {
             do {
                 for try await chunk in AssistantService().chat(
-                    message: groundedPrompt
+                    message: groundedPrompt,
+                    language: targetLang == .chinese ? .chinese : .english
                 ) {
                     try Task.checkCancellation()
 

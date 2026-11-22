@@ -463,6 +463,21 @@ final class MacActivityLedger {
 
     func clearAll() {
         persistence.clear()
+        resetInMemoryState()
+    }
+
+    func reloadForCurrentAccount() {
+        let state = persistence.load()
+        favoriteCardIDs = state.favoriteCardIDs
+        personalNotesByCardID = state.personalNotesByCardID
+        customTagsByCardID = state.customTagsByCardID
+        reviewEvents = state.reviewEvents
+        practiceEvents = state.practiceEvents
+        pendingMutations = state.pendingMutations
+        activeReviewSession = state.activeReviewSession
+    }
+
+    func resetInMemoryState() {
         favoriteCardIDs = []
         personalNotesByCardID = [:]
         customTagsByCardID = [:]

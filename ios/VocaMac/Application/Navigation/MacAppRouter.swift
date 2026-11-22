@@ -39,7 +39,6 @@ struct MacRouteParser: Sendable {
         let host = url.host?.lowercased()
         let pathComponents = url.pathComponents
             .filter { $0 != "/" }
-            .map { $0.removingPercentEncoding ?? $0 }
 
         switch host {
         case "today":
@@ -47,6 +46,12 @@ struct MacRouteParser: Sendable {
 
         case "vocabulary":
             return try parseVocabulary(pathComponents)
+
+        case "card":
+            guard pathComponents.count == 1 else {
+                throw MacRouteError.unsupportedRoute
+            }
+            return try parseWordIdentifier(pathComponents[0])
 
         case "review":
             return .destination(.review)
@@ -84,7 +89,11 @@ struct MacRouteParser: Sendable {
             throw MacRouteError.unsupportedRoute
         }
 
-        let identifier = pathComponents[1]
+        return try parseWordIdentifier(pathComponents[1])
+    }
+
+    private func parseWordIdentifier(_ raw: String) throws -> MacAppRoute {
+        let identifier = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !identifier.isEmpty,

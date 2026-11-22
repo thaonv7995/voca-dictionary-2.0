@@ -276,8 +276,8 @@ struct MacPreferences: Equatable, Sendable {
         showInMenuBar: Bool = true,
         menuBarBadgeStyle: MacPreferencesStore.MenuBarBadgeStyle = .dueCount,
         quickLookupHotkey: MacPreferencesStore.QuickLookupHotkey = .optionSpace,
-        launchAtLogin: Bool = true,
-        hideDockIcon: Bool = true,
+        launchAtLogin: Bool = false,
+        hideDockIcon: Bool = false,
         dailyGoal: Int = 20,
         playAudioAutomatically: Bool = false,
         enableAssistantFeatures: Bool = true

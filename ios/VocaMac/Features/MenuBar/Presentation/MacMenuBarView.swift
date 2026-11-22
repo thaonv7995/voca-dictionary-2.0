@@ -622,21 +622,42 @@ struct MacMenuBarView: View {
             }
 
             if let firstExample = item.examples.first, !firstExample.isEmpty {
+                let parsed = item.language == .chinese ? ChineseExample(firstExample) : nil
+                let spokenText = parsed?.hanzi ?? firstExample
                 HStack(alignment: .top, spacing: 8) {
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(VocaDesign.brandGreen.opacity(0.65))
                         .frame(width: 2.5)
 
-                    Text(firstExample)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
+                    if let parsed {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(parsed.hanzi)
+                                .font(VocaDesign.hanziFont(size: 13.5, weight: .bold))
+                                .foregroundStyle(.primary)
+                            if let pinyin = parsed.pinyin {
+                                Text(pinyin)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(VocaDesign.brandGreen)
+                            }
+                            if let meaningVi = parsed.meaningVi {
+                                Text(meaningVi)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                         .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text(firstExample)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
                     Spacer(minLength: 0)
 
                     Button {
-                        speech.toggle(firstExample, language: item.language)
+                        speech.toggle(spokenText, language: item.language)
                     } label: {
                         Image(systemName: "speaker.wave.2.fill")
                             .font(.system(size: 10))
@@ -1031,7 +1052,8 @@ struct MacMenuBarView: View {
                                 .fixedSize(horizontal: false, vertical: true)
 
                             if let example = card.example, !example.isEmpty {
-                                Text(example)
+                                let parsed = card.language == .chinese ? ChineseExample(example) : nil
+                                Text(parsed.map { [$0.hanzi, $0.pinyin, $0.meaningVi].compactMap { $0 }.joined(separator: " · ") } ?? example)
                                     .font(.system(size: 11.5))
                                     .foregroundStyle(.secondary)
                                     .italic()
@@ -1814,8 +1836,10 @@ struct MacMenuBarView: View {
     }
 
     private func undoLastMiniCard() {
-        guard !miniHistory.isEmpty, miniIndex > 0 else { return }
-        _ = miniHistory.popLast()
+        guard let last = miniHistory.popLast(), miniIndex > 0 else { return }
+        if !isMiniPracticeFallback {
+            review.restoreCard(last.card, at: 0)
+        }
         withAnimation(.snappy(duration: 0.18)) {
             miniIndex = max(miniIndex - 1, 0)
             miniPhase = .revealed

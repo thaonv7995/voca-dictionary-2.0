@@ -55,7 +55,9 @@ final class MacSessionStore {
     private(set) var isSigningIn = false
     private(set) var signInError: SignInError?
     private(set) var savedCredentials: SavedCredentials?
+    var onDidSignOut: (() -> Void)?
 
+    private var isBootstrapping = false
     private let persistence: MacSessionPersistence
     private let authentication: MacAuthenticationService
 
@@ -94,7 +96,15 @@ final class MacSessionStore {
     }
 
     func bootstrap() async {
-        guard phase == .loading else {
+        guard phase == .loading, !isBootstrapping else {
+            return
+        }
+        isBootstrapping = true
+        defer { isBootstrapping = false }
+
+        guard await authentication.hasStoredSession() else {
+            persistence.clear()
+            phase = .signedOut
             return
         }
 
@@ -229,10 +239,13 @@ final class MacSessionStore {
 
     func signOut() {
         persistence.clear()
+        AppCache.clearAll()
+        WidgetSharedStore.clear()
         signInError = nil
         phase = .signedOut
         MacSystemIntegrations.clearSpotlightIndex()
         MacSystemIntegrations.clearNotifications()
+        onDidSignOut?()
 
         Task {
             await authentication.signOut()
@@ -245,10 +258,13 @@ final class MacSessionStore {
 
     private func handleExpiredSession() {
         persistence.clear()
+        AppCache.clearAll()
+        WidgetSharedStore.clear()
         signInError = nil
         phase = .signedOut
         MacSystemIntegrations.clearSpotlightIndex()
         MacSystemIntegrations.clearNotifications()
+        onDidSignOut?()
     }
 
     private func displayName(from email: String) -> String {
@@ -273,6 +289,7 @@ final class MacSessionStore {
 }
 
 protocol MacAuthenticationService: Sendable {
+    func hasStoredSession() async -> Bool
     func restoreSession() async throws -> MacSessionStore.Account?
     func signIn(
         email: String,
@@ -287,6 +304,10 @@ protocol MacAuthenticationService: Sendable {
 }
 
 extension MacAuthenticationService {
+    func hasStoredSession() async -> Bool {
+        true
+    }
+
     func register(
         email: String,
         password: String,
@@ -297,6 +318,10 @@ extension MacAuthenticationService {
 }
 
 struct SharedMacAuthenticationService: MacAuthenticationService {
+    func hasStoredSession() async -> Bool {
+        await ApiClient.shared.hasStoredSession()
+    }
+
     func restoreSession() async throws -> MacSessionStore.Account? {
         guard await ApiClient.shared.hasStoredSession() else {
             return nil

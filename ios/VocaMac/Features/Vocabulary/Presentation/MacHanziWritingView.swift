@@ -275,6 +275,7 @@ private struct MacHanziCharacterWriterCard: View {
     let displayOnly: Bool
     var onFocus: ((String) -> Void)?
 
+    @Environment(\.colorScheme) private var colorScheme
     @ViewState private var strokeJSON: String?
     @ViewState private var loadError = false
     @ViewState private var command: MacHanziCommand?
@@ -326,6 +327,7 @@ private struct MacHanziCharacterWriterCard: View {
                         character: character,
                         strokeJSON: strokeJSON,
                         size: Int(boxSize),
+                        isDark: colorScheme == .dark,
                         command: command,
                         onModeChange: { newMode in
                             mode = newMode
@@ -443,8 +445,13 @@ private struct MacHanziWriterWebView: NSViewRepresentable {
     let character: String
     let strokeJSON: String
     let size: Int
+    var isDark: Bool = false
     let command: MacHanziCommand?
     let onModeChange: (String) -> Void
+
+    private var renderKey: String {
+        "\(character)|\(size)|\(isDark)|\(strokeJSON.hashValue)"
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onModeChange: onModeChange)
@@ -460,17 +467,28 @@ private struct MacHanziWriterWebView: NSViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
+        context.coordinator.lastRenderedKey = renderKey
         webView.loadHTMLString(html, baseURL: scriptURL?.deletingLastPathComponent())
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onModeChange = onModeChange
+        if context.coordinator.lastRenderedKey != renderKey {
+            context.coordinator.lastRenderedKey = renderKey
+            context.coordinator.resetForReload()
+            webView.loadHTMLString(html, baseURL: scriptURL?.deletingLastPathComponent())
+        }
         guard let command, command.id != context.coordinator.lastCommandID else {
             return
         }
         context.coordinator.lastCommandID = command.id
         context.coordinator.run(command, in: webView)
+    }
+
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
+        nsView.navigationDelegate = nil
+        nsView.configuration.userContentController.removeScriptMessageHandler(forName: "hanzi")
     }
 
     private var scriptURL: URL? {
@@ -485,8 +503,19 @@ private struct MacHanziWriterWebView: NSViewRepresentable {
         return "<script src=\"hanzi-writer.min.js\"></script>"
     }
 
+    private var sanitizedStrokeJSON: String {
+        strokeJSON
+            .replacingOccurrences(of: "</", with: "<\\/")
+            .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+            .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+    }
+
     private var html: String {
         let encodedCharacter = (try? String(data: JSONEncoder().encode(character), encoding: .utf8)) ?? "\"\""
+        let bgColor = isDark ? "#18181b" : "#ffffff"
+        let gridBorderColor = isDark ? "#3f3f46" : "#cbd5e1"
+        let strokeColor = isDark ? "#f4f4f5" : "#111827"
+        let outlineColor = isDark ? "#3f3f46" : "#cbd5e1"
         return """
         <!doctype html>
         <html>
@@ -499,7 +528,7 @@ private struct MacHanziWriterWebView: NSViewRepresentable {
           width: 100%;
           height: 100%;
           overflow: hidden;
-          background: #ffffff;
+          background: \(bgColor);
         }
         #grid {
           position: relative;
@@ -507,7 +536,7 @@ private struct MacHanziWriterWebView: NSViewRepresentable {
           height: \(size)px;
           display: grid;
           place-items: center;
-          background: #ffffff;
+          background: \(bgColor);
         }
         #grid::before, #grid::after {
           content: "";
@@ -518,11 +547,11 @@ private struct MacHanziWriterWebView: NSViewRepresentable {
         }
         #grid::before {
           inset: 50% 0 auto;
-          border-top: 1px dashed #cbd5e1;
+          border-top: 1px dashed \(gridBorderColor);
         }
         #grid::after {
           inset: 0 auto 0 50%;
-          border-left: 1px dashed #cbd5e1;
+          border-left: 1px dashed \(gridBorderColor);
         }
         #target {
           position: relative;
@@ -537,15 +566,15 @@ private struct MacHanziWriterWebView: NSViewRepresentable {
         \(inlineScriptTag)
         <script>
         const character = \(encodedCharacter);
-        const characterData = \(strokeJSON);
+        const characterData = \(sanitizedStrokeJSON);
         const writer = HanziWriter.create('target', character, {
           width: \(size),
           height: \(size),
           padding: 8,
           showOutline: true,
           showCharacter: true,
-          strokeColor: '#111827',
-          outlineColor: '#cbd5e1',
+          strokeColor: '\(strokeColor)',
+          outlineColor: '\(outlineColor)',
           drawingColor: '#059669',
           highlightColor: '#10b981',
           strokeWidth: 4,
@@ -584,11 +613,17 @@ private struct MacHanziWriterWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onModeChange: (String) -> Void
         var lastCommandID: UUID?
+        var lastRenderedKey: String?
         private var isReady = false
         private var pending: MacHanziCommand?
 
         init(onModeChange: @escaping (String) -> Void) {
             self.onModeChange = onModeChange
+        }
+
+        func resetForReload() {
+            isReady = false
+            pending = nil
         }
 
         func run(_ command: MacHanziCommand, in webView: WKWebView) {

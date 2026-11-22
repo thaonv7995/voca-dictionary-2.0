@@ -165,6 +165,13 @@ final class MacReviewStore {
         self.cards = cards
         loadState = .loaded
     }
+
+    func resetForSignOut() {
+        cards = []
+        submittingCardID = nil
+        submissionError = nil
+        loadState = .idle
+    }
 }
 
 protocol MacReviewRepository: Sendable {

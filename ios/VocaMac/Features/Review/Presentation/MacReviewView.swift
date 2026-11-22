@@ -380,7 +380,7 @@ struct MacReviewView: View {
     private var sessionHeader: some View {
         HStack(spacing: 16) {
             VocaPillBadge(
-                text: "Thẻ \(displayedCardNumber) / \(cards.count)",
+                text: "Thẻ \(displayedCardNumber) / \(totalSessionCount)",
                 icon: "rectangle.stack.fill",
                 tint: VocaDesign.brandGreen
             )
@@ -392,15 +392,15 @@ struct MacReviewView: View {
                     Capsule()
                         .fill(VocaDesign.brandGradient)
                         .frame(
-                            width: geo.size.width * CGFloat(Double(currentIndex) / Double(max(cards.count, 1)))
+                            width: geo.size.width * CGFloat(Double(completedCardCount) / Double(totalSessionCount))
                         )
-                        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: currentIndex)
+                        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: completedCardCount)
                 }
             }
             .frame(height: 8)
             .accessibilityLabel("Tiến độ ôn tập")
             .accessibilityValue(
-                "Đã hoàn thành \(currentIndex) / \(cards.count) thẻ"
+                "Đã hoàn thành \(completedCardCount) / \(totalSessionCount) thẻ"
             )
 
             Text("Còn lại \(remainingCardCount) thẻ")
@@ -531,20 +531,43 @@ struct MacReviewView: View {
                     }
 
                     if let example = currentCard.example {
+                        let parsed = currentCard.language == .chinese ? ChineseExample(example) : nil
+                        let spokenExample = parsed?.hanzi ?? example
                         HStack(spacing: 12) {
                             RoundedRectangle(cornerRadius: 2)
                                 .fill(VocaDesign.brandGreen.opacity(0.6))
                                 .frame(width: 3, height: 28)
 
-                            Text(example)
-                                .font(.body)
-                                .foregroundStyle(.secondary)
-                                .italic()
-                                .multilineTextAlignment(.leading)
-                                .textSelection(.enabled)
+                            if let parsed {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(parsed.hanzi)
+                                        .font(VocaDesign.hanziFont(size: 18, weight: .bold))
+                                        .foregroundStyle(.primary)
+                                        .textSelection(.enabled)
+                                    if let pinyin = parsed.pinyin {
+                                        Text(pinyin)
+                                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(VocaDesign.brandGreen)
+                                            .textSelection(.enabled)
+                                    }
+                                    if let meaningVi = parsed.meaningVi {
+                                        Text(meaningVi)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                            } else {
+                                Text(example)
+                                    .font(.body)
+                                    .foregroundStyle(.secondary)
+                                    .italic()
+                                    .multilineTextAlignment(.leading)
+                                    .textSelection(.enabled)
+                            }
 
                             Button {
-                                speech.toggle(example, language: currentCard.language)
+                                speech.toggle(spokenExample, language: currentCard.language)
                             } label: {
                                 Image(systemName: "speaker.wave.2.fill")
                                     .font(.caption)
@@ -742,8 +765,16 @@ struct MacReviewView: View {
         cards[min(currentIndex, max(cards.count - 1, 0))]
     }
 
+    private var completedCardCount: Int {
+        grades.count
+    }
+
+    private var totalSessionCount: Int {
+        max(completedCardCount + cards.count, 1)
+    }
+
     private var displayedCardNumber: Int {
-        min(currentIndex + 1, cards.count)
+        min(completedCardCount + 1, totalSessionCount)
     }
 
     private var remainingCardCount: Int {

@@ -19,6 +19,7 @@ final class MacQuickLookupPanelController: NSObject {
     private var openMainWorkspaceHandler: (() -> Void)?
 
     private weak var router: MacAppRouter?
+    private weak var session: MacSessionStore?
     private weak var vocabulary: MacVocabularyStore?
     private weak var speech: MacSpeechService?
     private weak var preferences: MacPreferencesStore?
@@ -29,12 +30,16 @@ final class MacQuickLookupPanelController: NSObject {
 
     func configure(
         router: MacAppRouter,
+        session: MacSessionStore? = nil,
         vocabulary: MacVocabularyStore,
         speech: MacSpeechService,
         preferences: MacPreferencesStore? = nil,
         openMainWorkspace: (() -> Void)? = nil
     ) {
         self.router = router
+        if let session {
+            self.session = session
+        }
         self.vocabulary = vocabulary
         self.speech = speech
         if let preferences {
@@ -71,6 +76,11 @@ final class MacQuickLookupPanelController: NSObject {
 
     func showFloatingPanel(initialQuery: String? = nil) {
         guard let router, let vocabulary, let speech else { return }
+        if let session, !session.isSignedIn {
+            openMainWorkspaceHandler?()
+            MacSystemIntegrations.bringMainWindowsToFront()
+            return
+        }
 
         MacSystemIntegrations.dismissMenuBarPopoverIfNeeded()
 
@@ -235,6 +245,11 @@ final class MacQuickLookupPanelController: NSObject {
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty
         else {
+            return
+        }
+        guard session?.isSignedIn != false else {
+            openMainWorkspaceHandler?()
+            MacSystemIntegrations.bringMainWindowsToFront()
             return
         }
         router?.select(.vocabulary)
