@@ -93,13 +93,13 @@ cat << 'EOF' > "${WIDGET_CONTENTS}/Info.plist"
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.3.1</string>
+	<string>2.4.0</string>
 	<key>CFBundleSupportedPlatforms</key>
 	<array>
 		<string>MacOSX</string>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>4</string>
+	<string>5</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSExtension</key>
@@ -127,8 +127,8 @@ sed \
   -e 's/$(EXECUTABLE_NAME)/Voca/g' \
   -e 's/$(PRODUCT_BUNDLE_IDENTIFIER)/site.thaonv.voca.macos/g' \
   -e 's/$(PRODUCT_NAME)/Voca/g' \
-  -e 's/$(MARKETING_VERSION)/2.3.1/g' \
-  -e 's/$(CURRENT_PROJECT_VERSION)/4/g' \
+  -e 's/$(MARKETING_VERSION)/2.4.0/g' \
+  -e 's/$(CURRENT_PROJECT_VERSION)/5/g' \
   "${ROOT_DIR}/VocaMac/SupportingFiles/Info.plist" > "${CONTENTS_DIR}/Info.plist"
 
 printf "APPL????" > "${CONTENTS_DIR}/PkgInfo"
