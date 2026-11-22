@@ -233,45 +233,44 @@ final class ThemeStore {
 
 /// Editorial & calligraphic typography helpers tailored for English IPA and Chinese Hanzi.
 enum VocaTypography {
-    private static let bundledFontFiles: [(resource: String, ext: String)] = [
-        ("NotoSerifSC-Regular", "otf"),
-        ("NotoSerifSC-Bold", "otf"),
-    ]
-
-    private static let didRegisterBundledFonts: Bool = {
-        for item in bundledFontFiles {
-            let url = Bundle.main.url(forResource: item.resource, withExtension: item.ext)
-                ?? Bundle.main.url(forResource: item.resource, withExtension: item.ext, subdirectory: "Fonts")
+    @MainActor
+    private static func resolveAvailableFont(
+        candidates: [(postScript: String, resource: String?, ext: String?)]
+    ) -> String? {
+        // Fast path: check fonts already registered via UIAppFonts / system without re-parsing OTF files.
+        for item in candidates where UIFont(name: item.postScript, size: 17) != nil {
+            return item.postScript
+        }
+        // Fallback (e.g., SwiftUI Previews where Info.plist UIAppFonts isn't active): register on demand.
+        for item in candidates {
+            guard let resource = item.resource, let ext = item.ext else { continue }
+            let url = Bundle.main.url(forResource: resource, withExtension: ext)
+                ?? Bundle.main.url(forResource: resource, withExtension: ext, subdirectory: "Fonts")
             if let url {
                 CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+                if UIFont(name: item.postScript, size: 17) != nil {
+                    return item.postScript
+                }
             }
         }
-        return true
-    }()
+        return nil
+    }
 
     @MainActor
-    private static let resolvedBoldName: String? = {
-        _ = didRegisterBundledFonts
-        let candidates = [
-            "NotoSerifSC-Bold",
-            "STSongti-SC-Bold",
-            "Songti SC Bold",
-            "NotoSerifSC-Regular",
-        ]
-        return candidates.first { UIFont(name: $0, size: 17) != nil }
-    }()
+    private static let resolvedBoldName: String? = resolveAvailableFont(candidates: [
+        ("NotoSerifSC-Bold", "NotoSerifSC-Bold", "otf"),
+        ("STSongti-SC-Bold", nil, nil),
+        ("Songti SC Bold", nil, nil),
+        ("NotoSerifSC-Regular", "NotoSerifSC-Regular", "otf"),
+    ])
 
     @MainActor
-    private static let resolvedRegularName: String? = {
-        _ = didRegisterBundledFonts
-        let candidates = [
-            "NotoSerifSC-Regular",
-            "STSongti-SC-Regular",
-            "Songti SC",
-            "NotoSerifSC-Bold",
-        ]
-        return candidates.first { UIFont(name: $0, size: 17) != nil }
-    }()
+    private static let resolvedRegularName: String? = resolveAvailableFont(candidates: [
+        ("NotoSerifSC-Regular", "NotoSerifSC-Regular", "otf"),
+        ("STSongti-SC-Regular", nil, nil),
+        ("Songti SC", nil, nil),
+        ("NotoSerifSC-Bold", "NotoSerifSC-Bold", "otf"),
+    ])
 
     @MainActor
     static func hanziFont(size: CGFloat, weight: Font.Weight = .bold, isCalligraphic: Bool) -> Font {

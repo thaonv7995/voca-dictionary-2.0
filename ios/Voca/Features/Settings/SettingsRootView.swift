@@ -277,7 +277,7 @@ struct SettingsRootView: View {
             Toggle("Tự động phát âm khi mở thẻ", isOn: $theme.autoSpeakFlashcard)
             Toggle("Thẻ ngược (Nghĩa → Từ)", isOn: $theme.reverseFlashcardMode)
             Toggle("Tự động lật thẻ (Auto-flip)", isOn: $theme.autoFlipFlashcard)
-            if theme.autoFlipFlashcard {
+            if theme.autoFlipFlashcard || theme.autoAdvanceFlashcard {
                 Stepper(
                     value: $theme.autoFlipDelaySeconds,
                     in: ThemeStore.autoFlipDelayRange,
@@ -294,7 +294,7 @@ struct SettingsRootView: View {
                     }
                 }
             }
-            Toggle("Tự động lướt thẻ (Thẻ lật tự do)", isOn: $theme.autoAdvanceFlashcard)
+            Toggle("Tự động lướt qua thẻ mới", isOn: $theme.autoAdvanceFlashcard)
             if theme.autoAdvanceFlashcard {
                 Stepper(
                     value: $theme.autoAdvanceDelaySeconds,

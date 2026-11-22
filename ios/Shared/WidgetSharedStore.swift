@@ -39,9 +39,16 @@ enum WidgetSharedStore {
     private static let selectedAtKey = "voca.widget.selectedAt"
     private static let pendingCardSlugKey = "voca.widget.pendingCardSlug"
 
+    private static let appGroupContainerURL: URL? = FileManager.default
+        .containerURL(forSecurityApplicationGroupIdentifier: appGroup)
+
+    private static let sharedDefaults: UserDefaults? = {
+        guard appGroupContainerURL != nil else { return nil }
+        return UserDefaults(suiteName: appGroup)
+    }()
+
     private static var fileURL: URL? {
-        if let container = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
+        if let container = appGroupContainerURL {
             return container.appendingPathComponent(fileName)
         }
         let fallback = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
@@ -66,7 +73,7 @@ enum WidgetSharedStore {
               let data = try? Data(contentsOf: url),
               let cards = try? JSONDecoder().decode([WidgetCard].self, from: data)
         else { return [] }
-        if let language = UserDefaults(suiteName: appGroup)?.string(forKey: languageKey) {
+        if let language = sharedDefaults?.string(forKey: languageKey) {
             let matched = cards.filter { ($0.language ?? "en") == language }
             if !matched.isEmpty { return matched }
         }
@@ -77,28 +84,26 @@ enum WidgetSharedStore {
         if let url = fileURL {
             try? FileManager.default.removeItem(at: url)
         }
-        let defaults = UserDefaults(suiteName: appGroup)
-        defaults?.removeObject(forKey: selectedIndexKey)
-        defaults?.removeObject(forKey: selectedAtKey)
-        defaults?.removeObject(forKey: pendingCardSlugKey)
+        sharedDefaults?.removeObject(forKey: selectedIndexKey)
+        sharedDefaults?.removeObject(forKey: selectedAtKey)
+        sharedDefaults?.removeObject(forKey: pendingCardSlugKey)
     }
 
     static func setSelectedLanguage(_ language: String) {
-        let defaults = UserDefaults(suiteName: appGroup)
-        if defaults?.string(forKey: languageKey) != language {
-            defaults?.set(0, forKey: selectedIndexKey)
-            defaults?.set(Date().timeIntervalSince1970, forKey: selectedAtKey)
+        if sharedDefaults?.string(forKey: languageKey) != language {
+            sharedDefaults?.set(0, forKey: selectedIndexKey)
+            sharedDefaults?.set(Date().timeIntervalSince1970, forKey: selectedAtKey)
         }
-        defaults?.set(language, forKey: languageKey)
+        sharedDefaults?.set(language, forKey: languageKey)
     }
 
     static func setPendingCardSlug(_ slug: String?) {
         guard let slug, !slug.isEmpty else { return }
-        UserDefaults(suiteName: appGroup)?.set(slug, forKey: pendingCardSlugKey)
+        sharedDefaults?.set(slug, forKey: pendingCardSlugKey)
     }
 
     static func takePendingCardSlug() -> String? {
-        guard let defaults = UserDefaults(suiteName: appGroup),
+        guard let defaults = sharedDefaults,
               let slug = defaults.string(forKey: pendingCardSlugKey), !slug.isEmpty
         else { return nil }
         defaults.removeObject(forKey: pendingCardSlugKey)
@@ -107,7 +112,7 @@ enum WidgetSharedStore {
 
     static func selectedIndex(cardCount: Int) -> Int? {
         guard cardCount > 0,
-              let defaults = UserDefaults(suiteName: appGroup),
+              let defaults = sharedDefaults,
               defaults.object(forKey: selectedIndexKey) != nil
         else { return nil }
         return normalized(defaults.integer(forKey: selectedIndexKey), count: cardCount)
@@ -115,7 +120,7 @@ enum WidgetSharedStore {
 
     static func scheduledIndex(cardCount: Int, at date: Date) -> Int? {
         guard cardCount > 0 else { return nil }
-        guard let defaults = UserDefaults(suiteName: appGroup),
+        guard let defaults = sharedDefaults,
               defaults.object(forKey: selectedIndexKey) != nil
         else {
             let slot = Int(date.timeIntervalSince1970 / rotationInterval)
@@ -142,9 +147,8 @@ enum WidgetSharedStore {
         let current = currentIndex.map { normalized($0, count: cardCount) }
             ?? selectedIndex(cardCount: cardCount) ?? 0
         let next = (current + 1) % cardCount
-        let defaults = UserDefaults(suiteName: appGroup)
-        defaults?.set(next, forKey: selectedIndexKey)
-        defaults?.set(Date().timeIntervalSince1970, forKey: selectedAtKey)
+        sharedDefaults?.set(next, forKey: selectedIndexKey)
+        sharedDefaults?.set(Date().timeIntervalSince1970, forKey: selectedAtKey)
         return next
     }
 
@@ -160,9 +164,8 @@ enum WidgetSharedStore {
             let offset = Int.random(in: 1..<cardCount)
             next = (current + offset) % cardCount
         }
-        let defaults = UserDefaults(suiteName: appGroup)
-        defaults?.set(next, forKey: selectedIndexKey)
-        defaults?.set(Date().timeIntervalSince1970, forKey: selectedAtKey)
+        sharedDefaults?.set(next, forKey: selectedIndexKey)
+        sharedDefaults?.set(Date().timeIntervalSince1970, forKey: selectedAtKey)
         return next
     }
 

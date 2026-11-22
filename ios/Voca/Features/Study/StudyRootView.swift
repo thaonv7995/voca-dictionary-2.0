@@ -813,7 +813,7 @@ private struct StudyPreferencesSheet: View {
                     }
                     .tint(Brand.green)
 
-                    if theme.autoFlipFlashcard {
+                    if theme.autoFlipFlashcard || theme.autoAdvanceFlashcard {
                         Stepper(
                             value: $bindableTheme.autoFlipDelaySeconds,
                             in: ThemeStore.autoFlipDelayRange,
@@ -833,7 +833,7 @@ private struct StudyPreferencesSheet: View {
                     }
 
                     Toggle(isOn: $bindableTheme.autoAdvanceFlashcard) {
-                        Label("Tự động lướt thẻ (Thẻ lật tự do)", systemImage: "arrow.right.circle")
+                        Label("Tự động lướt qua thẻ mới", systemImage: "arrow.up.circle")
                     }
                     .tint(Brand.green)
 
@@ -858,7 +858,7 @@ private struct StudyPreferencesSheet: View {
                 } header: {
                     Text("Tùy chọn phiên học")
                 } footer: {
-                    Text("Tự động lướt thẻ chỉ áp dụng cho Thẻ lật tự do để không ảnh hưởng lịch ôn FSRS.")
+                    Text("Tự động lật xem nghĩa, lật lại mặt trước rồi trượt lên thẻ mới kiểu TikTok. Có thể bấm nút Tạm dừng trên thanh đầu thẻ để chuyển sang lướt tay bất kỳ lúc nào.")
                 }
 
                 Section("Hiển thị & Cảm giác") {

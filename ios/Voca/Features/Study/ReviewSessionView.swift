@@ -12,6 +12,7 @@ struct ReviewSessionView: View {
     @Environment(LocalLearnerStore.self) private var learner
 
     private let mode: Mode
+    private let initialTotal: Int
 
     @State private var dueItems: [DueItem]
     @State private var browseCards: [Card]
@@ -25,17 +26,19 @@ struct ReviewSessionView: View {
 
     init(items: [DueItem]) {
         self.mode = .dueReview
+        self.initialTotal = items.count
         _dueItems = State(initialValue: items.shuffled())
         _browseCards = State(initialValue: [])
     }
 
     init(browseCards: [Card], title: String = "Thẻ lật tự do") {
         self.mode = .freeBrowse(title: title)
+        self.initialTotal = browseCards.count
         _dueItems = State(initialValue: [])
         _browseCards = State(initialValue: browseCards.shuffled())
     }
 
-    private var total: Int {
+    private var activeCount: Int {
         switch mode {
         case .dueReview: return dueItems.count
         case .freeBrowse: return browseCards.count
@@ -44,7 +47,7 @@ struct ReviewSessionView: View {
 
     private var isFinished: Bool {
         switch mode {
-        case .dueReview: return index >= dueItems.count
+        case .dueReview: return initialTotal > 0 && dueItems.isEmpty
         case .freeBrowse: return false
         }
     }
@@ -60,7 +63,7 @@ struct ReviewSessionView: View {
         ZStack {
             VocaThemeBackground()
 
-            if total == 0 {
+            if initialTotal == 0 {
                 emptyState
             } else if isFinished {
                 completionView
@@ -81,10 +84,11 @@ struct ReviewSessionView: View {
             switch mode {
             case .dueReview:
                 FlashcardDeckView(
-                    items: dueItems,
+                    items: $dueItems,
                     index: $index,
                     gradedCount: $gradedCount,
                     isGrading: $isGrading,
+                    shuffleToken: shuffleToken,
                     reverseMode: reverseMode,
                     autoSpeak: autoSpeak,
                     onGradeRecorded: { grade in
@@ -118,8 +122,13 @@ struct ReviewSessionView: View {
                             .foregroundStyle(Brand.green)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
+                    } else {
+                        Text("Ôn tập FSRS")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Brand.green)
+                            .lineLimit(1)
                     }
-                    Text("\(min(index + 1, total)) / \(total)")
+                    Text("\(min(index + 1, max(activeCount, 1))) / \(activeCount)")
                         .font(.subheadline.weight(.bold))
                         .monospacedDigit()
                         .foregroundStyle(.primary)
@@ -131,7 +140,7 @@ struct ReviewSessionView: View {
 
                 Spacer(minLength: 4)
 
-                HStack(spacing: 4) {
+                HStack(spacing: 2) {
                     if let currentCard {
                         let starred = learner.isFavorite(currentCard.slug)
                         headerIconButton(
@@ -164,18 +173,23 @@ struct ReviewSessionView: View {
                         theme.autoSpeakFlashcard = autoSpeak
                     }
 
-                    if case .freeBrowse = mode, browseCards.count > 1 {
-                        headerIconButton("shuffle", active: false, label: "Xáo trộn") {
-                            Haptics.impact(.light)
-                            let previousID = browseCards.indices.contains(index) ? browseCards[index].id : nil
-                            var shuffled = browseCards.shuffled()
-                            if let previousID, shuffled.first?.id == previousID, shuffled.count > 1 {
-                                shuffled.swapAt(0, Int.random(in: 1..<shuffled.count))
-                            }
-                            browseCards = shuffled
-                            index = 0
-                            shuffleToken = UUID()
+                    if activeCount > 1 {
+                        headerIconButton(
+                            theme.autoAdvanceFlashcard ? "pause.fill" : "play.fill",
+                            active: theme.autoAdvanceFlashcard,
+                            label: theme.autoAdvanceFlashcard ? "Dừng tự động lướt" : "Bật tự động lướt"
+                        ) {
+                            Haptics.selection()
+                            theme.autoAdvanceFlashcard.toggle()
                         }
+
+                        headerIconButton("shuffle", active: false, label: "Xáo trộn") {
+                            guard !isGrading else { return }
+                            Haptics.impact(.light)
+                            shuffleActiveDeck()
+                        }
+                        .disabled(isGrading)
+                        .opacity(isGrading ? 0.5 : 1)
                     }
                 }
             }
@@ -184,17 +198,42 @@ struct ReviewSessionView: View {
         .padding(.horizontal, 16)
     }
 
+    private func shuffleActiveDeck() {
+        switch mode {
+        case .dueReview:
+            guard dueItems.count > 1 else { return }
+            let previousID = dueItems.indices.contains(index) ? dueItems[index].id : nil
+            var shuffled = dueItems.shuffled()
+            if let previousID, shuffled.first?.id == previousID, shuffled.count > 1 {
+                shuffled.swapAt(0, Int.random(in: 1..<shuffled.count))
+            }
+            dueItems = shuffled
+            index = 0
+            shuffleToken = UUID()
+        case .freeBrowse:
+            guard browseCards.count > 1 else { return }
+            let previousID = browseCards.indices.contains(index) ? browseCards[index].id : nil
+            var shuffled = browseCards.shuffled()
+            if let previousID, shuffled.first?.id == previousID, shuffled.count > 1 {
+                shuffled.swapAt(0, Int.random(in: 1..<shuffled.count))
+            }
+            browseCards = shuffled
+            index = 0
+            shuffleToken = UUID()
+        }
+    }
+
     private func headerIconButton(_ systemImage: String, active: Bool, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.caption.weight(.bold))
                 .foregroundStyle(active ? .white : .secondary)
-                .frame(width: 32, height: 32)
+                .frame(width: 30, height: 30)
                 .background(
                     active ? AnyShapeStyle(Brand.green) : AnyShapeStyle(Color(.secondarySystemBackground)),
                     in: Circle()
                 )
-                .frame(minWidth: 40, minHeight: 40)
+                .frame(minWidth: 36, minHeight: 40)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -235,11 +274,14 @@ struct ReviewSessionView: View {
     }
 
     private var progress: CGFloat {
-        guard total > 0 else { return 0 }
-        if case .freeBrowse = mode {
-            return CGFloat(index + 1) / CGFloat(total)
+        guard initialTotal > 0 else { return 0 }
+        switch mode {
+        case .freeBrowse:
+            guard activeCount > 0 else { return 0 }
+            return CGFloat(index + 1) / CGFloat(activeCount)
+        case .dueReview:
+            return min(1, CGFloat(gradedCount) / CGFloat(initialTotal))
         }
-        return CGFloat(index) / CGFloat(total)
     }
 
     // MARK: - Completion

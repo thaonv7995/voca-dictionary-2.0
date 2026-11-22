@@ -1,24 +1,39 @@
 import SwiftUI
 
-/// The interactive, draggable flashcard stack for FSRS review sessions.
+/// The interactive flashcard deck for FSRS due review sessions, combining TikTok-style
+/// vertical browsing & flip→flip-back→glide automation with FSRS swipe/button grading.
 struct FlashcardDeckView: View {
+    private enum SlideDirection {
+        case forward
+        case backward
+    }
+
     @Environment(\.scenePhase) private var scenePhase
     @Environment(ThemeStore.self) private var theme
-    let items: [DueItem]
+    @Binding var items: [DueItem]
     @Binding var index: Int
     @Binding var gradedCount: Int
     @Binding var isGrading: Bool
+    var shuffleToken: UUID = UUID()
     var reverseMode: Bool = false
     var autoSpeak: Bool = false
     var onGradeRecorded: (ReviewGrade) -> Void = { _ in }
 
     @State private var drag: CGSize = .zero
     @State private var flyAway: CGSize?
+    @State private var animatedShift: CGSize = .zero
+    @State private var isVerticalTransitioning = false
+    @State private var activeSlideDirection: SlideDirection?
+    @State private var isAutoAdvancing = false
+    @State private var nextCycleItems: [DueItem] = []
+    @State private var deckPageHeight: CGFloat = 560
     @State private var flipped = false
     @State private var reviewError: String?
     @State private var lastGrade: ReviewGrade?
     @State private var crossedThresholdGrade: ReviewGrade?
     @State private var autoFlipTask: Task<Void, Never>?
+    @State private var autoAdvanceTask: Task<Void, Never>?
+    @State private var transitionTask: Task<Void, Never>?
     @State private var speakTask: Task<Void, Never>?
 
     private let service = StudyService()
@@ -29,8 +44,42 @@ struct FlashcardDeckView: View {
 
     private let commitSpring = Animation.spring(response: 0.38, dampingFraction: 0.85)
     private let advanceSpring = Animation.spring(response: 0.42, dampingFraction: 0.8)
-    private let flipSpring = Animation.spring(response: 0.48, dampingFraction: 0.8)
-    private let snapSpring = Animation.spring(response: 0.34, dampingFraction: 0.72)
+    private let flipSpring = Animation.spring(response: 0.44, dampingFraction: 0.82)
+    private let snapSpring = Animation.spring(response: 0.34, dampingFraction: 0.74)
+    private let tiktokSlideCurve = Animation.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.38)
+
+    private var allowsVerticalSwipe: Bool {
+        !flipped && !reverseMode && !isGrading
+    }
+
+    private var currentItem: DueItem? {
+        items.indices.contains(index) ? items[index] : nil
+    }
+
+    private var nextItem: DueItem? {
+        guard items.count > 1 else { return nil }
+        if index < items.count - 1 {
+            return items[index + 1]
+        }
+        return nextCycleItems.first
+    }
+
+    private var previousItem: DueItem? {
+        guard index > 0, items.indices.contains(index - 1) else { return nil }
+        return items[index - 1]
+    }
+
+    private var activeDragOrFly: CGSize {
+        if isVerticalTransitioning { return animatedShift }
+        return flyAway ?? drag
+    }
+
+    private var isVerticalMode: Bool {
+        if isVerticalTransitioning { return true }
+        if flyAway != nil { return false }
+        let off = drag
+        return allowsVerticalSwipe && abs(off.height) >= abs(off.width) * 1.05 && abs(off.height) > 1
+    }
 
     var body: some View {
         VStack(spacing: 14) {
@@ -41,10 +90,30 @@ struct FlashcardDeckView: View {
             gradeButtons
         }
         .onAppear {
+            prepareNextCycleIfNeeded()
             speakCurrentIfNeeded(justFlipped: false)
             scheduleReviewAutoFlip()
         }
         .onChange(of: index) { _, _ in
+            prepareNextCycleIfNeeded()
+            speakCurrentIfNeeded(justFlipped: false)
+            scheduleReviewAutoFlip()
+        }
+        .onChange(of: shuffleToken) { _, _ in
+            cancelReviewAutomation()
+            transitionTask?.cancel()
+            transitionTask = nil
+            isVerticalTransitioning = false
+            activeSlideDirection = nil
+            stopSpeech()
+            flyAway = nil
+            animatedShift = .zero
+            drag = .zero
+            flipped = false
+            reviewError = nil
+            crossedThresholdGrade = nil
+            nextCycleItems = []
+            prepareNextCycleIfNeeded()
             speakCurrentIfNeeded(justFlipped: false)
             scheduleReviewAutoFlip()
         }
@@ -53,30 +122,62 @@ struct FlashcardDeckView: View {
                 speakCurrentIfNeeded(justFlipped: true)
             }
             if nowFlipped {
-                cancelReviewAutomation()
+                scheduleReviewAutoAdvance()
+            } else if !isAutoAdvancing {
+                autoAdvanceTask?.cancel()
+                autoAdvanceTask = nil
             }
         }
         .onChange(of: theme.autoFlipFlashcard) { _, isEnabled in
             if isEnabled {
                 scheduleReviewAutoFlip()
-            } else {
-                cancelReviewAutomation()
+            } else if !theme.autoAdvanceFlashcard {
+                autoFlipTask?.cancel()
+                autoFlipTask = nil
             }
         }
         .onChange(of: theme.autoFlipDelaySeconds) { _, _ in
-            if theme.autoFlipFlashcard {
+            if (theme.autoFlipFlashcard || theme.autoAdvanceFlashcard) && !flipped {
                 scheduleReviewAutoFlip()
+            }
+        }
+        .onChange(of: theme.autoAdvanceFlashcard) { _, isEnabled in
+            if isEnabled {
+                if flipped {
+                    scheduleReviewAutoAdvance()
+                } else {
+                    scheduleReviewAutoFlip()
+                }
+            } else {
+                autoAdvanceTask?.cancel()
+                autoAdvanceTask = nil
+                isAutoAdvancing = false
+                if !theme.autoFlipFlashcard {
+                    autoFlipTask?.cancel()
+                    autoFlipTask = nil
+                }
+            }
+        }
+        .onChange(of: theme.autoAdvanceDelaySeconds) { _, _ in
+            if theme.autoAdvanceFlashcard && flipped && !isAutoAdvancing {
+                scheduleReviewAutoAdvance()
             }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                scheduleReviewAutoFlip()
+                if flipped {
+                    scheduleReviewAutoAdvance()
+                } else {
+                    scheduleReviewAutoFlip()
+                }
             } else {
                 cancelReviewAutomation()
             }
         }
         .onDisappear {
             cancelReviewAutomation()
+            transitionTask?.cancel()
+            transitionTask = nil
             stopSpeech()
         }
     }
@@ -84,63 +185,96 @@ struct FlashcardDeckView: View {
     // MARK: - Deck
 
     @ViewBuilder private var deckArea: some View {
-        ZStack {
-            ForEach(visibleEntries) { entry in
-                card(for: entry)
+        GeometryReader { geo in
+            let pageHeight = max(geo.size.height + 24, 420)
+            let off = activeDragOrFly
+            let vertical = isVerticalMode
+            let verticalY = vertical ? off.height : 0
+            let showPrev = (activeSlideDirection == .backward) || (vertical && verticalY > 0)
+            let verticalProgress = min(1, abs(verticalY) / max(pageHeight, 1))
+            let horizontalProgress = min(1, abs(off.width) / swipeThreshold)
+            let previewGrade = vertical ? nil : grade(for: off.width)
+
+            ZStack {
+                if showPrev, let prev = previousItem {
+                    FlashcardCardView(
+                        card: prev.card,
+                        flipped: false,
+                        isTop: false,
+                        reverseMode: reverseMode
+                    )
+                    .frame(maxWidth: 520)
+                    .scaleEffect(0.95 + 0.05 * verticalProgress)
+                    .offset(y: -pageHeight + verticalY)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .id(prev.id)
+                } else if let next = nextItem {
+                    let nextScale = vertical
+                        ? (0.95 + 0.05 * verticalProgress)
+                        : (0.955 + 0.045 * horizontalProgress)
+                    let nextY = vertical
+                        ? (pageHeight + verticalY)
+                        : (12 - horizontalProgress * 12)
+                    FlashcardCardView(
+                        card: next.card,
+                        flipped: false,
+                        isTop: false,
+                        reverseMode: reverseMode
+                    )
+                    .frame(maxWidth: 520)
+                    .scaleEffect(nextScale)
+                    .offset(y: nextY)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .id(next.id)
+                }
+
+                if let current = currentItem {
+                    let currentScale = vertical ? (1.0 - 0.04 * verticalProgress) : 1.0
+                    FlashcardCardView(
+                        card: current.card,
+                        flipped: flipped,
+                        isTop: true,
+                        reverseMode: reverseMode
+                    )
+                    .frame(maxWidth: 520)
+                    .overlay {
+                        if let previewGrade {
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .strokeBorder(previewGrade.gradeColor.opacity(0.65), lineWidth: 3)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .overlay { if !vertical { swipeSticker(for: off.width) } }
+                    .scaleEffect(currentScale)
+                    .offset(x: vertical ? off.width * 0.18 : off.width, y: vertical ? verticalY : off.height)
+                    .rotationEffect(.degrees(vertical ? 0 : angle(for: off.width)))
+                    .zIndex(1)
+                    .allowsHitTesting(!isGrading && !isVerticalTransitioning)
+                    .gesture(dragGesture(for: current, pageHeight: pageHeight))
+                    .onTapGesture {
+                        guard !isGrading, !isVerticalTransitioning else { return }
+                        Haptics.impact(.light)
+                        cancelReviewAutomation()
+                        withAnimation(flipSpring) { flipped.toggle() }
+                    }
+                    .accessibilityHint("Chạm đúp để lật thẻ")
+                    .accessibilityAction(named: "Lật thẻ") {
+                        guard !isGrading, !isVerticalTransitioning else { return }
+                        cancelReviewAutomation()
+                        withAnimation(flipSpring) { flipped.toggle() }
+                    }
+                    .id(current.id)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 20)
+            .clipped()
+            .onAppear { deckPageHeight = pageHeight }
+            .onChange(of: pageHeight) { _, newHeight in deckPageHeight = newHeight }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 20)
-    }
-
-    @ViewBuilder private func card(for entry: DeckEntry) -> some View {
-        let depth = entry.offset
-        let isTop = depth == 0
-        let currentOffset = flyAway ?? drag
-        let dragProgress = min(1, abs(currentOffset.width) / swipeThreshold)
-        let depthLift = (depth == 1) ? dragProgress * 0.035 : 0
-        let yLift = (depth == 1) ? dragProgress * 8 : 0
-        let previewGrade = isTop ? grade(for: currentOffset.width) : nil
-
-        let base = FlashcardCardView(
-            card: entry.item.card,
-            flipped: isTop && flipped,
-            isTop: isTop,
-            reverseMode: reverseMode
-        )
-        .frame(maxWidth: 520)
-        .overlay {
-            if let previewGrade {
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .strokeBorder(previewGrade.gradeColor.opacity(0.65), lineWidth: 3)
-                    .allowsHitTesting(false)
-            }
-        }
-        .overlay { if isTop { swipeSticker(for: currentOffset.width) } }
-        .scaleEffect((1 - CGFloat(depth) * 0.045) + depthLift)
-        .offset(y: CGFloat(depth) * 12 - yLift)
-        .offset(isTop ? currentOffset : .zero)
-        .rotationEffect(.degrees(isTop ? angle(for: currentOffset.width) : 0))
-        .zIndex(Double(-depth))
-        .allowsHitTesting(isTop && !isGrading)
-        .accessibilityHidden(!isTop)
-
-        if isTop {
-            base
-                .gesture(dragGesture(for: entry.item))
-                .onTapGesture {
-                    Haptics.impact(.light)
-                    cancelReviewAutomation()
-                    withAnimation(flipSpring) { flipped.toggle() }
-                }
-                .accessibilityHint("Chạm đúp để lật thẻ")
-                .accessibilityAction(named: "Lật thẻ") {
-                    cancelReviewAutomation()
-                    withAnimation(flipSpring) { flipped.toggle() }
-                }
-        } else {
-            base
-        }
     }
 
     @ViewBuilder private func swipeSticker(for width: CGFloat) -> some View {
@@ -170,25 +304,49 @@ struct FlashcardDeckView: View {
 
     // MARK: - Drag
 
-    private func dragGesture(for item: DueItem) -> some Gesture {
-        DragGesture()
+    private func dragGesture(for item: DueItem, pageHeight: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12)
             .onChanged { value in
-                guard !isGrading, flyAway == nil else { return }
+                guard !isGrading, !isVerticalTransitioning, flyAway == nil else { return }
                 cancelReviewAutomation()
-                drag = value.translation
-                let current = grade(for: value.translation.width)
-                if current != crossedThresholdGrade {
-                    crossedThresholdGrade = current
-                    if current != nil { Haptics.selection() }
+                let t = value.translation
+                if allowsVerticalSwipe && abs(t.height) >= abs(t.width) * 1.05 {
+                    let clampedHeight = (index == 0 && t.height > 0) ? t.height * 0.28 : t.height
+                    drag = CGSize(width: t.width * 0.15, height: clampedHeight)
+                    crossedThresholdGrade = nil
+                } else {
+                    drag = t
+                    let current = grade(for: t.width)
+                    if current != crossedThresholdGrade {
+                        crossedThresholdGrade = current
+                        if current != nil { Haptics.selection() }
+                    }
                 }
             }
             .onEnded { value in
-                guard !isGrading, flyAway == nil else { return }
+                guard !isGrading, !isVerticalTransitioning, flyAway == nil else { return }
                 crossedThresholdGrade = nil
-                if let grade = grade(for: value.translation.width) {
+                let t = value.translation
+                let pred = value.predictedEndTranslation
+
+                if allowsVerticalSwipe && abs(t.height) >= abs(t.width) * 1.05 {
+                    if (t.height < -65 || pred.height < -170) && items.count > 1 {
+                        browseNextDue(verticalExit: -pageHeight)
+                        return
+                    }
+                    if (t.height > 65 || pred.height > 170) && index > 0 {
+                        browsePreviousDue(verticalExit: pageHeight)
+                        return
+                    }
+                } else if let grade = grade(for: t.width) {
                     commit(grade, for: item)
+                    return
+                }
+
+                withAnimation(snapSpring) { drag = .zero }
+                if flipped {
+                    scheduleReviewAutoAdvance()
                 } else {
-                    withAnimation(snapSpring) { drag = .zero }
                     scheduleReviewAutoFlip()
                 }
             }
@@ -210,7 +368,7 @@ struct FlashcardDeckView: View {
 
     @ViewBuilder private var gradeButtons: some View {
         VStack(spacing: 8) {
-            Text("Vuốt thẻ trái/phải hoặc chọn mức nhớ")
+            Text("Vuốt lên lướt thẻ · Vuốt trái/phải hoặc chọn mức nhớ")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 8) {
@@ -231,7 +389,7 @@ struct FlashcardDeckView: View {
                         .background(grade.gradeColor, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                     }
                     .buttonStyle(PressableScaleStyle(scale: 0.94))
-                    .disabled(isGrading)
+                    .disabled(isGrading || isVerticalTransitioning)
                 }
             }
         }
@@ -258,25 +416,6 @@ struct FlashcardDeckView: View {
         .padding(.horizontal, 20)
     }
 
-    // MARK: - Session state
-
-    private var currentItem: DueItem? {
-        items.indices.contains(index) ? items[index] : nil
-    }
-
-    private struct DeckEntry: Identifiable {
-        let offset: Int
-        let item: DueItem
-        var id: String { item.id }
-    }
-
-    private var visibleEntries: [DeckEntry] {
-        guard !items.isEmpty else { return [] }
-        let end = min(index + 3, items.count)
-        guard index < end else { return [] }
-        return (index..<end).reversed().map { DeckEntry(offset: $0 - index, item: items[$0]) }
-    }
-
     // MARK: - Actions
 
     private func speakCurrentIfNeeded(justFlipped: Bool) {
@@ -295,8 +434,88 @@ struct FlashcardDeckView: View {
         AudioPlayer.shared.stop()
     }
 
+    private func prepareNextCycleIfNeeded() {
+        guard items.count > 1, index >= items.count - 1 else { return }
+        let lastID = items[index].id
+        if let existingFirst = nextCycleItems.first?.id,
+           nextCycleItems.count == items.count,
+           existingFirst != lastID {
+            return
+        }
+        var shuffled = items.shuffled()
+        if shuffled.first?.id == lastID, shuffled.count > 1 {
+            shuffled.swapAt(0, Int.random(in: 1..<shuffled.count))
+        }
+        nextCycleItems = shuffled
+    }
+
+    private func browseNextDue(verticalExit: CGFloat) {
+        guard items.count > 1, !isGrading, !isVerticalTransitioning else { return }
+        prepareNextCycleIfNeeded()
+        if index < items.count - 1 {
+            let nextIndex = index + 1
+            performVerticalReelTransition(direction: .forward, targetY: verticalExit) {
+                index = nextIndex
+            }
+        } else {
+            let committed = nextCycleItems.count == items.count ? nextCycleItems : items.shuffled()
+            performVerticalReelTransition(direction: .forward, targetY: verticalExit) {
+                items = committed
+                nextCycleItems = []
+                index = 0
+            }
+        }
+    }
+
+    private func browsePreviousDue(verticalExit: CGFloat) {
+        guard index > 0, !isGrading, !isVerticalTransitioning else { return }
+        let prevIndex = index - 1
+        performVerticalReelTransition(direction: .backward, targetY: verticalExit) {
+            index = prevIndex
+        }
+    }
+
+    private func performVerticalReelTransition(
+        direction: SlideDirection,
+        targetY: CGFloat,
+        apply: @escaping () -> Void
+    ) {
+        Haptics.selection()
+        cancelReviewAutomation()
+        stopSpeech()
+        transitionTask?.cancel()
+        transitionTask = nil
+
+        animatedShift = drag
+        drag = .zero
+        reviewError = nil
+        crossedThresholdGrade = nil
+        activeSlideDirection = direction
+        isVerticalTransitioning = true
+
+        withAnimation(tiktokSlideCurve) {
+            animatedShift = CGSize(width: 0, height: targetY)
+        }
+
+        transitionTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(390))
+            guard !Task.isCancelled else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                apply()
+                animatedShift = .zero
+                drag = .zero
+                flipped = false
+                activeSlideDirection = nil
+                isVerticalTransitioning = false
+            }
+            transitionTask = nil
+        }
+    }
+
     private func commit(_ grade: ReviewGrade, for item: DueItem) {
-        guard !isGrading else { return }
+        guard !isGrading, !isVerticalTransitioning else { return }
         cancelReviewAutomation()
         stopSpeech()
         isGrading = true
@@ -316,7 +535,7 @@ struct FlashcardDeckView: View {
                 onGradeRecorded(grade)
                 withAnimation(advanceSpring) {
                     gradedCount += 1
-                    advanceState()
+                    removeCurrentAndAdvance(slug: item.card.slug)
                 }
             } catch {
                 isGrading = false
@@ -331,55 +550,135 @@ struct FlashcardDeckView: View {
     }
 
     private func skip() {
-        withAnimation(advanceSpring) {
-            reviewError = nil
-            advanceState()
+        reviewError = nil
+        if items.count > 1 {
+            browseNextDue(verticalExit: -deckPageHeight)
+        } else if let current = currentItem {
+            withAnimation(advanceSpring) {
+                removeCurrentAndAdvance(slug: current.card.slug)
+            }
         }
     }
 
-    private func advanceState() {
+    private func removeCurrentAndAdvance(slug: String) {
         cancelReviewAutomation()
         stopSpeech()
-        index += 1
+        let previousIndex = index
+        if let removalIdx = items.firstIndex(where: { $0.card.slug == slug }) {
+            items.remove(at: removalIdx)
+            if items.isEmpty {
+                index = 0
+            } else if index >= items.count {
+                index = 0
+            }
+        }
+        nextCycleItems = []
         flyAway = nil
         drag = .zero
         flipped = false
         crossedThresholdGrade = nil
+        prepareNextCycleIfNeeded()
+        if index == previousIndex && !items.isEmpty {
+            speakCurrentIfNeeded(justFlipped: false)
+            scheduleReviewAutoFlip()
+        }
     }
 
     private func scheduleReviewAutoFlip() {
-        cancelReviewAutomation()
-        guard theme.autoFlipFlashcard,
+        autoFlipTask?.cancel()
+        autoFlipTask = nil
+
+        guard (theme.autoFlipFlashcard || theme.autoAdvanceFlashcard),
               scenePhase == .active,
               currentItem != nil,
               !flipped,
-              !isGrading else { return }
+              !isGrading,
+              !isVerticalTransitioning else {
+            if flipped {
+                scheduleReviewAutoAdvance()
+            }
+            return
+        }
 
         let delayMs = Int((theme.autoFlipDelaySeconds * 1000).rounded())
         autoFlipTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(delayMs))
             guard !Task.isCancelled,
-                  theme.autoFlipFlashcard,
+                  (theme.autoFlipFlashcard || theme.autoAdvanceFlashcard),
                   scenePhase == .active,
                   currentItem != nil,
                   !flipped,
-                  !isGrading else { return }
+                  !isGrading,
+                  !isVerticalTransitioning else { return }
             withAnimation(flipSpring) {
                 flipped = true
             }
         }
     }
 
+    private func scheduleReviewAutoAdvance() {
+        autoAdvanceTask?.cancel()
+        autoAdvanceTask = nil
+
+        guard theme.autoAdvanceFlashcard,
+              scenePhase == .active,
+              flipped,
+              !isGrading,
+              !isVerticalTransitioning,
+              items.count > 1 else { return }
+
+        let delayMs = Int((theme.autoAdvanceDelaySeconds * 1000).rounded())
+        autoAdvanceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(delayMs))
+            guard !Task.isCancelled,
+                  theme.autoAdvanceFlashcard,
+                  scenePhase == .active,
+                  flipped,
+                  !isGrading,
+                  !isVerticalTransitioning,
+                  items.count > 1 else { return }
+
+            // 1. Flip back to front face before gliding upward like TikTok.
+            isAutoAdvancing = true
+            withAnimation(flipSpring) {
+                flipped = false
+            }
+
+            try? await Task.sleep(for: .milliseconds(460))
+            guard !Task.isCancelled,
+                  theme.autoAdvanceFlashcard,
+                  scenePhase == .active,
+                  !isGrading,
+                  !isVerticalTransitioning,
+                  items.count > 1 else {
+                isAutoAdvancing = false
+                return
+            }
+
+            isAutoAdvancing = false
+            browseNextDue(verticalExit: -deckPageHeight)
+        }
+    }
+
     private func cancelReviewAutomation() {
         autoFlipTask?.cancel()
+        autoAdvanceTask?.cancel()
         autoFlipTask = nil
+        autoAdvanceTask = nil
+        isAutoAdvancing = false
     }
 }
 
 // MARK: - Free Browse Deck (No FSRS mutation)
 
-/// Free-study deck allowing users to flip, favorite, shuffle, and browse any card set freely.
+/// Free-study deck with TikTok-style vertical random browsing, synchronized card reels,
+/// and flip → read → flip-back → vertical-glide automation.
 struct FreeFlashcardDeckView: View {
+    private enum SlideDirection {
+        case forward
+        case backward
+    }
+
     @Environment(\.scenePhase) private var scenePhase
     @Environment(ThemeStore.self) private var theme
     @Binding var cards: [Card]
@@ -390,72 +689,153 @@ struct FreeFlashcardDeckView: View {
 
     @State private var flipped = false
     @State private var dragOffset: CGSize = .zero
-    @State private var flyAwayOffset: CGSize?
+    @State private var animatedShift: CGSize = .zero
     @State private var isTransitioning = false
+    @State private var activeSlideDirection: SlideDirection?
+    @State private var isAutoAdvancing = false
+    @State private var nextCycleDeck: [Card] = []
+    @State private var deckPageHeight: CGFloat = 560
     @State private var autoFlipTask: Task<Void, Never>?
     @State private var autoAdvanceTask: Task<Void, Never>?
     @State private var transitionTask: Task<Void, Never>?
     @State private var speakTask: Task<Void, Never>?
 
-    private let flipSpring = Animation.spring(response: 0.48, dampingFraction: 0.8)
+    private let flipSpring = Animation.spring(response: 0.44, dampingFraction: 0.82)
+    private let tiktokSlideCurve = Animation.timingCurve(0.22, 1.0, 0.36, 1.0, duration: 0.38)
 
     private var allowsVerticalSwipe: Bool {
         !flipped && !reverseMode
     }
 
+    private var currentCard: Card? {
+        cards.indices.contains(index) ? cards[index] : nil
+    }
+
+    private var nextCard: Card? {
+        guard cards.count > 1 else { return nil }
+        if index < cards.count - 1 {
+            return cards[index + 1]
+        }
+        return nextCycleDeck.first
+    }
+
+    private var previousCard: Card? {
+        guard index > 0, cards.indices.contains(index - 1) else { return nil }
+        return cards[index - 1]
+    }
+
+    private var effectiveOffset: CGSize {
+        isTransitioning ? animatedShift : dragOffset
+    }
+
+    private var isDraggingHorizontally: Bool {
+        let off = effectiveOffset
+        return abs(off.width) > abs(off.height) && abs(off.width) > 1
+    }
+
     var body: some View {
         VStack(spacing: 16) {
-            ZStack {
-                ForEach(visibleCards, id: \.card.id) { depth, card in
-                    let isTop = depth == 0
-                    let activeOffset = flyAwayOffset ?? dragOffset
-                    let activeDistance = max(abs(activeOffset.width), abs(activeOffset.height))
-                    let dragProgress = min(1, activeDistance / 75)
-                    let depthLift = (depth == 1) ? dragProgress * 0.035 : 0
-                    let yLift = (depth == 1) ? dragProgress * 8 : 0
-                    FlashcardCardView(
-                        card: card,
-                        flipped: isTop && flipped,
-                        isTop: isTop,
-                        reverseMode: reverseMode
-                    )
-                    .frame(maxWidth: 520)
-                    .scaleEffect((1 - CGFloat(depth) * 0.045) + depthLift)
-                    .offset(y: CGFloat(depth) * 12 - yLift)
-                    .offset(isTop ? activeOffset : .zero)
-                    .rotationEffect(.degrees(isTop ? Double(activeOffset.width / 22) : 0))
-                    .zIndex(Double(-depth))
-                    .allowsHitTesting(isTop && !isTransitioning)
-                    .accessibilityHidden(!isTop)
-                    .gesture(isTop ? browseDragGesture : nil)
-                    .onTapGesture {
-                        guard isTop, !isTransitioning else { return }
-                        Haptics.impact(.light)
-                        autoFlipTask?.cancel()
-                        autoFlipTask = nil
-                        withAnimation(flipSpring) { flipped.toggle() }
+            GeometryReader { geo in
+                let pageHeight = max(geo.size.height + 24, 420)
+                let off = effectiveOffset
+                let horizontalMode = isDraggingHorizontally
+                let verticalY = horizontalMode ? 0 : off.height
+                let showPrev = (activeSlideDirection == .backward)
+                    || (!horizontalMode && verticalY > 0)
+                    || (horizontalMode && off.width > 0)
+                let verticalProgress = min(1, abs(verticalY) / max(pageHeight, 1))
+                let horizontalProgress = min(1, abs(off.width) / 140)
+
+                ZStack {
+                    if showPrev, let prev = previousCard {
+                        let prevScale = horizontalMode
+                            ? (0.955 + 0.045 * horizontalProgress)
+                            : (0.95 + 0.05 * verticalProgress)
+                        let prevY = horizontalMode
+                            ? (12 - horizontalProgress * 12)
+                            : (-pageHeight + verticalY)
+                        FlashcardCardView(
+                            card: prev,
+                            flipped: false,
+                            isTop: false,
+                            reverseMode: reverseMode
+                        )
+                        .frame(maxWidth: 520)
+                        .scaleEffect(prevScale)
+                        .offset(y: prevY)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .id(prev.id)
+                    } else if let next = nextCard {
+                        let nextScale = horizontalMode
+                            ? (0.955 + 0.045 * horizontalProgress)
+                            : (0.95 + 0.05 * verticalProgress)
+                        let nextY = horizontalMode
+                            ? (12 - horizontalProgress * 12)
+                            : (pageHeight + verticalY)
+                        FlashcardCardView(
+                            card: next,
+                            flipped: false,
+                            isTop: false,
+                            reverseMode: reverseMode
+                        )
+                        .frame(maxWidth: 520)
+                        .scaleEffect(nextScale)
+                        .offset(y: nextY)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .id(next.id)
                     }
-                    .accessibilityHint(isTop ? "Chạm đúp để lật thẻ" : "")
-                    .accessibilityAction(named: "Lật thẻ") {
-                        guard isTop, !isTransitioning else { return }
-                        autoFlipTask?.cancel()
-                        autoFlipTask = nil
-                        withAnimation(flipSpring) { flipped.toggle() }
+
+                    if let current = currentCard {
+                        let currentScale = horizontalMode ? 1.0 : (1.0 - 0.04 * verticalProgress)
+                        FlashcardCardView(
+                            card: current,
+                            flipped: flipped,
+                            isTop: true,
+                            reverseMode: reverseMode
+                        )
+                        .frame(maxWidth: 520)
+                        .scaleEffect(currentScale)
+                        .offset(x: horizontalMode ? off.width : off.width * 0.18, y: verticalY)
+                        .rotationEffect(.degrees(horizontalMode ? Double(off.width / 24) : 0))
+                        .zIndex(1)
+                        .allowsHitTesting(!isTransitioning)
+                        .gesture(browseDragGesture(pageHeight: pageHeight))
+                        .onTapGesture {
+                            guard !isTransitioning else { return }
+                            Haptics.impact(.light)
+                            cancelAutomation()
+                            withAnimation(flipSpring) { flipped.toggle() }
+                        }
+                        .accessibilityHint("Chạm đúp để lật thẻ")
+                        .accessibilityAction(named: "Lật thẻ") {
+                            guard !isTransitioning else { return }
+                            cancelAutomation()
+                            withAnimation(flipSpring) { flipped.toggle() }
+                        }
+                        .id(current.id)
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 20)
+                .clipped()
+                .onAppear { deckPageHeight = pageHeight }
+                .onChange(of: pageHeight) { _, newHeight in deckPageHeight = newHeight }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 20)
 
             controlsBar
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
         }
         .onAppear {
+            prepareNextCycleIfNeeded()
             speakCurrentIfNeeded(justFlipped: false)
             scheduleAutoFlip()
         }
         .onChange(of: index) { _, _ in
+            prepareNextCycleIfNeeded()
             speakCurrentIfNeeded(justFlipped: false)
             scheduleAutoFlip()
         }
@@ -464,10 +844,13 @@ struct FreeFlashcardDeckView: View {
             transitionTask?.cancel()
             transitionTask = nil
             isTransitioning = false
+            activeSlideDirection = nil
             stopSpeech()
-            flyAwayOffset = nil
+            animatedShift = .zero
             dragOffset = .zero
             flipped = false
+            nextCycleDeck = []
+            prepareNextCycleIfNeeded()
             speakCurrentIfNeeded(justFlipped: false)
             scheduleAutoFlip()
         }
@@ -478,7 +861,7 @@ struct FreeFlashcardDeckView: View {
 
             if nowFlipped {
                 scheduleAutoAdvance()
-            } else {
+            } else if !isAutoAdvancing {
                 autoAdvanceTask?.cancel()
                 autoAdvanceTask = nil
             }
@@ -486,26 +869,35 @@ struct FreeFlashcardDeckView: View {
         .onChange(of: theme.autoFlipFlashcard) { _, isEnabled in
             if isEnabled {
                 scheduleAutoFlip()
-            } else {
+            } else if !theme.autoAdvanceFlashcard {
                 autoFlipTask?.cancel()
                 autoFlipTask = nil
             }
         }
         .onChange(of: theme.autoFlipDelaySeconds) { _, _ in
-            if theme.autoFlipFlashcard && !flipped {
+            if (theme.autoFlipFlashcard || theme.autoAdvanceFlashcard) && !flipped {
                 scheduleAutoFlip()
             }
         }
         .onChange(of: theme.autoAdvanceFlashcard) { _, isEnabled in
-            if isEnabled && flipped {
-                scheduleAutoAdvance()
+            if isEnabled {
+                if flipped {
+                    scheduleAutoAdvance()
+                } else {
+                    scheduleAutoFlip()
+                }
             } else {
                 autoAdvanceTask?.cancel()
                 autoAdvanceTask = nil
+                isAutoAdvancing = false
+                if !theme.autoFlipFlashcard {
+                    autoFlipTask?.cancel()
+                    autoFlipTask = nil
+                }
             }
         }
         .onChange(of: theme.autoAdvanceDelaySeconds) { _, _ in
-            if theme.autoAdvanceFlashcard && flipped {
+            if theme.autoAdvanceFlashcard && flipped && !isAutoAdvancing {
                 scheduleAutoAdvance()
             }
         }
@@ -528,23 +920,19 @@ struct FreeFlashcardDeckView: View {
         }
     }
 
-    private var visibleCards: [(offset: Int, card: Card)] {
-        guard !cards.isEmpty, index < cards.count else { return [] }
-        let end = min(index + 3, cards.count)
-        return (index..<end).reversed().map { ($0 - index, cards[$0]) }
-    }
-
-    private var browseDragGesture: some Gesture {
+    private func browseDragGesture(pageHeight: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 12)
             .onChanged { value in
                 guard !isTransitioning else { return }
                 cancelAutomation()
                 let t = value.translation
                 if allowsVerticalSwipe {
-                    if abs(t.height) > abs(t.width) * 1.15 {
-                        dragOffset = CGSize(width: t.width * 0.25, height: t.height)
+                    if abs(t.height) >= abs(t.width) * 0.9 {
+                        // Gentle resistance when pulling down on the very first card.
+                        let clampedHeight = (index == 0 && t.height > 0) ? t.height * 0.28 : t.height
+                        dragOffset = CGSize(width: t.width * 0.15, height: clampedHeight)
                     } else {
-                        dragOffset = CGSize(width: t.width, height: t.height * 0.25)
+                        dragOffset = CGSize(width: t.width, height: 0)
                     }
                 } else {
                     dragOffset = CGSize(width: t.width, height: 0)
@@ -555,27 +943,27 @@ struct FreeFlashcardDeckView: View {
                 let t = value.translation
                 let pred = value.predictedEndTranslation
 
-                if allowsVerticalSwipe && abs(t.height) >= abs(t.width) {
+                if allowsVerticalSwipe && abs(t.height) >= abs(t.width) * 0.9 {
                     if (t.height < -65 || pred.height < -170) && cards.count > 1 {
-                        advanceNext(exitOffset: CGSize(width: dragOffset.width, height: -820))
+                        advanceNext(verticalExit: -pageHeight)
                         return
                     }
                     if (t.height > 65 || pred.height > 170) && index > 0 {
-                        move(to: index - 1, exitOffset: CGSize(width: dragOffset.width, height: 820))
+                        moveBackward(verticalExit: pageHeight)
                         return
                     }
                 } else {
                     if (t.width < -65 || pred.width < -170) && cards.count > 1 {
-                        advanceNext(exitOffset: CGSize(width: -650, height: dragOffset.height))
+                        advanceNext(horizontalExit: -560)
                         return
                     }
                     if (t.width > 65 || pred.width > 170) && index > 0 {
-                        move(to: index - 1, exitOffset: CGSize(width: 650, height: dragOffset.height))
+                        moveBackward(horizontalExit: 560)
                         return
                     }
                 }
 
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.76)) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
                     dragOffset = .zero
                 }
                 if flipped {
@@ -589,7 +977,7 @@ struct FreeFlashcardDeckView: View {
     private var controlsBar: some View {
         HStack(spacing: 12) {
             Button {
-                move(to: max(0, index - 1))
+                moveBackward(verticalExit: deckPageHeight)
             } label: {
                 Label("Trước", systemImage: "chevron.left")
                     .frame(maxWidth: .infinity)
@@ -599,8 +987,7 @@ struct FreeFlashcardDeckView: View {
 
             Button {
                 Haptics.impact(.light)
-                autoFlipTask?.cancel()
-                autoFlipTask = nil
+                cancelAutomation()
                 withAnimation(flipSpring) { flipped.toggle() }
             } label: {
                 Label("Lật thẻ", systemImage: "arrow.triangle.2.circlepath")
@@ -611,7 +998,7 @@ struct FreeFlashcardDeckView: View {
             .disabled(isTransitioning)
 
             Button {
-                advanceNext()
+                advanceNext(verticalExit: -deckPageHeight)
             } label: {
                 Label("Sau", systemImage: "chevron.right")
                     .frame(maxWidth: .infinity)
@@ -621,66 +1008,99 @@ struct FreeFlashcardDeckView: View {
         }
     }
 
-    private func advanceNext(exitOffset: CGSize? = nil) {
-        guard cards.count > 1 else { return }
-        if index < cards.count - 1 {
-            move(to: index + 1, exitOffset: exitOffset)
+    private func prepareNextCycleIfNeeded() {
+        guard cards.count > 1, index >= cards.count - 1 else { return }
+        let lastID = cards[index].id
+        if let existingFirst = nextCycleDeck.first?.id,
+           nextCycleDeck.count == cards.count,
+           existingFirst != lastID {
+            return
+        }
+        var shuffled = cards.shuffled()
+        if shuffled.first?.id == lastID, shuffled.count > 1 {
+            shuffled.swapAt(0, Int.random(in: 1..<shuffled.count))
+        }
+        nextCycleDeck = shuffled
+    }
+
+    private func advanceNext(verticalExit: CGFloat? = nil, horizontalExit: CGFloat? = nil) {
+        guard cards.count > 1, !isTransitioning else { return }
+        prepareNextCycleIfNeeded()
+        let target: CGSize
+        if let verticalExit {
+            target = CGSize(width: 0, height: verticalExit)
+        } else if let horizontalExit {
+            target = CGSize(width: horizontalExit, height: 0)
         } else {
-            reshuffleForNextCycle(exitOffset: exitOffset)
+            target = CGSize(width: 0, height: -deckPageHeight)
+        }
+
+        if index < cards.count - 1 {
+            let nextIndex = index + 1
+            performReelTransition(direction: .forward, targetShift: target) {
+                index = nextIndex
+            }
+        } else {
+            let committedDeck = nextCycleDeck.count == cards.count ? nextCycleDeck : cards.shuffled()
+            performReelTransition(direction: .forward, targetShift: target) {
+                cards = committedDeck
+                nextCycleDeck = []
+                index = 0
+            }
         }
     }
 
-    private func reshuffleForNextCycle(exitOffset: CGSize? = nil) {
-        guard cards.count > 1 else { return }
-        let previousID = cards.indices.contains(index) ? cards[index].id : nil
-        var nextDeck = cards.shuffled()
-        if let previousID, nextDeck.first?.id == previousID, nextDeck.count > 1 {
-            nextDeck.swapAt(0, Int.random(in: 1..<nextDeck.count))
+    private func moveBackward(verticalExit: CGFloat? = nil, horizontalExit: CGFloat? = nil) {
+        guard index > 0, !isTransitioning else { return }
+        let target: CGSize
+        if let verticalExit {
+            target = CGSize(width: 0, height: verticalExit)
+        } else if let horizontalExit {
+            target = CGSize(width: horizontalExit, height: 0)
+        } else {
+            target = CGSize(width: 0, height: deckPageHeight)
         }
-        performTransition(exitOffset: exitOffset) {
-            cards = nextDeck
-            index = 0
-        }
-    }
-
-    private func move(to newIndex: Int, exitOffset: CGSize? = nil) {
-        guard cards.indices.contains(newIndex) else { return }
-        performTransition(exitOffset: exitOffset) {
-            index = newIndex
+        let prevIndex = index - 1
+        performReelTransition(direction: .backward, targetShift: target) {
+            index = prevIndex
         }
     }
 
-    private func performTransition(exitOffset: CGSize?, apply: @escaping () -> Void) {
+    private func performReelTransition(
+        direction: SlideDirection,
+        targetShift: CGSize,
+        apply: @escaping () -> Void
+    ) {
         Haptics.selection()
         cancelAutomation()
         stopSpeech()
         transitionTask?.cancel()
         transitionTask = nil
 
-        if let exitOffset {
-            isTransitioning = true
-            withAnimation(.easeOut(duration: 0.17)) {
-                flyAwayOffset = exitOffset
-            }
-            transitionTask = Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(165))
-                guard !Task.isCancelled else { return }
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-                    flyAwayOffset = nil
-                    dragOffset = .zero
-                    flipped = false
-                    apply()
-                }
-                isTransitioning = false
-                transitionTask = nil
-            }
-        } else {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                flyAwayOffset = nil
+        // Seed animatedShift from the user's current finger drag so the glide continues smoothly with no jump.
+        animatedShift = dragOffset
+        dragOffset = .zero
+        activeSlideDirection = direction
+        isTransitioning = true
+
+        withAnimation(tiktokSlideCurve) {
+            animatedShift = targetShift
+        }
+
+        transitionTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(390))
+            guard !Task.isCancelled else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                apply()
+                animatedShift = .zero
                 dragOffset = .zero
                 flipped = false
-                apply()
+                activeSlideDirection = nil
+                isTransitioning = false
             }
+            transitionTask = nil
         }
     }
 
@@ -688,9 +1108,10 @@ struct FreeFlashcardDeckView: View {
         autoFlipTask?.cancel()
         autoFlipTask = nil
 
-        guard theme.autoFlipFlashcard,
+        guard (theme.autoFlipFlashcard || theme.autoAdvanceFlashcard),
               scenePhase == .active,
               cards.indices.contains(index),
+              !isTransitioning,
               !flipped else {
             if flipped {
                 scheduleAutoAdvance()
@@ -702,9 +1123,10 @@ struct FreeFlashcardDeckView: View {
         autoFlipTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(delayMs))
             guard !Task.isCancelled,
-                  theme.autoFlipFlashcard,
+                  (theme.autoFlipFlashcard || theme.autoAdvanceFlashcard),
                   scenePhase == .active,
                   cards.indices.contains(index),
+                  !isTransitioning,
                   !flipped else { return }
 
             withAnimation(flipSpring) {
@@ -720,6 +1142,7 @@ struct FreeFlashcardDeckView: View {
         guard theme.autoAdvanceFlashcard,
               scenePhase == .active,
               flipped,
+              !isTransitioning,
               cards.count > 1 else { return }
 
         let delayMs = Int((theme.autoAdvanceDelaySeconds * 1000).rounded())
@@ -729,9 +1152,28 @@ struct FreeFlashcardDeckView: View {
                   theme.autoAdvanceFlashcard,
                   scenePhase == .active,
                   flipped,
+                  !isTransitioning,
                   cards.count > 1 else { return }
 
-            advanceNext(exitOffset: CGSize(width: 0, height: -760))
+            // 1. Flip back from meaning to front face so the word is reinforced cleanly.
+            isAutoAdvancing = true
+            withAnimation(flipSpring) {
+                flipped = false
+            }
+
+            // 2. Let the 3D flip-back finish before gliding upward like TikTok to the next random card.
+            try? await Task.sleep(for: .milliseconds(460))
+            guard !Task.isCancelled,
+                  theme.autoAdvanceFlashcard,
+                  scenePhase == .active,
+                  !isTransitioning,
+                  cards.count > 1 else {
+                isAutoAdvancing = false
+                return
+            }
+
+            isAutoAdvancing = false
+            advanceNext(verticalExit: -deckPageHeight)
         }
     }
 
@@ -740,6 +1182,7 @@ struct FreeFlashcardDeckView: View {
         autoAdvanceTask?.cancel()
         autoFlipTask = nil
         autoAdvanceTask = nil
+        isAutoAdvancing = false
     }
 
     private func speakCurrentIfNeeded(justFlipped: Bool) {
