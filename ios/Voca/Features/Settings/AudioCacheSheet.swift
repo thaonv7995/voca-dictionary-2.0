@@ -12,6 +12,7 @@ struct AudioCacheSheet: View {
     @State private var vocabMeta = AppCache.cardsMetadata()
     @State private var isSyncingVocab = false
     @State private var vocabSyncMessage: String?
+    @State private var vocabSyncIsError = false
     @State private var showClearConfirm = false
 
     private let threadChoices = [2, 4, 6]
@@ -50,6 +51,12 @@ struct AudioCacheSheet: View {
                 vocabMeta = AppCache.cardsMetadata()
                 let cards = initialCards.isEmpty ? AppCache.loadCards() : initialCards
                 await prefetch.refreshStats(cards: cards)
+            }
+            .task(id: "cache-sync") {
+                for await _ in NotificationCenter.default.notifications(named: AppCache.cardsDidChangeNotification) {
+                    await AppCache.waitForPendingDiskWrites()
+                    vocabMeta = AppCache.cardsMetadata()
+                }
             }
             .onChange(of: prefetch.languageScope) { _, _ in
                 Task { await prefetch.refreshStats(cards: effectiveCards) }
@@ -156,6 +163,10 @@ struct AudioCacheSheet: View {
                         Text("Đang tải đa luồng (\(prefetch.threadCount) luồng)…")
                             .font(.subheadline.weight(.semibold))
                     }
+                } else if prefetch.wasCancelled {
+                    Label("Đã dừng tải cache audio", systemImage: "stop.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.orange)
                 } else {
                     Label(
                         prefetch.failedCount == 0 ? "Hoàn tất tải cache audio" : "Đã tải xong (có \(prefetch.failedCount) lỗi)",
@@ -311,6 +322,7 @@ struct AudioCacheSheet: View {
                     Label(title, systemImage: "arrow.down.circle.fill")
                 }
                 .buttonStyle(BrandCTAButtonStyle())
+                .disabled(isSyncingVocab)
             }
 
             if prefetch.cacheStats.fileCount > 0 && !prefetch.isRunning {
@@ -355,7 +367,7 @@ struct AudioCacheSheet: View {
             if let vocabSyncMessage {
                 Text(vocabSyncMessage)
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(theme.accent)
+                    .foregroundStyle(vocabSyncIsError ? Color.red : theme.accent)
             }
 
             Button {
@@ -397,16 +409,20 @@ struct AudioCacheSheet: View {
     private func syncVocabulary() {
         isSyncingVocab = true
         vocabSyncMessage = nil
+        vocabSyncIsError = false
         Haptics.impact(.light)
         Task {
             do {
                 let fresh = try await CardsService().list()
+                await AppCache.waitForPendingDiskWrites()
                 vocabMeta = AppCache.cardsMetadata()
                 await prefetch.refreshStats(cards: fresh)
                 Haptics.notify(.success)
+                vocabSyncIsError = false
                 vocabSyncMessage = "Đã đồng bộ và lưu \(fresh.count) thẻ từ vựng."
             } catch {
                 Haptics.notify(.error)
+                vocabSyncIsError = true
                 vocabSyncMessage = (error as? ApiError)?.message ?? error.localizedDescription
             }
             isSyncingVocab = false

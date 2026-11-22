@@ -11,6 +11,7 @@ enum AppCache {
     }
 
     static let cardsDidChangeNotification = Notification.Name("voca.cache.cardsDidChange")
+    static let studyDidChangeNotification = Notification.Name("voca.cache.studyDidChange")
 
     private struct Record<Value: Codable>: Codable {
         let version: Int
@@ -145,9 +146,18 @@ enum AppCache {
         enqueueDiskWrite(pending.cards.0, key: cardsKey, clearGen: pending.cards.1, keyGen: pending.cards.2)
         if let due = pending.due {
             enqueueDiskWrite(due.0, key: dueKey, clearGen: due.1, keyGen: due.2)
+            notifyStudyDidChange()
         }
         enqueueDiskDelete(key: htmlStorageKey, clearGen: pending.htmlDeleteGen.0, keyGen: pending.htmlDeleteGen.1)
         notifyCardsDidChange()
+    }
+
+    static func waitForPendingDiskWrites() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            diskQueue.async {
+                continuation.resume()
+            }
+        }
     }
 
     static func cardsMetadata() -> CacheMetadata {
@@ -196,6 +206,7 @@ enum AppCache {
 
     static func saveStudyStats(_ stats: StudyStats) {
         save(stats, key: scoped("study-stats"))
+        notifyStudyDidChange()
     }
 
     static func loadDue() -> DueResponse? {
@@ -204,6 +215,7 @@ enum AppCache {
 
     static func saveDue(_ due: DueResponse) {
         save(due, key: scoped("study-due"))
+        notifyStudyDidChange()
     }
 
     static func removeDueCard(slug: String) {
@@ -222,6 +234,7 @@ enum AppCache {
         }
         if let pending {
             enqueueDiskWrite(pending.0, key: dueKey, clearGen: pending.1, keyGen: pending.2)
+            notifyStudyDidChange()
         }
     }
 
@@ -243,6 +256,7 @@ enum AppCache {
             }
         }
         notifyCardsDidChange()
+        notifyStudyDidChange()
     }
 
     // MARK: - Private helpers
@@ -250,6 +264,12 @@ enum AppCache {
     private static func notifyCardsDidChange() {
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: cardsDidChangeNotification, object: nil)
+        }
+    }
+
+    private static func notifyStudyDidChange() {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: studyDidChangeNotification, object: nil)
         }
     }
 

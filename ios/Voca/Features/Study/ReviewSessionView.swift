@@ -3,7 +3,7 @@ import SwiftUI
 /// Full-screen swipeable flashcard session supporting both FSRS due reviews and free browse decks.
 struct ReviewSessionView: View {
     private enum Mode {
-        case dueReview([DueItem])
+        case dueReview
         case freeBrowse(title: String)
     }
 
@@ -12,24 +12,26 @@ struct ReviewSessionView: View {
     @Environment(LocalLearnerStore.self) private var learner
 
     private let mode: Mode
-    private let dueItems: [DueItem]
 
+    @State private var dueItems: [DueItem]
     @State private var browseCards: [Card]
     @State private var index = 0
     @State private var gradedCount = 0
+    @State private var isGrading = false
+    @State private var shuffleToken = UUID()
     @State private var gradeBreakdown: [ReviewGrade: Int] = [:]
     @State private var reverseMode = ThemeStore.shared.reverseFlashcardMode
     @State private var autoSpeak = ThemeStore.shared.autoSpeakFlashcard
 
     init(items: [DueItem]) {
-        self.mode = .dueReview(items)
-        self.dueItems = items
+        self.mode = .dueReview
+        _dueItems = State(initialValue: items)
         _browseCards = State(initialValue: [])
     }
 
     init(browseCards: [Card], title: String = "Thẻ lật tự do") {
         self.mode = .freeBrowse(title: title)
-        self.dueItems = []
+        _dueItems = State(initialValue: [])
         _browseCards = State(initialValue: browseCards)
     }
 
@@ -82,6 +84,7 @@ struct ReviewSessionView: View {
                     items: dueItems,
                     index: $index,
                     gradedCount: $gradedCount,
+                    isGrading: $isGrading,
                     reverseMode: reverseMode,
                     autoSpeak: autoSpeak,
                     onGradeRecorded: { grade in
@@ -92,6 +95,7 @@ struct ReviewSessionView: View {
                 FreeFlashcardDeckView(
                     cards: $browseCards,
                     index: $index,
+                    shuffleToken: shuffleToken,
                     reverseMode: reverseMode,
                     autoSpeak: autoSpeak
                 )
@@ -102,27 +106,32 @@ struct ReviewSessionView: View {
 
     @ViewBuilder private var header: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 closeButton
 
-                Spacer()
+                Spacer(minLength: 4)
 
                 VStack(spacing: 2) {
                     if case .freeBrowse(let title) = mode {
                         Text(title)
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(Brand.green)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
                     Text("\(min(index + 1, total)) / \(total)")
                         .font(.subheadline.weight(.bold))
                         .monospacedDigit()
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .contentTransition(.numericText())
                 }
+                .layoutPriority(1)
 
-                Spacer()
+                Spacer(minLength: 4)
 
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     if let currentCard {
                         let starred = learner.isFavorite(currentCard.slug)
                         headerIconButton(
@@ -160,13 +169,14 @@ struct ReviewSessionView: View {
                             Haptics.impact(.light)
                             browseCards.shuffle()
                             index = 0
+                            shuffleToken = UUID()
                         }
                     }
                 }
             }
             progressBar
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
     }
 
     private func headerIconButton(_ systemImage: String, active: Bool, label: String, action: @escaping () -> Void) -> some View {
@@ -179,12 +189,17 @@ struct ReviewSessionView: View {
                     active ? AnyShapeStyle(Brand.green) : AnyShapeStyle(Color(.secondarySystemBackground)),
                     in: Circle()
                 )
+                .frame(minWidth: 40, minHeight: 40)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     private var closeButton: some View {
         Button {
+            AudioPlayer.shared.stop()
             dismiss()
         } label: {
             Image(systemName: "xmark")
@@ -192,7 +207,12 @@ struct ReviewSessionView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 34, height: 34)
                 .background(Color(.secondarySystemBackground), in: Circle())
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(isGrading)
+        .opacity(isGrading ? 0.5 : 1)
         .accessibilityLabel("Đóng")
     }
 
@@ -221,23 +241,26 @@ struct ReviewSessionView: View {
 
     @ViewBuilder private var completionView: some View {
         let goodOrEasy = (gradeBreakdown[.good] ?? 0) + (gradeBreakdown[.easy] ?? 0)
-        let accuracy = gradedCount > 0 ? Int((Double(goodOrEasy) / Double(gradedCount) * 100).rounded()) : 100
+        let accuracyText = gradedCount > 0
+            ? "\(Int((Double(goodOrEasy) / Double(gradedCount) * 100).rounded()))%"
+            : "—"
 
         VStack(spacing: 20) {
             VocaIconBadge(systemImage: "checkmark.seal.fill", tint: Brand.green, size: 84, iconSize: 40)
 
             VStack(spacing: 6) {
-                Text("Hoàn thành \(gradedCount) thẻ! 🎉")
+                Text(gradedCount > 0 ? "Hoàn thành \(gradedCount) thẻ! 🎉" : "Đã kết thúc phiên ôn")
                     .font(.title2.weight(.bold))
                     .multilineTextAlignment(.center)
-                Text("Bạn đã ôn xong phiên này.")
+                Text(gradedCount > 0 ? "Bạn đã ôn xong phiên này." : "Chưa có thẻ nào được chấm điểm trong phiên này.")
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
 
             VStack(spacing: 14) {
                 HStack(spacing: 16) {
                     VStack(spacing: 2) {
-                        Text("\(accuracy)%")
+                        Text(accuracyText)
                             .font(.title2.weight(.bold))
                             .foregroundStyle(Brand.green)
                         Text("Nhớ vững")

@@ -3,6 +3,7 @@ import SwiftUI
 
 /// The "Hôm nay" (Today) dashboard tab — personalised daily snapshot, quick actions, and due review launch.
 struct TodayView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthStore.self) private var auth
     @Environment(LocalLearnerStore.self) private var learner
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -13,6 +14,7 @@ struct TodayView: View {
     @State private var showBrowseSession = false
     @State private var showCreateSheet = false
     @State private var showScanSheet = false
+    @State private var dayRefreshToken = UUID()
 
     private var language: CardLanguage {
         CardLanguage(rawValue: languageRaw) ?? .english
@@ -29,11 +31,36 @@ struct TodayView: View {
             }
             .navigationTitle("Hôm nay")
             .refreshable { await model.load() }
-            .onAppear { model.syncFromCache() }
+            .onAppear {
+                model.syncFromCache()
+                if model.shouldRefreshOnAppear {
+                    Task { await model.load() }
+                }
+            }
             .task { await model.load() }
-            .task {
+            .task(id: "cache-sync") {
                 for await _ in NotificationCenter.default.notifications(named: AppCache.cardsDidChangeNotification) {
                     model.syncFromCache()
+                }
+            }
+            .task(id: "study-sync") {
+                for await _ in NotificationCenter.default.notifications(named: AppCache.studyDidChangeNotification) {
+                    model.syncFromCache()
+                }
+            }
+            .task(id: "day-change") {
+                for await _ in NotificationCenter.default.notifications(named: .NSCalendarDayChanged) {
+                    dayRefreshToken = UUID()
+                    await model.load()
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    dayRefreshToken = UUID()
+                    model.syncFromCache()
+                    if model.shouldRefreshOnAppear {
+                        Task { await model.load() }
+                    }
                 }
             }
             .fullScreenCover(isPresented: $showSession, onDismiss: {
@@ -130,7 +157,7 @@ struct TodayView: View {
                     .minimumScaleFactor(0.7)
             }
 
-            HStack(spacing: 8) {
+            VocaFlowLayout(spacing: 8) {
                 if learner.streakDays > 0 {
                     VocaPillBadge(
                         text: "\(learner.streakDays) ngày liên tục",
@@ -144,6 +171,7 @@ struct TodayView: View {
                     tint: learner.reviewedTodayCount >= learner.dailyGoal ? Brand.semanticSuccess : Brand.green
                 )
             }
+            .id(dayRefreshToken)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -183,7 +211,7 @@ struct TodayView: View {
                 )
 
                 VStack(alignment: .leading, spacing: 2) {
-                    if model.isLoading && model.stats == nil {
+                    if model.isLoading && model.due == nil {
                         ProgressView()
                             .frame(height: 44, alignment: .leading)
                     } else {
@@ -208,7 +236,7 @@ struct TodayView: View {
                 }
             }
 
-            if dueCount == 0 && !(model.isLoading && model.stats == nil) {
+            if dueCount == 0 && !(model.isLoading && model.due == nil) {
                 Text("Tuyệt vời! Bạn đã ôn hết thẻ đến hạn hôm nay. 🎉")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -223,20 +251,22 @@ struct TodayView: View {
                 }
                 .buttonStyle(BrandCTAButtonStyle())
             } else {
+                let hasCards = !model.cards(for: language).isEmpty
                 Button {
                     Haptics.impact(.light)
-                    if model.cards(for: language).isEmpty {
+                    if !hasCards {
                         showCreateSheet = true
                     } else {
                         showBrowseSession = true
                     }
                 } label: {
                     Label(
-                        model.cards(for: language).isEmpty ? "Thêm từ đầu tiên" : "Luyện thẻ lật tự do",
-                        systemImage: model.cards(for: language).isEmpty ? "plus" : "sparkles.rectangle.stack.fill"
+                        hasCards ? "Luyện thẻ lật tự do" : "Thêm từ đầu tiên",
+                        systemImage: hasCards ? "sparkles.rectangle.stack.fill" : "plus"
                     )
                 }
                 .buttonStyle(BrandCTAButtonStyle())
+                .disabled(model.isLoading && model.due == nil && !hasCards)
             }
         }
         .brandHeroCard(padding: 18, cornerRadius: 22)
@@ -317,16 +347,22 @@ struct TodayView: View {
             }
 
             if total > 0 {
+                let segments = CardLevel.allCases.compactMap { level -> (level: CardLevel, count: Int)? in
+                    let c = model.count(for: level, language: language)
+                    return c > 0 ? (level, c) : nil
+                }
                 GeometryReader { geo in
+                    let widths = Self.normalizedSegmentWidths(
+                        counts: segments.map(\.count),
+                        totalWidth: geo.size.width,
+                        spacing: 2,
+                        minSegmentWidth: 8
+                    )
                     HStack(spacing: 2) {
-                        ForEach(CardLevel.allCases) { level in
-                            let count = model.count(for: level, language: language)
-                            if count > 0 {
-                                let ratio = CGFloat(count) / CGFloat(total)
-                                Capsule()
-                                    .fill(Brand.levelColor(level.rawValue))
-                                    .frame(width: max(8, geo.size.width * ratio - 2))
-                            }
+                        ForEach(Array(segments.enumerated()), id: \.element.level) { idx, seg in
+                            Capsule()
+                                .fill(Brand.levelColor(seg.level.rawValue))
+                                .frame(width: widths[idx])
                         }
                     }
                 }
@@ -377,6 +413,7 @@ struct TodayView: View {
                     ForEach(Array(recent.enumerated()), id: \.element.id) { index, card in
                         NavigationLink {
                             CardDetailView(card: card, onDeleted: { Task { await model.load() } })
+                                .id(card.slug)
                         } label: {
                             RecentCardRow(card: card)
                                 .padding(.vertical, 11)
@@ -413,13 +450,44 @@ struct TodayView: View {
         }
         .brandCard()
     }
+
+    private static func normalizedSegmentWidths(
+        counts: [Int],
+        totalWidth: CGFloat,
+        spacing: CGFloat,
+        minSegmentWidth: CGFloat
+    ) -> [CGFloat] {
+        guard !counts.isEmpty else { return [] }
+        let usable = max(0, totalWidth - spacing * CGFloat(max(0, counts.count - 1)))
+        let sum = CGFloat(counts.reduce(0, +))
+        guard sum > 0, usable > 0 else { return Array(repeating: 0, count: counts.count) }
+        let effectiveMin = min(minSegmentWidth, usable / CGFloat(counts.count))
+        var widths = counts.map { usable * CGFloat($0) / sum }
+        var clamped = Set<Int>()
+        var deficit: CGFloat = 0
+        for i in widths.indices where widths[i] < effectiveMin {
+            deficit += effectiveMin - widths[i]
+            widths[i] = effectiveMin
+            clamped.insert(i)
+        }
+        if deficit > 0 {
+            let flexibleIndices = widths.indices.filter { !clamped.contains($0) }
+            let flexTotal = flexibleIndices.reduce(CGFloat(0)) { $0 + max(0, widths[$1] - effectiveMin) }
+            if flexTotal > 0 {
+                for i in flexibleIndices {
+                    let room = max(0, widths[i] - effectiveMin)
+                    widths[i] -= deficit * (room / flexTotal)
+                }
+            }
+        }
+        return widths
+    }
 }
 
 // MARK: - View model
 
 @Observable
 final class TodayModel {
-    var stats: StudyStats?
     var due: DueResponse?
     var cards: [Card] = [] {
         didSet { rebuildLanguageIndex() }
@@ -433,9 +501,15 @@ final class TodayModel {
 
     private let studyService = StudyService()
     private let cardsService = CardsService()
+    @ObservationIgnored private var lastLoadedAt: Date?
+
+    var shouldRefreshOnAppear: Bool {
+        guard !isLoading else { return false }
+        guard let lastLoadedAt else { return true }
+        return Date().timeIntervalSince(lastLoadedAt) > 20
+    }
 
     init() {
-        stats = studyService.cachedStats()
         due = studyService.cachedDue()
         cards = cardsService.cachedList()
         rebuildLanguageIndex()
@@ -447,12 +521,9 @@ final class TodayModel {
         if cachedCards != cards {
             cards = cachedCards
         }
-        if let cachedDue = studyService.cachedDue(),
-           due?.cards.map(\.id) != cachedDue.cards.map(\.id) || due?.count != cachedDue.count {
+        let cachedDue = studyService.cachedDue()
+        if due?.cards.map(\.id) != cachedDue?.cards.map(\.id) || due?.count != cachedDue?.count {
             due = cachedDue
-        }
-        if let cachedStats = studyService.cachedStats(), stats == nil {
-            stats = cachedStats
         }
     }
 
@@ -460,17 +531,38 @@ final class TodayModel {
     func load() async {
         isLoading = true
         errorMessage = nil
-        do {
-            async let statsCall = studyService.stats()
-            async let dueCall = studyService.due()
-            async let cardsCall = cardsService.list()
-            let (loadedStats, loadedDue, loadedCards) = try await (statsCall, dueCall, cardsCall)
-            stats = loadedStats
+
+        async let dueResult: Result<DueResponse, Error> = {
+            do { return .success(try await studyService.due()) }
+            catch { return .failure(error) }
+        }()
+        async let cardsResult: Result<[Card], Error> = {
+            do { return .success(try await cardsService.list()) }
+            catch { return .failure(error) }
+        }()
+
+        let (resolvedDue, resolvedCards) = await (dueResult, cardsResult)
+        var firstError: Error?
+
+        switch resolvedDue {
+        case .success(let loadedDue):
             due = loadedDue
+        case .failure(let error):
+            if !(error is CancellationError) { firstError = error }
+        }
+
+        switch resolvedCards {
+        case .success(let loadedCards):
             cards = loadedCards
             WidgetSync.publish(loadedCards)
-        } catch {
-            errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+        case .failure(let error):
+            if !(error is CancellationError), firstError == nil { firstError = error }
+        }
+
+        if let firstError {
+            errorMessage = (firstError as? ApiError)?.message ?? firstError.localizedDescription
+        } else {
+            lastLoadedAt = Date()
         }
         isLoading = false
     }

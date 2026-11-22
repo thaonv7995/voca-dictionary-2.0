@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Landing screen for the Study (FSRS + Free Flashcard Browse) tab.
 struct StudyRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(ThemeStore.self) private var theme
     @Environment(LocalLearnerStore.self) private var learner
     @AppStorage("voca.dictionary.language") private var languageRaw = CardLanguage.english.rawValue
@@ -10,7 +11,7 @@ struct StudyRootView: View {
     @State private var model = StudyModel()
     @State private var showReviewSession = false
     @State private var browseScope: BrowseScope = .all
-    @State private var browseSheetCards: [Card]?
+    @State private var activeBrowseSession: BrowseWrapper?
 
     private enum BrowseScope: String, CaseIterable, Identifiable {
         case all, learning, favorites
@@ -75,11 +76,34 @@ struct StudyRootView: View {
             }
             .navigationTitle("Học tập")
             .refreshable { await model.load() }
-            .onAppear { model.syncFromCache() }
+            .onAppear {
+                model.syncFromCache()
+                if model.shouldRefreshOnAppear {
+                    Task { await model.load() }
+                }
+            }
             .task { await model.load() }
-            .task {
+            .task(id: "cache-sync") {
                 for await _ in NotificationCenter.default.notifications(named: AppCache.cardsDidChangeNotification) {
                     model.syncFromCache()
+                }
+            }
+            .task(id: "study-sync") {
+                for await _ in NotificationCenter.default.notifications(named: AppCache.studyDidChangeNotification) {
+                    model.syncFromCache()
+                }
+            }
+            .task(id: "day-change") {
+                for await _ in NotificationCenter.default.notifications(named: .NSCalendarDayChanged) {
+                    await model.load()
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    model.syncFromCache()
+                    if model.shouldRefreshOnAppear {
+                        Task { await model.load() }
+                    }
                 }
             }
             .fullScreenCover(isPresented: $showReviewSession, onDismiss: {
@@ -87,10 +111,7 @@ struct StudyRootView: View {
             }) {
                 ReviewSessionView(items: dueItems)
             }
-            .fullScreenCover(item: Binding(
-                get: { browseSheetCards.map { BrowseWrapper(cards: $0, title: "Thẻ lật · \(browseScope.label)") } },
-                set: { if $0 == nil { browseSheetCards = nil } }
-            )) { wrapper in
+            .fullScreenCover(item: $activeBrowseSession) { wrapper in
                 ReviewSessionView(browseCards: wrapper.cards, title: wrapper.title)
             }
         }
@@ -157,6 +178,7 @@ struct StudyRootView: View {
     // MARK: - Free Browse Deck
 
     @ViewBuilder private var freeBrowseCard: some View {
+        let scoped = scopedBrowseCards
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 VocaIconBadge(systemImage: "sparkles.rectangle.stack.fill", tint: .indigo, size: 38, iconSize: 17)
@@ -179,22 +201,22 @@ struct StudyRootView: View {
 
             Button {
                 Haptics.impact(.light)
-                browseSheetCards = scopedBrowseCards
+                activeBrowseSession = BrowseWrapper(cards: scoped, title: "Thẻ lật · \(browseScope.label)")
             } label: {
                 HStack {
-                    Label("Mở bộ thẻ (\(scopedBrowseCards.count))", systemImage: "rectangle.portrait.on.rectangle.portrait.angled.fill")
+                    Label("Mở bộ thẻ (\(scoped.count))", systemImage: "rectangle.portrait.on.rectangle.portrait.angled.fill")
                     Spacer()
                     Image(systemName: "chevron.right").font(.caption.weight(.bold))
                 }
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(scopedBrowseCards.isEmpty ? .secondary : Brand.green)
+                .foregroundStyle(scoped.isEmpty ? .secondary : Brand.green)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .background(Brand.greenSoft.opacity(scopedBrowseCards.isEmpty ? 0.35 : 1),
+                .background(Brand.greenSoft.opacity(scoped.isEmpty ? 0.35 : 1),
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
-            .disabled(scopedBrowseCards.isEmpty)
+            .disabled(scoped.isEmpty)
         }
         .brandCard()
     }
@@ -233,7 +255,7 @@ struct StudyRootView: View {
             Divider().opacity(0.6)
 
             Toggle(isOn: $bindableTheme.autoAdvanceFlashcard) {
-                Label("Tự động lướt thẻ tiếp theo", systemImage: "arrow.right.circle")
+                Label("Tự động lướt thẻ (Thẻ lật tự do)", systemImage: "arrow.right.circle")
                     .font(.subheadline)
             }
             .tint(Brand.green)
@@ -298,7 +320,6 @@ struct StudyRootView: View {
 /// View-model backing the Study landing screen.
 @Observable
 final class StudyModel {
-    var stats: StudyStats?
     var due: DueResponse?
     var cards: [Card] = []
     var isLoading = false
@@ -306,9 +327,15 @@ final class StudyModel {
 
     private let service = StudyService()
     private let cardsService = CardsService()
+    @ObservationIgnored private var lastLoadedAt: Date?
+
+    var shouldRefreshOnAppear: Bool {
+        guard !isLoading else { return false }
+        guard let lastLoadedAt else { return true }
+        return Date().timeIntervalSince(lastLoadedAt) > 20
+    }
 
     init() {
-        stats = service.cachedStats()
         due = service.cachedDue()
         cards = cardsService.cachedList()
     }
@@ -319,12 +346,9 @@ final class StudyModel {
         if cachedCards != cards {
             cards = cachedCards
         }
-        if let cachedDue = service.cachedDue(),
-           due?.cards.map(\.id) != cachedDue.cards.map(\.id) || due?.count != cachedDue.count {
+        let cachedDue = service.cachedDue()
+        if due?.cards.map(\.id) != cachedDue?.cards.map(\.id) || due?.count != cachedDue?.count {
             due = cachedDue
-        }
-        if let cachedStats = service.cachedStats(), stats == nil {
-            stats = cachedStats
         }
     }
 
@@ -332,16 +356,37 @@ final class StudyModel {
     func load() async {
         isLoading = true
         errorMessage = nil
-        do {
-            async let statsCall = service.stats()
-            async let dueCall = service.due()
-            async let cardsCall = cardsService.list()
-            let (loadedStats, loadedDue, loadedCards) = try await (statsCall, dueCall, cardsCall)
-            stats = loadedStats
+
+        async let dueResult: Result<DueResponse, Error> = {
+            do { return .success(try await service.due()) }
+            catch { return .failure(error) }
+        }()
+        async let cardsResult: Result<[Card], Error> = {
+            do { return .success(try await cardsService.list()) }
+            catch { return .failure(error) }
+        }()
+
+        let (resolvedDue, resolvedCards) = await (dueResult, cardsResult)
+        var firstError: Error?
+
+        switch resolvedDue {
+        case .success(let loadedDue):
             due = loadedDue
+        case .failure(let error):
+            if !(error is CancellationError) { firstError = error }
+        }
+
+        switch resolvedCards {
+        case .success(let loadedCards):
             cards = loadedCards
-        } catch {
-            errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+        case .failure(let error):
+            if !(error is CancellationError), firstError == nil { firstError = error }
+        }
+
+        if let firstError {
+            errorMessage = (firstError as? ApiError)?.message ?? firstError.localizedDescription
+        } else {
+            lastLoadedAt = Date()
         }
         isLoading = false
     }

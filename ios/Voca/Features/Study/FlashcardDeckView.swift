@@ -2,10 +2,12 @@ import SwiftUI
 
 /// The interactive, draggable flashcard stack for FSRS review sessions.
 struct FlashcardDeckView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(ThemeStore.self) private var theme
     let items: [DueItem]
     @Binding var index: Int
     @Binding var gradedCount: Int
+    @Binding var isGrading: Bool
     var reverseMode: Bool = false
     var autoSpeak: Bool = false
     var onGradeRecorded: (ReviewGrade) -> Void = { _ in }
@@ -13,12 +15,11 @@ struct FlashcardDeckView: View {
     @State private var drag: CGSize = .zero
     @State private var flyAway: CGSize?
     @State private var flipped = false
-    @State private var isGrading = false
     @State private var reviewError: String?
     @State private var lastGrade: ReviewGrade?
     @State private var crossedThresholdGrade: ReviewGrade?
-    @State private var flipTimer: Timer?
-    @State private var advanceTimer: Timer?
+    @State private var autoFlipTask: Task<Void, Never>?
+    @State private var speakTask: Task<Void, Never>?
 
     private let service = StudyService()
 
@@ -52,30 +53,26 @@ struct FlashcardDeckView: View {
                 speakCurrentIfNeeded(justFlipped: true)
             }
             if nowFlipped {
-                scheduleReviewAutoAdvance()
-            } else {
-                advanceTimer?.invalidate()
-                advanceTimer = nil
+                cancelReviewAutomation()
             }
         }
         .onChange(of: theme.autoFlipFlashcard) { _, isEnabled in
             if isEnabled {
                 scheduleReviewAutoFlip()
             } else {
-                flipTimer?.invalidate()
-                flipTimer = nil
+                cancelReviewAutomation()
             }
         }
-        .onChange(of: theme.autoAdvanceFlashcard) { _, isEnabled in
-            if isEnabled && flipped {
-                scheduleReviewAutoAdvance()
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                scheduleReviewAutoFlip()
             } else {
-                advanceTimer?.invalidate()
-                advanceTimer = nil
+                cancelReviewAutomation()
             }
         }
         .onDisappear {
-            cancelReviewAutomationTimers()
+            cancelReviewAutomation()
+            stopSpeech()
         }
     }
 
@@ -121,13 +118,19 @@ struct FlashcardDeckView: View {
         .rotationEffect(.degrees(isTop ? angle(for: currentOffset.width) : 0))
         .zIndex(Double(-depth))
         .allowsHitTesting(isTop && !isGrading)
+        .accessibilityHidden(!isTop)
 
         if isTop {
             base
                 .gesture(dragGesture(for: entry.item))
                 .onTapGesture {
                     Haptics.impact(.light)
-                    flipTimer?.invalidate()
+                    cancelReviewAutomation()
+                    withAnimation(flipSpring) { flipped.toggle() }
+                }
+                .accessibilityHint("Chạm đúp để lật thẻ")
+                .accessibilityAction(named: "Lật thẻ") {
+                    cancelReviewAutomation()
                     withAnimation(flipSpring) { flipped.toggle() }
                 }
         } else {
@@ -166,6 +169,7 @@ struct FlashcardDeckView: View {
         DragGesture()
             .onChanged { value in
                 guard !isGrading, flyAway == nil else { return }
+                cancelReviewAutomation()
                 drag = value.translation
                 let current = grade(for: value.translation.width)
                 if current != crossedThresholdGrade {
@@ -180,6 +184,7 @@ struct FlashcardDeckView: View {
                     commit(grade, for: item)
                 } else {
                     withAnimation(snapSpring) { drag = .zero }
+                    scheduleReviewAutoFlip()
                 }
             }
     }
@@ -191,8 +196,8 @@ struct FlashcardDeckView: View {
     private func grade(for width: CGFloat) -> ReviewGrade? {
         if width >= farThreshold { return .easy }
         if width >= swipeThreshold { return .good }
-        if width <= -farThreshold { return .hard }
-        if width <= -swipeThreshold { return .again }
+        if width <= -farThreshold { return .again }
+        if width <= -swipeThreshold { return .hard }
         return nil
     }
 
@@ -270,16 +275,25 @@ struct FlashcardDeckView: View {
     // MARK: - Actions
 
     private func speakCurrentIfNeeded(justFlipped: Bool) {
+        stopSpeech()
         guard autoSpeak, let item = currentItem else { return }
         if reverseMode && !justFlipped { return }
         let card = item.card
-        Task {
+        speakTask = Task {
             try? await TTSService().speak(card.word, language: card.cardLanguage)
         }
     }
 
+    private func stopSpeech() {
+        speakTask?.cancel()
+        speakTask = nil
+        AudioPlayer.shared.stop()
+    }
+
     private func commit(_ grade: ReviewGrade, for item: DueItem) {
         guard !isGrading else { return }
+        cancelReviewAutomation()
+        stopSpeech()
         isGrading = true
         reviewError = nil
         lastGrade = grade
@@ -319,7 +333,8 @@ struct FlashcardDeckView: View {
     }
 
     private func advanceState() {
-        cancelReviewAutomationTimers()
+        cancelReviewAutomation()
+        stopSpeech()
         index += 1
         flyAway = nil
         drag = .zero
@@ -328,57 +343,30 @@ struct FlashcardDeckView: View {
     }
 
     private func scheduleReviewAutoFlip() {
-        flipTimer?.invalidate()
-        flipTimer = nil
-
-        let autoFlipEnabled = theme.autoFlipFlashcard
-        guard autoFlipEnabled,
+        cancelReviewAutomation()
+        guard theme.autoFlipFlashcard,
+              scenePhase == .active,
               currentItem != nil,
               !flipped,
-              !isGrading else {
-            if flipped {
-                scheduleReviewAutoAdvance()
-            }
-            return
-        }
+              !isGrading else { return }
 
-        flipTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in
-            guard autoFlipEnabled,
+        autoFlipTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1500))
+            guard !Task.isCancelled,
+                  theme.autoFlipFlashcard,
+                  scenePhase == .active,
                   currentItem != nil,
                   !flipped,
                   !isGrading else { return }
             withAnimation(flipSpring) {
                 flipped = true
             }
-            flipTimer = nil
         }
     }
 
-    private func scheduleReviewAutoAdvance() {
-        advanceTimer?.invalidate()
-        advanceTimer = nil
-
-        let autoAdvanceEnabled = theme.autoAdvanceFlashcard
-        guard autoAdvanceEnabled,
-              flipped,
-              currentItem != nil,
-              !isGrading else { return }
-
-        advanceTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { _ in
-            guard autoAdvanceEnabled,
-                  flipped,
-                  currentItem != nil,
-                  !isGrading else { return }
-            skip()
-            advanceTimer = nil
-        }
-    }
-
-    private func cancelReviewAutomationTimers() {
-        flipTimer?.invalidate()
-        advanceTimer?.invalidate()
-        flipTimer = nil
-        advanceTimer = nil
+    private func cancelReviewAutomation() {
+        autoFlipTask?.cancel()
+        autoFlipTask = nil
     }
 }
 
@@ -386,23 +374,26 @@ struct FlashcardDeckView: View {
 
 /// Free-study deck allowing users to flip, favorite, shuffle, and browse any card set freely.
 struct FreeFlashcardDeckView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(ThemeStore.self) private var theme
     @Binding var cards: [Card]
     @Binding var index: Int
+    var shuffleToken: UUID = UUID()
     var reverseMode: Bool = false
     var autoSpeak: Bool = false
 
     @State private var flipped = false
     @State private var dragOffset: CGFloat = 0
-    @State private var flipTimer: Timer?
-    @State private var advanceTimer: Timer?
+    @State private var autoFlipTask: Task<Void, Never>?
+    @State private var autoAdvanceTask: Task<Void, Never>?
+    @State private var speakTask: Task<Void, Never>?
 
     private let flipSpring = Animation.spring(response: 0.48, dampingFraction: 0.8)
 
     var body: some View {
         VStack(spacing: 16) {
             ZStack {
-                ForEach(visibleCards, id: \.offset) { depth, card in
+                ForEach(visibleCards, id: \.card.id) { depth, card in
                     let isTop = depth == 0
                     let dragProgress = min(1, abs(dragOffset) / 70)
                     let depthLift = (depth == 1) ? dragProgress * 0.035 : 0
@@ -420,11 +411,20 @@ struct FreeFlashcardDeckView: View {
                     .rotationEffect(.degrees(isTop ? Double(dragOffset / 22) : 0))
                     .zIndex(Double(-depth))
                     .allowsHitTesting(isTop)
+                    .accessibilityHidden(!isTop)
                     .gesture(isTop ? browseDragGesture : nil)
                     .onTapGesture {
                         guard isTop else { return }
                         Haptics.impact(.light)
-                        flipTimer?.invalidate()
+                        autoFlipTask?.cancel()
+                        autoFlipTask = nil
+                        withAnimation(flipSpring) { flipped.toggle() }
+                    }
+                    .accessibilityHint(isTop ? "Chạm đúp để lật thẻ" : "")
+                    .accessibilityAction(named: "Lật thẻ") {
+                        guard isTop else { return }
+                        autoFlipTask?.cancel()
+                        autoFlipTask = nil
                         withAnimation(flipSpring) { flipped.toggle() }
                     }
                 }
@@ -444,6 +444,14 @@ struct FreeFlashcardDeckView: View {
             speakCurrentIfNeeded(justFlipped: false)
             scheduleAutoFlip()
         }
+        .onChange(of: shuffleToken) { _, _ in
+            cancelAutomation()
+            stopSpeech()
+            dragOffset = 0
+            flipped = false
+            speakCurrentIfNeeded(justFlipped: false)
+            scheduleAutoFlip()
+        }
         .onChange(of: flipped) { _, nowFlipped in
             if nowFlipped && reverseMode {
                 speakCurrentIfNeeded(justFlipped: true)
@@ -452,28 +460,40 @@ struct FreeFlashcardDeckView: View {
             if nowFlipped {
                 scheduleAutoAdvance()
             } else {
-                advanceTimer?.invalidate()
-                advanceTimer = nil
+                autoAdvanceTask?.cancel()
+                autoAdvanceTask = nil
             }
         }
         .onChange(of: theme.autoFlipFlashcard) { _, isEnabled in
             if isEnabled {
                 scheduleAutoFlip()
             } else {
-                flipTimer?.invalidate()
-                flipTimer = nil
+                autoFlipTask?.cancel()
+                autoFlipTask = nil
             }
         }
         .onChange(of: theme.autoAdvanceFlashcard) { _, isEnabled in
             if isEnabled && flipped {
                 scheduleAutoAdvance()
             } else {
-                advanceTimer?.invalidate()
-                advanceTimer = nil
+                autoAdvanceTask?.cancel()
+                autoAdvanceTask = nil
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                if flipped {
+                    scheduleAutoAdvance()
+                } else {
+                    scheduleAutoFlip()
+                }
+            } else {
+                cancelAutomation()
             }
         }
         .onDisappear {
-            cancelAutomationTimers()
+            cancelAutomation()
+            stopSpeech()
         }
     }
 
@@ -486,6 +506,7 @@ struct FreeFlashcardDeckView: View {
     private var browseDragGesture: some Gesture {
         DragGesture()
             .onChanged { value in
+                cancelAutomation()
                 dragOffset = value.translation.width
             }
             .onEnded { value in
@@ -495,6 +516,11 @@ struct FreeFlashcardDeckView: View {
                     move(to: index - 1)
                 } else {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { dragOffset = 0 }
+                    if flipped {
+                        scheduleAutoAdvance()
+                    } else {
+                        scheduleAutoFlip()
+                    }
                 }
             }
     }
@@ -512,8 +538,8 @@ struct FreeFlashcardDeckView: View {
 
             Button {
                 Haptics.impact(.light)
-                flipTimer?.invalidate()
-                flipTimer = nil
+                autoFlipTask?.cancel()
+                autoFlipTask = nil
                 withAnimation(flipSpring) { flipped.toggle() }
             } label: {
                 Label("Lật thẻ", systemImage: "arrow.triangle.2.circlepath")
@@ -540,7 +566,8 @@ struct FreeFlashcardDeckView: View {
     private func move(to newIndex: Int) {
         guard cards.indices.contains(newIndex) else { return }
         Haptics.selection()
-        cancelAutomationTimers()
+        cancelAutomation()
+        stopSpeech()
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             dragOffset = 0
             flipped = false
@@ -549,11 +576,11 @@ struct FreeFlashcardDeckView: View {
     }
 
     private func scheduleAutoFlip() {
-        flipTimer?.invalidate()
-        flipTimer = nil
+        autoFlipTask?.cancel()
+        autoFlipTask = nil
 
-        let autoFlipEnabled = theme.autoFlipFlashcard
-        guard autoFlipEnabled,
+        guard theme.autoFlipFlashcard,
+              scenePhase == .active,
               cards.indices.contains(index),
               !flipped else {
             if flipped {
@@ -562,51 +589,63 @@ struct FreeFlashcardDeckView: View {
             return
         }
 
-        flipTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in
-            guard autoFlipEnabled,
+        autoFlipTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1500))
+            guard !Task.isCancelled,
+                  theme.autoFlipFlashcard,
+                  scenePhase == .active,
                   cards.indices.contains(index),
                   !flipped else { return }
 
             withAnimation(flipSpring) {
                 flipped = true
             }
-            flipTimer = nil
         }
     }
 
     private func scheduleAutoAdvance() {
-        advanceTimer?.invalidate()
-        advanceTimer = nil
+        autoAdvanceTask?.cancel()
+        autoAdvanceTask = nil
 
-        let autoAdvanceEnabled = theme.autoAdvanceFlashcard
-        guard autoAdvanceEnabled,
+        guard theme.autoAdvanceFlashcard,
+              scenePhase == .active,
               flipped,
-              !cards.isEmpty else { return }
+              cards.count > 1 else { return }
 
-        advanceTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { _ in
-            guard autoAdvanceEnabled,
+        autoAdvanceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(4000))
+            guard !Task.isCancelled,
+                  theme.autoAdvanceFlashcard,
+                  scenePhase == .active,
                   flipped,
-                  !cards.isEmpty else { return }
+                  cards.count > 1 else { return }
 
             let nextIndex = index < cards.count - 1 ? index + 1 : 0
             move(to: nextIndex)
         }
     }
 
-    private func cancelAutomationTimers() {
-        flipTimer?.invalidate()
-        advanceTimer?.invalidate()
-        flipTimer = nil
-        advanceTimer = nil
+    private func cancelAutomation() {
+        autoFlipTask?.cancel()
+        autoAdvanceTask?.cancel()
+        autoFlipTask = nil
+        autoAdvanceTask = nil
     }
 
     private func speakCurrentIfNeeded(justFlipped: Bool) {
+        stopSpeech()
         guard autoSpeak, cards.indices.contains(index) else { return }
         if reverseMode && !justFlipped { return }
         let card = cards[index]
-        Task {
+        speakTask = Task {
             try? await TTSService().speak(card.word, language: card.cardLanguage)
         }
+    }
+
+    private func stopSpeech() {
+        speakTask?.cancel()
+        speakTask = nil
+        AudioPlayer.shared.stop()
     }
 }
 

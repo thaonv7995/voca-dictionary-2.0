@@ -23,11 +23,13 @@ struct TTSService: Sendable {
     }
 
     /// Synthesises `text` and suspends until playback finishes — for sequential "play all".
+    /// Returns `true` if playback completed normally, `false` if interrupted/stopped.
+    @discardableResult
     func speakAndWait(_ text: String,
                       language: CardLanguage? = nil,
                       voiceModel: String? = nil,
                       fallbackToSystem: Bool = true,
-                      forceSystem: Bool? = nil) async throws {
+                      forceSystem: Bool? = nil) async throws -> Bool {
         try await performSpeech(
             text,
             language: language,
@@ -75,35 +77,40 @@ struct TTSService: Sendable {
         return (result.fromCache, result.data.count)
     }
 
+    @discardableResult
     private func performSpeech(_ text: String,
                                language: CardLanguage?,
                                voiceModel: String?,
                                fallbackToSystem: Bool,
                                forceSystem: Bool?,
-                               waitForCompletion: Bool) async throws {
+                               waitForCompletion: Bool) async throws -> Bool {
+        try Task.checkCancellation()
         let useDevice = await resolveUseDevice(forceSystem: forceSystem)
         if !useDevice {
             await VoiceSettingsStore.shared.refreshIfNeeded()
         }
+        try Task.checkCancellation()
 
         let (cleanText, effectiveVoice, speechLang) = await resolveInput(
             text,
             language: language,
             voiceModel: voiceModel
         )
-        guard !cleanText.isEmpty else { return }
+        guard !cleanText.isEmpty else { return true }
+        try Task.checkCancellation()
 
         if useDevice {
             if waitForCompletion {
-                await AudioPlayer.shared.speakSystemAndWait(cleanText, languageCode: speechLang)
+                let result = await AudioPlayer.shared.speakSystemAndWait(cleanText, languageCode: speechLang)
+                return result == .completed
             } else {
                 await AudioPlayer.shared.speakSystem(cleanText, languageCode: speechLang)
+                return true
             }
-            return
         }
 
         do {
-            let (data, _) = try await AudioCacheStore.shared.getOrFetchAudio(
+            let (data, fromCache) = try await AudioCacheStore.shared.getOrFetchAudio(
                 text: cleanText,
                 voiceModel: effectiveVoice
             ) {
@@ -113,21 +120,44 @@ struct TTSService: Sendable {
                     body: TTSBody(text: cleanText, voiceModel: effectiveVoice)
                 )
             }
-            let played: Bool
+            try Task.checkCancellation()
+
             if waitForCompletion {
-                played = await AudioPlayer.shared.playAndWait(data)
+                let result = await AudioPlayer.shared.playAndWait(data)
+                switch result {
+                case .completed:
+                    return true
+                case .interrupted:
+                    return false
+                case .failed:
+                    if fromCache {
+                        await AudioCacheStore.shared.remove(text: cleanText, voiceModel: effectiveVoice)
+                    }
+                    throw ApiError(status: 0, code: "AUDIO_PLAYBACK_FAILED", message: "Không phát được tệp âm thanh.")
+                }
             } else {
-                played = await AudioPlayer.shared.play(data)
+                let played = await AudioPlayer.shared.play(data)
+                if !played {
+                    if fromCache {
+                        await AudioCacheStore.shared.remove(text: cleanText, voiceModel: effectiveVoice)
+                    }
+                    throw ApiError(status: 0, code: "AUDIO_PLAYBACK_FAILED", message: "Không phát được tệp âm thanh.")
+                }
+                return true
             }
-            if !played {
-                throw ApiError(status: 0, code: "AUDIO_PLAYBACK_FAILED", message: "Không phát được tệp âm thanh.")
-            }
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
             if fallbackToSystem {
                 if waitForCompletion {
-                    await AudioPlayer.shared.speakSystemAndWait(cleanText, languageCode: speechLang)
+                    let result = await AudioPlayer.shared.speakSystemAndWait(cleanText, languageCode: speechLang)
+                    return result == .completed
                 } else {
                     await AudioPlayer.shared.speakSystem(cleanText, languageCode: speechLang)
+                    return true
                 }
             } else {
                 throw error

@@ -1,6 +1,12 @@
 import Foundation
 import AVFoundation
 
+enum AudioPlaybackResult: Sendable {
+    case completed
+    case interrupted
+    case failed
+}
+
 /// Plays MP3 data returned by the TTS endpoints with `AVSpeechSynthesizer` fallback.
 /// One shared player; a new clip replaces the previous.
 @MainActor
@@ -9,42 +15,86 @@ final class AudioPlayer: NSObject {
 
     private var player: AVAudioPlayer?
     private let synthesizer = AVSpeechSynthesizer()
-    private var finishContinuation: CheckedContinuation<Bool, Never>?
+    private var activeUtterance: AVSpeechUtterance?
+    private var finishContinuation: CheckedContinuation<AudioPlaybackResult, Never>?
+    private var interruptionObserver: NSObjectProtocol?
+
+    private static var cachedSpeechVoices: [AVSpeechSynthesisVoice]?
 
     override init() {
         super.init()
         synthesizer.delegate = self
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: typeValue),
+                  type == .began
+            else { return }
+            Task { @MainActor [weak self] in
+                self?.stop()
+            }
+        }
     }
 
     /// Fire-and-forget playback (single word / one line). Returns false if audio bytes are invalid.
     @discardableResult
     func play(_ data: Data) -> Bool {
+        stop(deactivateSession: false)
+        guard !data.isEmpty, let p = try? AVAudioPlayer(data: data) else {
+            deactivateSessionIfIdle()
+            return false
+        }
         prepareSession()
-        stop()
-        guard !data.isEmpty, let p = try? AVAudioPlayer(data: data) else { return false }
+        p.delegate = self
         player = p
         p.prepareToPlay()
-        return p.play()
+        if !p.play() {
+            player = nil
+            deactivateSessionIfIdle()
+            return false
+        }
+        return true
     }
 
-    /// Plays and suspends until playback finishes (or fails) — used for sequential "play all".
+    /// Plays and suspends until playback finishes, is interrupted, or fails — used for sequential "play all".
     @discardableResult
-    func playAndWait(_ data: Data) async -> Bool {
-        prepareSession()
-        stop()
-        guard !data.isEmpty else { return false }
-        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            do {
-                let p = try AVAudioPlayer(data: data)
-                p.delegate = self
-                player = p
-                finishContinuation = cont
-                p.prepareToPlay()
-                if !p.play() {
-                    resumeFinish(success: false)
+    func playAndWait(_ data: Data) async -> AudioPlaybackResult {
+        guard !Task.isCancelled else { return .interrupted }
+        stop(deactivateSession: false)
+        guard !data.isEmpty else {
+            deactivateSessionIfIdle()
+            return .failed
+        }
+
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<AudioPlaybackResult, Never>) in
+                if Task.isCancelled {
+                    deactivateSessionIfIdle()
+                    cont.resume(returning: .interrupted)
+                    return
                 }
-            } catch {
-                cont.resume(returning: false)
+                do {
+                    let p = try AVAudioPlayer(data: data)
+                    prepareSession()
+                    p.delegate = self
+                    player = p
+                    finishContinuation = cont
+                    p.prepareToPlay()
+                    if !p.play() {
+                        player = nil
+                        resumeFinish(result: .failed)
+                    }
+                } catch {
+                    deactivateSessionIfIdle()
+                    cont.resume(returning: .failed)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in
+                AudioPlayer.shared.stop()
             }
         }
     }
@@ -53,32 +103,56 @@ final class AudioPlayer: NSObject {
     func speakSystem(_ text: String, languageCode: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        stop(deactivateSession: false)
         prepareSession()
-        stop()
         let utterance = makeUtterance(trimmed, languageCode: languageCode)
+        activeUtterance = utterance
         synthesizer.speak(utterance)
     }
 
-    /// Fallback system speech suspending until playback finishes.
-    func speakSystemAndWait(_ text: String, languageCode: String) async {
+    /// Fallback system speech suspending until playback finishes or is interrupted.
+    @discardableResult
+    func speakSystemAndWait(_ text: String, languageCode: String) async -> AudioPlaybackResult {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        prepareSession()
-        stop()
-        await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            finishContinuation = cont
-            let utterance = makeUtterance(trimmed, languageCode: languageCode)
-            synthesizer.speak(utterance)
+        guard !trimmed.isEmpty else { return .completed }
+        guard !Task.isCancelled else { return .interrupted }
+        stop(deactivateSession: false)
+
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<AudioPlaybackResult, Never>) in
+                if Task.isCancelled {
+                    deactivateSessionIfIdle()
+                    cont.resume(returning: .interrupted)
+                    return
+                }
+                prepareSession()
+                let utterance = makeUtterance(trimmed, languageCode: languageCode)
+                activeUtterance = utterance
+                finishContinuation = cont
+                synthesizer.speak(utterance)
+            }
+        } onCancel: {
+            Task { @MainActor in
+                AudioPlayer.shared.stop()
+            }
         }
     }
 
     func stop() {
-        player?.stop()
-        player = nil
-        if synthesizer.isSpeaking {
+        stop(deactivateSession: true)
+    }
+
+    private func stop(deactivateSession: Bool) {
+        if let activePlayer = player {
+            activePlayer.delegate = nil
+            activePlayer.stop()
+            player = nil
+        }
+        activeUtterance = nil
+        if synthesizer.isSpeaking || synthesizer.isPaused {
             synthesizer.stopSpeaking(at: .immediate)
         }
-        resumeFinish(success: true)
+        resumeFinish(result: .interrupted, deactivateSession: deactivateSession)
     }
 
     private func makeUtterance(_ text: String, languageCode: String) -> AVSpeechUtterance {
@@ -103,7 +177,12 @@ final class AudioPlayer: NSObject {
     private static func bestSystemVoice(forLanguageCode languageCode: String) -> AVSpeechSynthesisVoice? {
         let preferredCode = languageCode.lowercased()
         let prefix = preferredCode.hasPrefix("zh") ? "zh" : "en"
-        let candidates = AVSpeechSynthesisVoice.speechVoices().filter {
+        let allVoices = cachedSpeechVoices ?? {
+            let loaded = AVSpeechSynthesisVoice.speechVoices()
+            cachedSpeechVoices = loaded
+            return loaded
+        }()
+        let candidates = allVoices.filter {
             $0.language.lowercased().hasPrefix(prefix)
         }
         guard !candidates.isEmpty else {
@@ -133,24 +212,54 @@ final class AudioPlayer: NSObject {
         try? AVAudioSession.sharedInstance().setActive(true)
     }
 
-    private func resumeFinish(success: Bool) {
-        finishContinuation?.resume(returning: success)
-        finishContinuation = nil
+    private func deactivateSessionIfIdle() {
+        guard player == nil, activeUtterance == nil, !synthesizer.isSpeaking else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func resumeFinish(result: AudioPlaybackResult, deactivateSession: Bool = true) {
+        if let continuation = finishContinuation {
+            finishContinuation = nil
+            continuation.resume(returning: result)
+        }
+        if deactivateSession {
+            deactivateSessionIfIdle()
+        }
     }
 }
 
 extension AudioPlayer: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in self.resumeFinish(success: flag) }
+        Task { @MainActor in
+            guard self.player === player else { return }
+            self.player = nil
+            self.resumeFinish(result: flag ? .completed : .failed)
+        }
+    }
+
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        Task { @MainActor in
+            guard self.player === player else { return }
+            self.player = nil
+            self.resumeFinish(result: .failed)
+        }
     }
 }
 
 extension AudioPlayer: AVSpeechSynthesizerDelegate {
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.resumeFinish(success: true) }
+        Task { @MainActor in
+            guard self.activeUtterance === utterance else { return }
+            self.activeUtterance = nil
+            self.resumeFinish(result: .completed)
+        }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.resumeFinish(success: false) }
+        Task { @MainActor in
+            guard self.activeUtterance === utterance else { return }
+            self.activeUtterance = nil
+            self.resumeFinish(result: .interrupted)
+        }
     }
 }
