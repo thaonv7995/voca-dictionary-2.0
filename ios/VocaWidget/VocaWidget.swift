@@ -35,8 +35,25 @@ struct VocaProvider: TimelineProvider {
         let cards = WidgetSharedStore.load()
         let now = Date()
         Task {
+            // Prefetch missing strokes for the immediate upcoming Chinese cards *before* calling
+            // completion so WidgetKit does not terminate the extension mid-download.
+            var immediateChinese: [WidgetCard] = []
+            for slot in 0..<6 {
+                let date = now.addingTimeInterval(Double(slot) * WidgetSharedStore.rotationInterval)
+                if let card = selectedCard(from: cards, at: date)?.card,
+                   card.language == "zh-CN",
+                   !immediateChinese.contains(card) {
+                    immediateChinese.append(card)
+                }
+            }
+            if !immediateChinese.isEmpty {
+                await WidgetHanziStrokeRepository.shared.prefetchBestEffort(
+                    cards: Array(immediateChinese.prefix(4)),
+                    timeoutSeconds: 2.5
+                )
+            }
+
             var entries: [VocaEntry] = []
-            var scheduledCards: [WidgetCard] = []
             for slot in 0..<24 {
                 let seconds = Double(slot) * WidgetSharedStore.rotationInterval
                 let date = now.addingTimeInterval(seconds)
@@ -46,21 +63,8 @@ struct VocaProvider: TimelineProvider {
                 entries.append(VocaEntry(date: date, card: selected?.card,
                                          cardIndex: selected?.index ?? 0,
                                          hanziStrokes: strokes))
-                if slot < 12, let card = selected?.card, !scheduledCards.contains(card) {
-                    scheduledCards.append(card)
-                }
             }
             completion(Timeline(entries: entries, policy: .atEnd))
-
-            var downloadedStrokeData = false
-            for card in scheduledCards {
-                if await WidgetHanziStrokeRepository.shared.refreshMissingStrokes(for: card) {
-                    downloadedStrokeData = true
-                }
-            }
-            if downloadedStrokeData {
-                WidgetCenter.shared.reloadTimelines(ofKind: "VocaWidget")
-            }
         }
     }
 
@@ -84,11 +88,7 @@ struct RandomWidgetCardIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         let cards = WidgetSharedStore.load()
-        let selectedIndex = WidgetSharedStore.selectRandom(cardCount: cards.count,
-                                                           currentIndex: currentIndex)
-        if cards.indices.contains(selectedIndex) {
-            WidgetSharedStore.setPendingCardSlug(cards[selectedIndex].slug)
-        }
+        _ = WidgetSharedStore.selectRandom(cardCount: cards.count, currentIndex: currentIndex)
         WidgetCenter.shared.reloadTimelines(ofKind: "VocaWidget")
         return .result()
     }
@@ -117,13 +117,31 @@ private actor WidgetHanziStrokeRepository {
         return result
     }
 
-    func refreshMissingStrokes(for card: WidgetCard?) async -> Bool {
-        guard let card, card.language == "zh-CN" else { return false }
-        var downloaded = false
-        for character in hanziCharacters(in: card.word).prefix(2) where cached(character) == nil {
-            if await download(character) != nil { downloaded = true }
+    func prefetchBestEffort(cards: [WidgetCard], timeoutSeconds: TimeInterval) async {
+        var missing: [String] = []
+        var seen = Set<String>()
+        for card in cards where card.language == "zh-CN" {
+            for character in hanziCharacters(in: card.word).prefix(2)
+                where !seen.contains(character) && cached(character) == nil {
+                seen.insert(character)
+                missing.append(character)
+            }
         }
-        return downloaded
+        guard !missing.isEmpty else { return }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = timeoutSeconds
+        config.timeoutIntervalForResource = timeoutSeconds
+        let session = URLSession(configuration: config)
+        defer { session.finishTasksAndInvalidate() }
+
+        await withTaskGroup(of: Void.self) { group in
+            for character in missing.prefix(6) {
+                group.addTask {
+                    _ = await self.download(character, session: session)
+                }
+            }
+        }
     }
 
     private func cached(_ character: String) -> WidgetHanziData? {
@@ -135,11 +153,11 @@ private actor WidgetHanziStrokeRepository {
         return nil
     }
 
-    private func download(_ character: String) async -> WidgetHanziData? {
+    private func download(_ character: String, session: URLSession = .shared) async -> WidgetHanziData? {
         let cacheURL = cachedFile(for: character)
         guard let escaped = character.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let url = URL(string: "https://cdn.jsdelivr.net/npm/hanzi-writer-data@2.0.1/\(escaped).json"),
-              let (data, response) = try? await URLSession.shared.data(from: url),
+              let (data, response) = try? await session.data(from: url),
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let decoded = try? JSONDecoder().decode(WidgetHanziData.self, from: data)
         else { return nil }

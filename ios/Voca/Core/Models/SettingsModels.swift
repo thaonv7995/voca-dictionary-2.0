@@ -92,6 +92,8 @@ final class VoiceSettingsStore {
     private(set) var voices: UserVoices = UserVoices()
     private var refreshTask: Task<Void, Never>?
     private var hasRefreshed = false
+    private var lastFailedAt: Date?
+    private let retryBackoff: TimeInterval = 15
 
     /// When true, `TTSService` speaks via on-device `AVSpeechSynthesizer` without calling the backend.
     var useDeviceSpeech: Bool {
@@ -110,26 +112,44 @@ final class VoiceSettingsStore {
         }
     }
 
+    func reset() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        ttsModel = nil
+        voices = UserVoices()
+        hasRefreshed = false
+        lastFailedAt = nil
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+    }
+
     func apply(_ settings: UserSettings) {
         ttsModel = Self.clean(settings.ttsModel)
         if let incoming = settings.voices {
             voices = incoming
         }
         hasRefreshed = true
+        lastFailedAt = nil
         persist()
     }
 
     func refreshIfNeeded() async {
         guard !hasRefreshed else { return }
+        if let lastFailedAt, Date().timeIntervalSince(lastFailedAt) < retryBackoff {
+            return
+        }
         if let existing = refreshTask {
             await existing.value
             return
         }
         let task = Task {
-            if let settings = try? await SettingsService().get() {
+            do {
+                let settings = try await SettingsService().get()
+                guard !Task.isCancelled else { return }
                 apply(settings)
-            } else {
-                hasRefreshed = true
+            } catch {
+                if !(error is CancellationError) {
+                    lastFailedAt = Date()
+                }
             }
             refreshTask = nil
         }

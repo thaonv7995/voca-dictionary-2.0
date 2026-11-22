@@ -14,6 +14,10 @@ final class AuthStore {
 
     private(set) var phase: Phase = .loading
     private(set) var user: User?
+    private var hasBootstrapped = false
+
+    /// Hook for platform-specific cleanup (audio, prefetch, widget, voice store) on sign-out or server switch.
+    var onDidSignOut: (() -> Void)?
 
     private let api = ApiClient.shared
 
@@ -25,9 +29,11 @@ final class AuthStore {
 
     /// Called once at launch: if a session is stored, fetch the current user; otherwise show login.
     func bootstrap() async {
+        guard !hasBootstrapped else { return }
+        hasBootstrapped = true
+
         guard await api.hasStoredSession() else {
-            AppCache.clearAll()
-            phase = .signedOut
+            applySignedOut()
             return
         }
         let cachedUser = AppCache.loadUser()
@@ -36,8 +42,10 @@ final class AuthStore {
             phase = .signedIn
         }
         do {
-            user = try await api.get("/api/auth/me")
-            if let user { AppCache.saveUser(user) }
+            let freshUser: User = try await api.get("/api/auth/me")
+            guard await api.hasStoredSession() else { return }
+            user = freshUser
+            AppCache.saveUser(freshUser)
             phase = .signedIn
         } catch {
             if cachedUser == nil { applySignedOut() }
@@ -73,6 +81,27 @@ final class AuthStore {
         applySignedOut()
     }
 
+    /// Validates and switches backend URL. Clears in-memory + Keychain tokens and signs out before
+    /// persisting the new URL so old-server JWTs are never sent to the new backend.
+    @discardableResult
+    func switchServerURL(_ urlString: String) async throws -> URL {
+        let validURL = try AppConfig.normalizeAndValidate(url: urlString)
+        let changed = validURL != AppConfig.baseURL
+        if changed || phase == .signedIn {
+            await api.clearTokens()
+            applySignedOut()
+        }
+        return try AppConfig.persistCustomURL(validURL.absoluteString)
+    }
+
+    func resetServerURL() async {
+        if AppConfig.isCustomBaseURL || phase == .signedIn {
+            await api.clearTokens()
+            applySignedOut()
+        }
+        AppConfig.clearCustomURL()
+    }
+
     func changePassword(current: String, new: String) async throws {
         let _: OkResponse = try await api.post(
             "/api/auth/change-password",
@@ -89,6 +118,7 @@ final class AuthStore {
 
     private func applySignedOut() {
         AppCache.clearAll()
+        onDidSignOut?()
         user = nil
         phase = .signedOut
     }

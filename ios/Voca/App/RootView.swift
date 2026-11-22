@@ -4,6 +4,7 @@ import SwiftUI
 /// while applying the user's selected theme palette and color scheme globally.
 struct RootView: View {
     @Environment(AuthStore.self) private var auth
+    @Environment(AppRouter.self) private var router
     @Environment(ThemeStore.self) private var theme
     @Environment(LocalLearnerStore.self) private var learner
     @State private var splashBreathing = false
@@ -14,7 +15,6 @@ struct RootView: View {
             case .loading:
                 splashView
                     .transition(.opacity)
-                    .task { await auth.bootstrap() }
             case .signedOut:
                 LoginView()
                     .transition(.opacity.combined(with: .scale(scale: 0.985)))
@@ -26,9 +26,17 @@ struct RootView: View {
         .animation(.spring(response: 0.45, dampingFraction: 0.88), value: auth.phase)
         .tint(theme.accent)
         .preferredColorScheme(theme.colorScheme)
+        .task {
+            // Lives on the root container so switching to `.signedIn` from cached user
+            // does not cancel the background `/api/auth/me` verification request.
+            await auth.bootstrap()
+        }
         .onChange(of: auth.phase) { _, phase in
-            if phase == .signedIn {
+            if phase == .signedIn || phase == .signedOut {
                 learner.reloadIfNeeded(force: true)
+            }
+            if phase == .signedOut {
+                router.clearPending()
             }
         }
     }

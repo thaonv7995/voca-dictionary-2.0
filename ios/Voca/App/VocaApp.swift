@@ -1,14 +1,23 @@
-import Combine
 import SwiftUI
 
 @main
 struct VocaApp: App {
-    @State private var auth = AuthStore()
+    @State private var auth: AuthStore
     @State private var router = AppRouter()
     @State private var theme = ThemeStore.shared
     @State private var learner = LocalLearnerStore.shared
-    @Environment(\.scenePhase) private var scenePhase
-    private let widgetRouteTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+
+    init() {
+        let authStore = AuthStore()
+        authStore.onDidSignOut = {
+            AudioPlayer.shared.stop()
+            AudioPrefetchManager.shared.cancel()
+            VoiceSettingsStore.shared.reset()
+            WidgetSync.clear()
+            LocalLearnerStore.shared.reloadIfNeeded(force: true)
+        }
+        _auth = State(initialValue: authStore)
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -18,13 +27,6 @@ struct VocaApp: App {
                 .environment(theme)
                 .environment(learner)
                 .onOpenURL { router.open($0) }
-                .onAppear { router.openPendingWidgetCard() }
-                .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { router.openPendingWidgetCard() }
-                }
-                .onReceive(widgetRouteTimer) { _ in
-                    if scenePhase == .active { router.openPendingWidgetCard() }
-                }
         }
     }
 }

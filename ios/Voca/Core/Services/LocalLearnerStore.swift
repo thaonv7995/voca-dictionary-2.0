@@ -17,16 +17,25 @@ final class LocalLearnerStore {
                 dailyGoal = clamped
                 return
             }
+            guard !isReloading else { return }
             UserDefaults.standard.set(clamped, forKey: scopedKey("dailyGoal"))
         }
     }
 
     private var loadedScope: String = ""
+    private var isReloading = false
     private let defaults = UserDefaults.standard
+
+    private static let gregorianCalendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .autoupdatingCurrent
+        return cal
+    }()
 
     private static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.calendar = gregorianCalendar
+        formatter.timeZone = .autoupdatingCurrent
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
@@ -42,6 +51,9 @@ final class LocalLearnerStore {
         guard force || scope != loadedScope else { return }
         loadedScope = scope
 
+        isReloading = true
+        defer { isReloading = false }
+
         let favorites = defaults.stringArray(forKey: scopedKey("favorites")) ?? []
         favoriteSlugs = Set(favorites)
 
@@ -55,8 +67,7 @@ final class LocalLearnerStore {
     // MARK: - Favorites
 
     func isFavorite(_ slug: String) -> Bool {
-        reloadIfNeeded()
-        return favoriteSlugs.contains(slug)
+        favoriteSlugs.contains(slug)
     }
 
     @discardableResult
@@ -77,8 +88,7 @@ final class LocalLearnerStore {
     // MARK: - Daily goal & streak
 
     var reviewedTodayCount: Int {
-        reloadIfNeeded()
-        return dailyReviewsByDate[dayKey(for: Date())] ?? 0
+        dailyReviewsByDate[dayKey(for: Date())] ?? 0
     }
 
     var dailyGoalProgress: Double {
@@ -87,8 +97,8 @@ final class LocalLearnerStore {
     }
 
     var streakDays: Int {
-        reloadIfNeeded()
-        let calendar = Calendar.current
+        var calendar = Self.gregorianCalendar
+        calendar.timeZone = .autoupdatingCurrent
         let today = calendar.startOfDay(for: Date())
         let todayCount = dailyReviewsByDate[dayKey(for: today)] ?? 0
 

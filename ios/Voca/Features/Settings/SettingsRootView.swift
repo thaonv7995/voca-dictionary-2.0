@@ -7,6 +7,7 @@ struct SettingsRootView: View {
 
     @Environment(ThemeStore.self) private var theme
     @Environment(LocalLearnerStore.self) private var learner
+    @AppStorage(AppConfig.customServerURLKey) private var customServerURLRaw: String = ""
     private let service = SettingsService()
 
     private enum SaveStatus {
@@ -29,8 +30,6 @@ struct SettingsRootView: View {
 
     // TTS
     @AppStorage(VoiceSettingsStore.useDeviceSpeechDefaultsKey) private var useDeviceSpeech = false
-    @AppStorage("voca.nonStop.enabled") private var nonStopEnabled = false
-    @AppStorage("voca.nonStop.preloadCount") private var nonStopPreloadCount = 1
     @State private var ttsBaseUrl = ""
     @State private var ttsModel = UserVoices.defaultEnglishModel
     @State private var chineseTtsModel = UserVoices.defaultChineseModel
@@ -46,9 +45,16 @@ struct SettingsRootView: View {
     @State private var isSavingTts = false
     @State private var isTestingTts = false
     @State private var ttsStatus: SaveStatus?
+    @State private var chineseDeviceVoiceSummary = ""
+    @State private var englishDeviceVoiceSummary = ""
 
     @State private var isLoading = false
+    @State private var hasLoaded = false
     @State private var loadError: String?
+
+    private var activeServerURLString: String {
+        customServerURLRaw.isEmpty ? AppConfig.defaultBaseURL.absoluteString : customServerURLRaw
+    }
 
     var body: some View {
         if embeddedInNavigation {
@@ -72,19 +78,23 @@ struct SettingsRootView: View {
             }
 
             if let loadError {
-                Section { Text(loadError).foregroundStyle(.red) }
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(loadError)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                        Button("Thử lại") {
+                            Task { await load() }
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .disabled(isLoading)
+                    }
+                }
             }
 
             appearanceSection
 
             studyUxSection
-
-            Section("Nghe liên tục (Non-stop)") {
-                Toggle("Bật nghe liên tục", isOn: $nonStopEnabled)
-                if nonStopEnabled {
-                    Stepper("Số lượng hội thoại preload: \(nonStopPreloadCount)", value: $nonStopPreloadCount, in: 1...5)
-                }
-            }
 
             llmSection
 
@@ -101,8 +111,8 @@ struct SettingsRootView: View {
             }
 
             Section("Máy chủ Voca (Backend)") {
-                LabeledContent("Địa chỉ hiện tại", value: AppConfig.baseURL.absoluteString)
-                LabeledContent("Loại", value: AppConfig.isCustomBaseURL ? "Tùy chỉnh" : "Mặc định")
+                LabeledContent("Địa chỉ hiện tại", value: activeServerURLString)
+                LabeledContent("Loại", value: customServerURLRaw.isEmpty ? "Mặc định" : "Tùy chỉnh")
                 Button {
                     Haptics.impact(.light)
                     showServerConfig = true
@@ -114,12 +124,18 @@ struct SettingsRootView: View {
         .scrollContentBackground(.hidden)
         .background(VocaThemeBackground())
         .navigationTitle("Cài đặt")
-        .onAppear { refreshCacheSummary() }
+        .onAppear {
+            refreshCacheSummary()
+            if chineseDeviceVoiceSummary.isEmpty {
+                chineseDeviceVoiceSummary = AudioPlayer.preferredDeviceVoiceSummary(for: .chinese)
+            }
+            if englishDeviceVoiceSummary.isEmpty {
+                englishDeviceVoiceSummary = AudioPlayer.preferredDeviceVoiceSummary(for: .english)
+            }
+        }
         .task { await load() }
         .sheet(isPresented: $showServerConfig) {
-            ServerConfigSheet {
-                Task { await load() }
-            }
+            ServerConfigSheet()
         }
         .sheet(isPresented: $showAudioCacheSheet, onDismiss: { refreshCacheSummary() }) {
             AudioCacheSheet()
@@ -258,7 +274,7 @@ struct SettingsRootView: View {
                 }
             }
 
-            Toggle("Tự động phát âm khi lật thẻ", isOn: $theme.autoSpeakFlashcard)
+            Toggle("Tự động phát âm khi mở thẻ", isOn: $theme.autoSpeakFlashcard)
             Toggle("Thẻ ngược (Nghĩa → Từ)", isOn: $theme.reverseFlashcardMode)
         }
     }
@@ -287,7 +303,7 @@ struct SettingsRootView: View {
                     Text("Lưu")
                 }
             }
-            .disabled(isSavingLlm || isLoading)
+            .disabled(isSavingLlm || isLoading || !hasLoaded)
 
             statusRow(llmStatus)
         }
@@ -303,12 +319,12 @@ struct SettingsRootView: View {
                     .foregroundStyle(.secondary)
 
                 LabeledContent("Tiếng Trung") {
-                    Text(AudioPlayer.preferredDeviceVoiceSummary(for: .chinese))
+                    Text(chineseDeviceVoiceSummary)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
                 LabeledContent("Tiếng Anh") {
-                    Text(AudioPlayer.preferredDeviceVoiceSummary(for: .english))
+                    Text(englishDeviceVoiceSummary)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -436,10 +452,10 @@ struct SettingsRootView: View {
                 )
             } label: {
                 Label("Thử Tiếng Trung", systemImage: "speaker.wave.2")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered)
             .disabled(isTestingTts)
-
-            Spacer()
 
             Button {
                 testVoice(
@@ -449,7 +465,9 @@ struct SettingsRootView: View {
                 )
             } label: {
                 Label("Thử Tiếng Anh", systemImage: "speaker.wave.2")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered)
             .disabled(isTestingTts)
         }
     }
@@ -463,7 +481,7 @@ struct SettingsRootView: View {
                 Text("Lưu")
             }
         }
-        .disabled(isSavingTts || isLoading)
+        .disabled(isSavingTts || isLoading || !hasLoaded)
     }
 
     private func voiceFieldRow(label: String, text: Binding<String>, presets: [(id: String, label: String)]) -> some View {
@@ -489,6 +507,7 @@ struct SettingsRootView: View {
     }
 
     private func testVoice(text: String, language: CardLanguage, voiceModel: String) {
+        guard !isTestingTts else { return }
         isTestingTts = true
         ttsStatus = nil
         let clean = voiceModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -528,17 +547,22 @@ struct SettingsRootView: View {
         loadError = nil
         do {
             let settings = try await service.get()
-            apply(settings)
+            applyLlm(settings)
+            applyTts(settings)
+            hasLoaded = true
         } catch {
             loadError = (error as? ApiError)?.message ?? error.localizedDescription
         }
         isLoading = false
     }
 
-    private func apply(_ s: UserSettings) {
+    private func applyLlm(_ s: UserSettings) {
         llmBaseUrl = s.llmBaseUrl ?? ""
         llmModel = s.llmModel ?? ""
         hasLlmKey = s.hasLlmKey
+    }
+
+    private func applyTts(_ s: UserSettings) {
         ttsBaseUrl = s.ttsBaseUrl ?? ""
         let loadedEnglish = (s.ttsModel ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         ttsModel = loadedEnglish.isEmpty ? UserVoices.defaultEnglishModel : loadedEnglish
@@ -564,22 +588,25 @@ struct SettingsRootView: View {
     }
 
     private func saveLlm() {
+        guard hasLoaded, !isSavingLlm else { return }
         isSavingLlm = true
         llmStatus = nil
-        let keyOrNil = llmApiKey.isEmpty ? nil : llmApiKey
+        let keyOrNil = nonEmpty(llmApiKey)
+        let baseUrl = llmBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = llmModel.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             do {
                 let body = UpdateSettingsBody(
-                    llmBaseUrl: llmBaseUrl,
+                    llmBaseUrl: baseUrl,
                     llmApiKey: keyOrNil,
-                    llmModel: llmModel,
+                    llmModel: model,
                     ttsBaseUrl: nil,
                     ttsApiKey: nil,
                     ttsModel: nil,
                     voices: nil
                 )
                 let updated = try await service.update(body)
-                apply(updated)
+                applyLlm(updated)
                 llmApiKey = ""
                 llmStatus = .success("Đã lưu cấu hình LLM.")
             } catch {
@@ -590,9 +617,11 @@ struct SettingsRootView: View {
     }
 
     private func saveTts() {
+        guard hasLoaded, !isSavingTts else { return }
         isSavingTts = true
         ttsStatus = nil
-        let keyOrNil = ttsApiKey.isEmpty ? nil : ttsApiKey
+        let keyOrNil = nonEmpty(ttsApiKey)
+        let baseUrl = ttsBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         let voices = UserVoices(
             a: voiceA,
             b: voiceB,
@@ -609,13 +638,13 @@ struct SettingsRootView: View {
                     llmBaseUrl: nil,
                     llmApiKey: nil,
                     llmModel: nil,
-                    ttsBaseUrl: ttsBaseUrl,
+                    ttsBaseUrl: baseUrl,
                     ttsApiKey: keyOrNil,
                     ttsModel: ttsModel,
                     voices: voices
                 )
                 let updated = try await service.update(body)
-                apply(updated)
+                applyTts(updated)
                 ttsApiKey = ""
                 ttsStatus = .success("Đã lưu cấu hình TTS.")
             } catch {

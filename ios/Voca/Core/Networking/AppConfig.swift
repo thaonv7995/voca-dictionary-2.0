@@ -19,7 +19,7 @@ enum AppConfig {
     /// The default base URL based on environment variable or build target.
     static var defaultBaseURL: URL {
         if let raw = ProcessInfo.processInfo.environment["VOCA_BASE_URL"],
-           let url = URL(string: raw) {
+           let url = try? normalizeAndValidate(url: raw) {
             return url
         }
         #if targetEnvironment(simulator)
@@ -54,48 +54,71 @@ enum AppConfig {
         guard !trimmed.isEmpty else {
             throw ConfigurationError.emptyURL
         }
-        if !trimmed.lowercased().hasPrefix("http://") && !trimmed.lowercased().hasPrefix("https://") {
-            if trimmed.lowercased().hasPrefix("localhost")
-                || trimmed.contains("127.0.0.1")
-                || trimmed.contains("192.168.")
-                || trimmed.contains("10.") {
+        let lower = trimmed.lowercased()
+        if !lower.hasPrefix("http://") && !lower.hasPrefix("https://") {
+            if lower.hasPrefix("localhost")
+                || lower.hasPrefix("127.0.0.1")
+                || lower.hasPrefix("192.168.")
+                || lower.hasPrefix("10.") {
                 trimmed = "http://" + trimmed
             } else {
                 trimmed = "https://" + trimmed
             }
         }
-        // Remove trailing "/api" if entered accidentally
-        if trimmed.hasSuffix("/api") {
-            trimmed.removeLast(4)
-        }
         while trimmed.hasSuffix("/") {
             trimmed.removeLast()
+        }
+        // Remove trailing "/api" (case-insensitive) if entered accidentally, then strip any remaining "/"
+        if trimmed.lowercased().hasSuffix("/api") {
+            trimmed.removeLast(4)
+            while trimmed.hasSuffix("/") {
+                trimmed.removeLast()
+            }
         }
         guard let url = URL(string: trimmed),
               let scheme = url.scheme?.lowercased(),
               (scheme == "http" || scheme == "https"),
-              url.host != nil else {
+              let host = url.host, !host.isEmpty else {
             throw ConfigurationError.invalidURL
         }
         return url
     }
 
+    /// Validates and persists the new custom base URL without mutating session/auth state directly.
+    @discardableResult
+    static func persistCustomURL(_ urlString: String) throws -> URL {
+        let validURL = try normalizeAndValidate(url: urlString)
+        if validURL == defaultBaseURL {
+            UserDefaults.standard.removeObject(forKey: customServerURLKey)
+        } else {
+            UserDefaults.standard.set(validURL.absoluteString, forKey: customServerURLKey)
+        }
+        return validURL
+    }
+
+    /// Removes any custom server override so `baseURL` returns `defaultBaseURL`.
+    static func clearCustomURL() {
+        UserDefaults.standard.removeObject(forKey: customServerURLKey)
+    }
+
     /// Validates, stores the new custom base URL, and purges previous cached session data.
+    /// Prefer `AuthStore.switchServerURL(_:)` in UI flows so in-memory tokens and auth phase stay in sync.
     @discardableResult
     static func setCustomURL(_ urlString: String) throws -> URL {
-        let validURL = try normalizeAndValidate(url: urlString)
-        UserDefaults.standard.set(validURL.absoluteString, forKey: customServerURLKey)
+        let validURL = try persistCustomURL(urlString)
         KeychainStore.set(nil, for: KeychainStore.accessTokenKey)
         KeychainStore.set(nil, for: KeychainStore.refreshTokenKey)
+        Task { await ApiClient.shared.clearTokens() }
         AppCache.clearAll()
         return validURL
     }
 
     /// Resets the server base URL to default and purges cached session data.
     static func resetToDefault() {
-        UserDefaults.standard.removeObject(forKey: customServerURLKey)
+        clearCustomURL()
         KeychainStore.set(nil, for: KeychainStore.accessTokenKey)
         KeychainStore.set(nil, for: KeychainStore.refreshTokenKey)
+        Task { await ApiClient.shared.clearTokens() }
         AppCache.clearAll()
     }
 

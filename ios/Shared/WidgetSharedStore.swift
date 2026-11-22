@@ -73,6 +73,16 @@ enum WidgetSharedStore {
         return cards
     }
 
+    static func clear() {
+        if let url = fileURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        let defaults = UserDefaults(suiteName: appGroup)
+        defaults?.removeObject(forKey: selectedIndexKey)
+        defaults?.removeObject(forKey: selectedAtKey)
+        defaults?.removeObject(forKey: pendingCardSlugKey)
+    }
+
     static func setSelectedLanguage(_ language: String) {
         let defaults = UserDefaults(suiteName: appGroup)
         if defaults?.string(forKey: languageKey) != language {

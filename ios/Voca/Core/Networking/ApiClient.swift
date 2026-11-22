@@ -29,12 +29,13 @@ final class ApiClient {
     /// Called (on the main actor) when the session cannot be recovered — the UI should sign out.
     var onSessionExpired: (() -> Void)?
 
-    private lazy var tokens = TokenManager { [weak self] refreshToken in
-        await self?.rawRefresh(refreshToken: refreshToken) ?? nil
-    }
+    private let tokens: TokenManager
 
     private init(session: URLSession = .shared) {
         self.session = session
+        self.tokens = TokenManager { refreshToken in
+            await Self.rawRefresh(session: session, refreshToken: refreshToken)
+        }
     }
 
     // MARK: - Session state
@@ -46,10 +47,25 @@ final class ApiClient {
     }
 
     func logout() async {
-        if let refresh = await tokens.refreshToken {
-            let _: OkResponse? = try? await post("/api/auth/logout", body: ["refreshToken": refresh])
-        }
+        let access = await tokens.accessToken
+        let refresh = await tokens.refreshToken
+        // Clear local credentials immediately so offline/slow servers never block sign-out
+        // and no further requests carry the signed-out token.
         await tokens.clear()
+
+        guard let refresh, let url = url(for: "/api/auth/logout") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 5
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let access {
+            request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try? encoder.encode(["refreshToken": refresh])
+        let session = self.session
+        Task.detached(priority: .utility) {
+            _ = try? await session.data(for: request)
+        }
     }
 
     func clearTokens() async {
@@ -159,32 +175,47 @@ final class ApiClient {
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(AnyEncodable(body))
-        if let token = await tokens.accessToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let sentToken = await tokens.accessToken
+        if let sentToken {
+            request.setValue("Bearer \(sentToken)", forHTTPHeaderField: "Authorization")
         }
 
         let (bytes, response): (URLSession.AsyncBytes, URLResponse)
         do {
             (bytes, response) = try await session.bytes(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            throw CancellationError()
         } catch {
             throw ApiError.network(error)
         }
         guard let http = response as? HTTPURLResponse else { throw ApiError.badResponse }
 
         if http.statusCode == 401, retry {
-            if await tokens.refresh() {
+            let (outcome, gen) = await tokens.refresh(failedAccessToken: sentToken)
+            switch outcome {
+            case .refreshed:
                 return try await runStream(path: path, body: body, rawChunks: rawChunks,
                                            continuation: continuation, retry: false)
+            case .invalidSession:
+                await tokens.clearIfGeneration(gen)
+                await MainActor.run { onSessionExpired?() }
+                throw ApiError.sessionExpired
+            case .transientFailure(let error):
+                throw error
             }
-            await tokens.clear()
-            await MainActor.run { onSessionExpired?() }
-            throw ApiError.sessionExpired
         }
         guard (200..<300).contains(http.statusCode) else {
             // On failure the stream endpoints return a normal JSON error envelope (NOT SSE) —
-            // e.g. 503 LLM_NOT_CONFIGURED. Drain the body and surface the real, friendly message.
+            // e.g. 503 LLM_NOT_CONFIGURED. Drain up to 64 KB and surface the real, friendly message.
+            let maxErrorBytes = 65_536
             var body = Data()
-            for try await byte in bytes { body.append(byte) }
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                body.append(byte)
+                if body.count >= maxErrorBytes { break }
+            }
             if let env = try? decoder.decode(ErrorEnvelope.self, from: body) {
                 throw Self.friendly(env)
             }
@@ -291,27 +322,37 @@ final class ApiClient {
             request.httpBody = bodyData
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        if authorized, let token = await tokens.accessToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let sentToken = authorized ? await tokens.accessToken : nil
+        if let sentToken {
+            request.setValue("Bearer \(sentToken)", forHTTPHeaderField: "Authorization")
         }
 
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            throw CancellationError()
         } catch {
             throw ApiError.network(error)
         }
         guard let http = response as? HTTPURLResponse else { throw ApiError.badResponse }
 
         if http.statusCode == 401, authorized, retry {
-            if await tokens.refresh() {
+            let (outcome, gen) = await tokens.refresh(failedAccessToken: sentToken)
+            switch outcome {
+            case .refreshed:
                 return try await perform(method: method, path: path, bodyData: bodyData,
                                          accept: accept, authorized: authorized, retry: false)
+            case .invalidSession:
+                await tokens.clearIfGeneration(gen)
+                await MainActor.run { onSessionExpired?() }
+                throw ApiError.sessionExpired
+            case .transientFailure(let error):
+                throw error
             }
-            await tokens.clear()
-            await MainActor.run { onSessionExpired?() }
-            throw ApiError.sessionExpired
         }
         return (data, http)
     }
@@ -342,18 +383,40 @@ final class ApiClient {
     }
 
     /// Raw refresh call — deliberately bypasses `perform` (no Bearer, no retry) to avoid recursion.
-    private func rawRefresh(refreshToken: String) async -> AuthResponse? {
-        guard let url = url(for: "/api/auth/refresh") else { return nil }
+    private static func rawRefresh(session: URLSession, refreshToken: String) async -> RawRefreshOutcome {
+        guard let url = URL(string: AppConfig.baseURL.absoluteString + "/api/auth/refresh") else {
+            return .transientFailure(ApiError.badResponse)
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? encoder.encode(["refreshToken": refreshToken])
+        request.httpBody = try? JSONEncoder().encode(["refreshToken": refreshToken])
 
-        guard let (data, response) = try? await session.data(for: request),
-              let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode),
-              let env = try? decoder.decode(Envelope<AuthResponse>.self, from: data)
-        else { return nil }
-        return env.data
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return .transientFailure(ApiError.badResponse)
+            }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                return .invalidSession
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                return .transientFailure(ApiError(
+                    status: http.statusCode,
+                    code: "REFRESH_ERROR",
+                    message: HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+                ))
+            }
+            guard let env = try? JSONDecoder().decode(Envelope<AuthResponse>.self, from: data) else {
+                return .transientFailure(ApiError.badResponse)
+            }
+            return .success(env.data)
+        } catch is CancellationError {
+            return .transientFailure(CancellationError())
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return .transientFailure(CancellationError())
+        } catch {
+            return .transientFailure(ApiError.network(error))
+        }
     }
 }

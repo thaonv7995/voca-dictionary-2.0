@@ -3,6 +3,7 @@ import SwiftUI
 struct LoginView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(AppConfig.customServerURLKey) private var customServerURLRaw: String = ""
 
     @State private var email = ""
     @State private var password = ""
@@ -12,6 +13,7 @@ struct LoginView: View {
     @State private var showRegister = false
     @State private var showServerSheet = false
     @State private var serverOnline: Bool?
+    @State private var healthTask: Task<Void, Never>?
     @FocusState private var focusedField: Field?
 
     private enum Field { case email, password }
@@ -20,8 +22,15 @@ struct LoginView: View {
         !isBusy && !email.trimmingCharacters(in: .whitespaces).isEmpty && !password.isEmpty
     }
 
+    private var activeServerURL: URL {
+        if !customServerURLRaw.isEmpty, let url = URL(string: customServerURLRaw) {
+            return url
+        }
+        return AppConfig.defaultBaseURL
+    }
+
     private var currentServerDisplay: String {
-        AppConfig.baseURL.host ?? AppConfig.baseURL.absoluteString
+        activeServerURL.host ?? activeServerURL.absoluteString
     }
 
     var body: some View {
@@ -263,19 +272,20 @@ struct LoginView: View {
 
     private var statusText: String {
         switch serverOnline {
-        case .some(true): return "Máy chủ trực tuyến · \(AppConfig.baseURL.host ?? AppConfig.baseURL.absoluteString)"
+        case .some(true): return "Máy chủ trực tuyến · \(currentServerDisplay)"
         case .some(false): return "Không kết nối được máy chủ"
         case .none: return "Đang kiểm tra kết nối…"
         }
     }
 
     private func refreshHealth() {
-        Task {
-            serverOnline = nil
+        healthTask?.cancel()
+        let targetURL = activeServerURL
+        serverOnline = nil
+        healthTask = Task {
             let online = await ApiClient.shared.health()
-            await MainActor.run {
-                serverOnline = online
-            }
+            guard !Task.isCancelled, activeServerURL == targetURL else { return }
+            serverOnline = online
         }
     }
 
@@ -303,12 +313,15 @@ struct LoginView: View {
 
 struct ServerConfigSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var auth
     var onSaved: () -> Void = {}
 
     @State private var serverUrl: String = ""
     @State private var isTesting = false
+    @State private var isSaving = false
     @State private var testResult: (ok: Bool, message: String)?
     @State private var errorMessage: String?
+    @State private var testTask: Task<Void, Never>?
     @FocusState private var isFocused: Bool
 
     private struct PresetItem: Identifiable {
@@ -426,16 +439,20 @@ struct ServerConfigSheet: View {
 
                 Section {
                     Button(role: .destructive) {
-                        resetToDefault()
+                        fillDefaultDraft()
                     } label: {
                         HStack {
                             Image(systemName: "arrow.counterclockwise")
                             Text("Khôi phục mặc định")
                         }
                     }
+                    .disabled(isSaving)
                 } footer: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Mặc định: \(AppConfig.defaultBaseURL.absoluteString)")
+                        if auth.phase == .signedIn {
+                            Text("Lưu địa chỉ máy chủ mới sẽ đăng xuất phiên hiện tại để đảm bảo an toàn token.")
+                        }
                         Text("Nếu chạy backend trên máy tính khác trong cùng Wi-Fi, hãy nhập: http://<IP-máy-tính>:22052")
                     }
                     .font(.caption2)
@@ -448,17 +465,21 @@ struct ServerConfigSheet: View {
                     Button("Đóng") {
                         dismiss()
                     }
+                    .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Lưu") {
                         save()
                     }
                     .bold()
-                    .disabled(serverUrl.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(isSaving || serverUrl.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .onAppear {
                 serverUrl = AppConfig.baseURL.absoluteString
+            }
+            .onDisappear {
+                testTask?.cancel()
             }
         }
     }
@@ -470,33 +491,44 @@ struct ServerConfigSheet: View {
     }
 
     private func testCurrent() {
+        testTask?.cancel()
         isFocused = false
         isTesting = true
         testResult = nil
         errorMessage = nil
         let target = serverUrl
-        Task {
+        testTask = Task {
             let res = await ApiClient.shared.checkHealth(for: target)
-            await MainActor.run {
-                testResult = res
-                isTesting = false
-            }
+            guard !Task.isCancelled, serverUrl == target else { return }
+            testResult = res
+            isTesting = false
         }
     }
 
     private func save() {
+        guard !isSaving else { return }
         errorMessage = nil
-        do {
-            try AppConfig.setCustomURL(serverUrl)
-            onSaved()
-            dismiss()
-        } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        isSaving = true
+        testTask?.cancel()
+        let draft = serverUrl
+        Task {
+            do {
+                let normalized = try AppConfig.normalizeAndValidate(url: draft)
+                if normalized == AppConfig.defaultBaseURL {
+                    await auth.resetServerURL()
+                } else {
+                    _ = try await auth.switchServerURL(normalized.absoluteString)
+                }
+                onSaved()
+                dismiss()
+            } catch {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+            isSaving = false
         }
     }
 
-    private func resetToDefault() {
-        AppConfig.resetToDefault()
+    private func fillDefaultDraft() {
         serverUrl = AppConfig.defaultBaseURL.absoluteString
         testResult = nil
         errorMessage = nil
