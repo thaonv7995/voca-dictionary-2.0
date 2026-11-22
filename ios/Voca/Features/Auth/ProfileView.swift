@@ -5,9 +5,11 @@ struct ProfileView: View {
     @Environment(ThemeStore.self) private var theme
     @Environment(LocalLearnerStore.self) private var learner
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(AppConfig.customServerURLKey) private var customServerURLRaw: String = ""
 
     @State private var displayName = ""
     @State private var isSavingName = false
+    @State private var isLoggingOut = false
     @State private var statusMessage: String?
     @State private var statusIsError = false
     @FocusState private var isNameFocused: Bool
@@ -24,7 +26,10 @@ struct ProfileView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(VocaThemeBackground())
             .navigationTitle("Hồ sơ")
             .onAppear {
@@ -252,13 +257,13 @@ struct ProfileView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Máy chủ đang kết nối")
                         .font(.subheadline.weight(.medium))
-                    Text(AppConfig.baseURL.absoluteString)
+                    Text(customServerURLRaw.isEmpty ? AppConfig.defaultBaseURL.absoluteString : customServerURLRaw)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Badge(text: AppConfig.isCustomBaseURL ? "Tùy chỉnh" : "Mặc định", color: theme.accent)
+                Badge(text: customServerURLRaw.isEmpty ? "Mặc định" : "Tùy chỉnh", color: theme.accent)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
@@ -268,12 +273,21 @@ struct ProfileView: View {
 
     private var logoutButton: some View {
         Button(role: .destructive) {
+            guard !isLoggingOut else { return }
+            isLoggingOut = true
             Haptics.impact(.medium)
-            Task { await auth.logout() }
+            Task {
+                await auth.logout()
+                isLoggingOut = false
+            }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-                Text("Đăng xuất")
+                if isLoggingOut {
+                    ProgressView().controlSize(.small).tint(.red)
+                } else {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                }
+                Text(isLoggingOut ? "Đang đăng xuất…" : "Đăng xuất")
                     .fontWeight(.semibold)
             }
             .frame(maxWidth: .infinity)
@@ -289,6 +303,7 @@ struct ProfileView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(isLoggingOut)
         .padding(.bottom, 12)
     }
 

@@ -7,34 +7,51 @@ final class ReadingViewModel {
     var language: CardLanguage = .english
     var format: String = "part6"
     var context: ReadingContext?
+    var selectedChoicesById: [UUID: String] = [:]
     var isGenerating = false
     var errorMessage: String?
 
     private let service = AssistantService()
+    @ObservationIgnored private var generateTask: Task<Void, Never>?
+    @ObservationIgnored private var requestGeneration = 0
 
     func setLanguage(_ newLanguage: CardLanguage) {
         guard language != newLanguage else { return }
+        cancelGeneration()
         language = newLanguage
-        if !isGenerating {
-            context = nil
-            errorMessage = nil
-        }
+        context = nil
+        selectedChoicesById = [:]
+        errorMessage = nil
+    }
+
+    func cancelGeneration() {
+        requestGeneration &+= 1
+        generateTask?.cancel()
+        generateTask = nil
+        isGenerating = false
     }
 
     func generate() {
         guard !isGenerating else { return }
+        requestGeneration &+= 1
+        let expectedGen = requestGeneration
         isGenerating = true
         errorMessage = nil
         context = nil
+        selectedChoicesById = [:]
         let format = self.format
         let lang = self.language
 
-        Task { @MainActor in
+        generateTask?.cancel()
+        generateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             var acc = ""
             do {
                 for try await chunk in service.reading(format: format, language: lang) {
+                    if Task.isCancelled || self.requestGeneration != expectedGen { return }
                     acc += chunk
                 }
+                guard !Task.isCancelled, self.requestGeneration == expectedGen else { return }
                 if let parsed = PracticeParsing.reading(from: acc) {
                     context = parsed
                     Haptics.notify(.success)
@@ -42,11 +59,17 @@ final class ReadingViewModel {
                     errorMessage = "Không tạo được nội dung, thử lại"
                     Haptics.notify(.error)
                 }
+            } catch is CancellationError {
+                return
             } catch {
+                guard self.requestGeneration == expectedGen else { return }
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
                 Haptics.notify(.error)
             }
-            isGenerating = false
+            if self.requestGeneration == expectedGen {
+                isGenerating = false
+                generateTask = nil
+            }
         }
     }
 }
@@ -75,9 +98,13 @@ struct ReadingView: View {
                 .disabled(vm.isGenerating)
 
                 if vm.isGenerating {
-                    ProgressView("Đang tạo…")
-                        .frame(maxWidth: .infinity)
-                        .padding()
+                    VStack(spacing: 10) {
+                        ProgressView("Đang tạo…")
+                        Button("Dừng", role: .destructive) { vm.cancelGeneration() }
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
                 }
 
                 if let error = vm.errorMessage {
@@ -85,7 +112,11 @@ struct ReadingView: View {
                 }
 
                 if let context = vm.context {
-                    ReadingContextView(context: context, language: vm.language)
+                    ReadingContextView(
+                        context: context,
+                        language: vm.language,
+                        selectedChoicesById: $vm.selectedChoicesById
+                    )
                 } else if !vm.isGenerating && vm.errorMessage == nil {
                     VStack(spacing: 12) {
                         VocaIconBadge(systemImage: "doc.text", size: 54, iconSize: 24)
@@ -111,8 +142,10 @@ private struct ReadingContextView: View {
     @Environment(\.colorScheme) private var colorScheme
     let context: ReadingContext
     let language: CardLanguage
+    @Binding var selectedChoicesById: [UUID: String]
 
     var body: some View {
+        let documents = (context.documents ?? []).filter { !($0.passage ?? []).isEmpty || !($0.title ?? "").isEmpty }
         VStack(alignment: .leading, spacing: 16) {
             if let title = context.title, !title.isEmpty {
                 Text(title).font(.title3).bold()
@@ -126,18 +159,27 @@ private struct ReadingContextView: View {
                 }
             }
 
-            if let passage = context.passage, !passage.isEmpty {
+            // Avoid rendering the same Chinese Part 7 passage twice when `documents` carries the passage.
+            if documents.isEmpty, let passage = context.passage, !passage.isEmpty {
                 passageBlock(passage)
             }
 
-            if let documents = context.documents {
+            if !documents.isEmpty {
                 ForEach(documents) { document in
                     documentBlock(document)
                 }
             }
 
             ForEach(Array(context.questions.enumerated()), id: \.element.id) { index, question in
-                ReadingQuestionCard(question: question, number: index + 1, language: language)
+                ReadingQuestionCard(
+                    question: question,
+                    number: index + 1,
+                    language: language,
+                    selectedChoice: Binding(
+                        get: { selectedChoicesById[question.id] },
+                        set: { selectedChoicesById[question.id] = $0 }
+                    )
+                )
             }
         }
     }
@@ -219,6 +261,7 @@ private struct ReadingQuestionCard: View {
     let question: ReadingQuestion
     let number: Int
     let language: CardLanguage
+    @Binding var selectedChoice: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -236,7 +279,8 @@ private struct ReadingQuestionCard: View {
                 answer: question.answer,
                 explanation: question.explanation,
                 speakChoices: question.choices.contains(where: \.hasChineseCharacters),
-                language: language)
+                language: language,
+                externalSelection: $selectedChoice)
         }
         .practiceCard()
     }

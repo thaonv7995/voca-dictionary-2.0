@@ -8,31 +8,91 @@ final class SpeakingViewModel {
     var practice: SpeakingPractice?
     var isGenerating = false
     var errorMessage: String?
+    var isPlayingPassage = false
+    var playbackError: String?
 
     private let service = AssistantService()
+    @ObservationIgnored private var generateTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackTask: Task<Void, Never>?
+    @ObservationIgnored private var requestGeneration = 0
+
+    deinit {
+        generateTask?.cancel()
+        playbackTask?.cancel()
+    }
 
     func setLanguage(_ newLanguage: CardLanguage) {
         guard language != newLanguage else { return }
+        cancelGeneration()
+        stopPlayback()
         language = newLanguage
-        if !isGenerating {
-            practice = nil
-            errorMessage = nil
+        practice = nil
+        errorMessage = nil
+    }
+
+    func cancelGeneration() {
+        requestGeneration &+= 1
+        generateTask?.cancel()
+        generateTask = nil
+        isGenerating = false
+    }
+
+    func stopPlayback() {
+        playbackTask?.cancel()
+        playbackTask = nil
+        if isPlayingPassage {
+            AudioPlayer.shared.stop()
+        }
+        isPlayingPassage = false
+    }
+
+    func togglePlayPassage(_ text: String) {
+        if isPlayingPassage {
+            stopPlayback()
+            return
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        Haptics.impact(.light)
+        playbackError = nil
+        isPlayingPassage = true
+        let effectiveLang: CardLanguage = trimmed.hasChineseCharacters ? .chinese : language
+        playbackTask = Task { @MainActor [weak self] in
+            do {
+                _ = try await TTSService().speakAndWait(trimmed, language: effectiveLang)
+            } catch is CancellationError {
+                // Stopped by user
+            } catch {
+                self?.playbackError = (error as? ApiError)?.message ?? error.localizedDescription
+            }
+            if !Task.isCancelled {
+                self?.isPlayingPassage = false
+                self?.playbackTask = nil
+            }
         }
     }
 
     func generate() {
         guard !isGenerating else { return }
+        stopPlayback()
+        requestGeneration &+= 1
+        let expectedGen = requestGeneration
         isGenerating = true
         errorMessage = nil
+        playbackError = nil
         practice = nil
         let lang = language
 
-        Task { @MainActor in
+        generateTask?.cancel()
+        generateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             var acc = ""
             do {
                 for try await chunk in service.speaking(language: lang) {
+                    if Task.isCancelled || self.requestGeneration != expectedGen { return }
                     acc += chunk
                 }
+                guard !Task.isCancelled, self.requestGeneration == expectedGen else { return }
                 if let parsed = PracticeParsing.speaking(from: acc) {
                     practice = parsed
                     Haptics.notify(.success)
@@ -40,11 +100,17 @@ final class SpeakingViewModel {
                     errorMessage = "Không tạo được nội dung, thử lại"
                     Haptics.notify(.error)
                 }
+            } catch is CancellationError {
+                return
             } catch {
+                guard self.requestGeneration == expectedGen else { return }
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
                 Haptics.notify(.error)
             }
-            isGenerating = false
+            if self.requestGeneration == expectedGen {
+                isGenerating = false
+                generateTask = nil
+            }
         }
     }
 }
@@ -67,9 +133,13 @@ struct SpeakingView: View {
                 .disabled(vm.isGenerating)
 
                 if vm.isGenerating {
-                    ProgressView("Đang tạo…")
-                        .frame(maxWidth: .infinity)
-                        .padding()
+                    VStack(spacing: 10) {
+                        ProgressView("Đang tạo…")
+                        Button("Dừng", role: .destructive) { vm.cancelGeneration() }
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
                 }
 
                 if let error = vm.errorMessage {
@@ -79,7 +149,13 @@ struct SpeakingView: View {
                 }
 
                 if let practice = vm.practice {
-                    SpeakingContentView(practice: practice, language: vm.language)
+                    SpeakingContentView(
+                        practice: practice,
+                        language: vm.language,
+                        isPlayingPassage: vm.isPlayingPassage,
+                        playbackError: vm.playbackError,
+                        onTogglePlayPassage: { vm.togglePlayPassage($0) }
+                    )
                 } else if !vm.isGenerating && vm.errorMessage == nil {
                     VStack(spacing: 12) {
                         VocaIconBadge(systemImage: "waveform", size: 54, iconSize: 24)
@@ -98,12 +174,16 @@ struct SpeakingView: View {
             .frame(maxWidth: 780)
             .frame(maxWidth: .infinity)
         }
+        .onDisappear { vm.stopPlayback() }
     }
 }
 
 private struct SpeakingContentView: View {
     let practice: SpeakingPractice
     let language: CardLanguage
+    let isPlayingPassage: Bool
+    let playbackError: String?
+    let onTogglePlayPassage: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -116,27 +196,35 @@ private struct SpeakingContentView: View {
 
             if let passageText = practice.passageText,
                !passageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button {
-                    play(passageText)
-                } label: {
-                    Label("Phát âm toàn bài", systemImage: "play.circle.fill")
+                VStack(alignment: .leading, spacing: 6) {
+                    Button {
+                        onTogglePlayPassage(passageText)
+                    } label: {
+                        HStack(spacing: 8) {
+                            if isPlayingPassage {
+                                ProgressView().controlSize(.small).tint(.white)
+                            }
+                            Label(
+                                isPlayingPassage ? "Dừng phát toàn bài" : "Phát âm toàn bài",
+                                systemImage: isPlayingPassage ? "stop.circle.fill" : "play.circle.fill"
+                            )
+                        }
                         .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(isPlayingPassage ? Color.red : Brand.green)
+
+                    if let playbackError {
+                        Text(playbackError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Brand.green)
             }
 
             ForEach(Array(practice.sentences.enumerated()), id: \.element.id) { index, sentence in
                 SpeakingSentenceCard(sentence: sentence, number: index + 1, language: language)
             }
-        }
-    }
-
-    private func play(_ text: String) {
-        Haptics.impact(.light)
-        let effectiveLang: CardLanguage = text.hasChineseCharacters ? .chinese : language
-        Task { @MainActor in
-            try? await TTSService().speak(text, language: effectiveLang)
         }
     }
 }

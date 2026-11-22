@@ -15,29 +15,47 @@ final class ConversationViewModel {
 
     private let service = AssistantService()
     private let tts = TTSService()
-    private var playAllTask: Task<Void, Never>?
+    @ObservationIgnored private var generateTask: Task<Void, Never>?
+    @ObservationIgnored private var playAllTask: Task<Void, Never>?
+    @ObservationIgnored private var requestGeneration = 0
+
+    deinit {
+        generateTask?.cancel()
+        playAllTask?.cancel()
+    }
 
     func setLanguage(_ newLanguage: CardLanguage) {
         guard language != newLanguage else { return }
+        cancelGeneration()
+        stopPlayAll()
         language = newLanguage
-        if !isGenerating {
-            stopPlayAll()
-            conversation = nil
-            errorMessage = nil
-        }
+        conversation = nil
+        errorMessage = nil
+    }
+
+    func cancelGeneration() {
+        requestGeneration &+= 1
+        generateTask?.cancel()
+        generateTask = nil
+        isGenerating = false
     }
 
     func generate() {
         guard !isGenerating else { return }
         stopPlayAll()
+        requestGeneration &+= 1
+        let expectedGen = requestGeneration
         isGenerating = true
         errorMessage = nil
         conversation = nil
         let fmt = format
         let lang = language
 
-        Task { @MainActor in
+        generateTask?.cancel()
+        generateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             await VoiceSettingsStore.shared.refreshIfNeeded()
+            guard !Task.isCancelled, self.requestGeneration == expectedGen else { return }
             let availableVoices = VoiceSettingsStore.shared.availableVoiceOptions(for: lang)
             let autoSelect = VoiceSettingsStore.shared.autoSelectConversationVoices
 
@@ -49,8 +67,10 @@ final class ConversationViewModel {
                     availableVoices: availableVoices,
                     autoSelectVoices: autoSelect
                 ) {
+                    if Task.isCancelled || self.requestGeneration != expectedGen { return }
                     acc += chunk
                 }
+                guard !Task.isCancelled, self.requestGeneration == expectedGen else { return }
                 if let parsed = PracticeParsing.conversation(from: acc) {
                     conversation = parsed
                     Haptics.notify(.success)
@@ -58,11 +78,17 @@ final class ConversationViewModel {
                     errorMessage = "Không tạo được nội dung, thử lại"
                     Haptics.notify(.error)
                 }
+            } catch is CancellationError {
+                return
             } catch {
+                guard self.requestGeneration == expectedGen else { return }
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
                 Haptics.notify(.error)
             }
-            isGenerating = false
+            if self.requestGeneration == expectedGen {
+                isGenerating = false
+                generateTask = nil
+            }
         }
     }
 
@@ -111,36 +137,46 @@ final class ConversationViewModel {
     private func startPlayAll() {
         guard let lines = conversation?.lines, !lines.isEmpty else { return }
         isPlayingAll = true
-        playAllTask = Task { @MainActor in
+        playAllTask?.cancel()
+        playAllTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             for line in lines {
                 if Task.isCancelled { break }
                 let text = (line.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { continue }
-                activeLineID = line.id
+                self.activeLineID = line.id
                 do {
-                    try await tts.speakAndWait(
+                    let completed = try await self.tts.speakAndWait(
                         text,
-                        language: language(for: line),
-                        voiceModel: voice(for: line)
+                        language: self.language(for: line),
+                        voiceModel: self.voice(for: line)
                     )
+                    if !completed {
+                        // Interrupted by user Stop or single-line playback — stop advancing.
+                        break
+                    }
+                } catch is CancellationError {
+                    break
                 } catch {
-                    errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
+                    self.errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
                     break
                 }
                 if Task.isCancelled { break }
             }
             if !Task.isCancelled {
-                isPlayingAll = false
-                activeLineID = nil
-                playAllTask = nil
+                self.isPlayingAll = false
+                self.activeLineID = nil
+                self.playAllTask = nil
             }
         }
     }
 
-    private func stopPlayAll() {
+    func stopPlayAll() {
         playAllTask?.cancel()
         playAllTask = nil
-        AudioPlayer.shared.stop()
+        if isPlayingAll {
+            AudioPlayer.shared.stop()
+        }
         isPlayingAll = false
         activeLineID = nil
     }
@@ -159,9 +195,13 @@ struct ConversationView: View {
                     controls
 
                     if vm.isGenerating {
-                        ProgressView("Đang tạo…")
-                            .frame(maxWidth: .infinity)
-                            .padding()
+                        VStack(spacing: 10) {
+                            ProgressView("Đang tạo…")
+                            Button("Dừng", role: .destructive) { vm.cancelGeneration() }
+                                .font(.footnote.weight(.semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
                     }
 
                     if let error = vm.errorMessage {
@@ -187,6 +227,7 @@ struct ConversationView: View {
                 }
             }
         }
+        .onDisappear { vm.stopPlayAll() }
     }
 
     private var controls: some View {
@@ -241,15 +282,16 @@ struct ConversationView: View {
 
             let speakers = orderedSpeakers(c)
             ForEach(c.lines) { line in
+                let lineLang = vm.language(for: line)
                 ConversationBubble(
                     line: line,
                     isPrimary: isPrimary(line, speakers: speakers),
                     isActive: vm.activeLineID == line.id,
                     showPinyin: showPinyin,
                     showTranslation: showTranslation,
-                    attributed: highlightedVocabulary(line.text ?? "", vocabulary: line.vocabulary),
+                    attributed: highlightedVocabulary(line.text ?? "", vocabulary: line.vocabulary, language: lineLang),
                     voiceModel: vm.voice(for: line),
-                    language: vm.language(for: line))
+                    language: lineLang)
                 .id(line.id)
             }
         }
@@ -483,9 +525,12 @@ private struct Gloss: Identifiable {
 }
 
 @MainActor
-private func highlightedVocabulary(_ text: String, vocabulary: [String]?) -> AttributedString {
+private func highlightedVocabulary(_ text: String, vocabulary: [String]?, language: CardLanguage) -> AttributedString {
     var result = AttributedString(text)
     guard let vocabulary, !vocabulary.isEmpty, !text.isEmpty else { return result }
+    let highlightFont: Font = language == .chinese
+        ? VocaTypography.hanziFont(size: 18, weight: .bold, isCalligraphic: ThemeStore.shared.hanziCalligraphic)
+        : .body.weight(.semibold)
 
     for raw in vocabulary {
         let term = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -496,7 +541,7 @@ private func highlightedVocabulary(_ text: String, vocabulary: [String]?) -> Att
               let found = result[searchStart..<result.endIndex]
                 .range(of: term, options: .caseInsensitive) {
             result[found].foregroundColor = Brand.green
-            result[found].font = .body.weight(.semibold)
+            result[found].font = highlightFont
             searchStart = found.upperBound
         }
     }

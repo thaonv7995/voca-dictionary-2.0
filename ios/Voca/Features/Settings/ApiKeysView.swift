@@ -10,6 +10,8 @@ struct ApiKeysView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showCreateSheet = false
+    @State private var pendingDeleteKey: ApiKeyInfo?
+    @State private var pendingRevokeKey: ApiKeyInfo?
 
     var body: some View {
         List {
@@ -36,9 +38,9 @@ struct ApiKeysView: View {
                     ForEach(keys) { key in
                         keyRow(key)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button("Xóa", role: .destructive) { delete(key) }
+                                Button("Xóa", role: .destructive) { pendingDeleteKey = key }
                                 if !isRevoked(key) {
-                                    Button("Thu hồi") { revoke(key) }.tint(.orange)
+                                    Button("Thu hồi") { pendingRevokeKey = key }.tint(.orange)
                                 }
                             }
                     }
@@ -76,8 +78,38 @@ struct ApiKeysView: View {
             }
         }
         .task { await load() }
+        .alert(
+            "Xóa API key “\(pendingDeleteKey?.name ?? "")”?",
+            isPresented: Binding(
+                get: { pendingDeleteKey != nil },
+                set: { if !$0 { pendingDeleteKey = nil } }
+            )
+        ) {
+            Button("Xóa vĩnh viễn", role: .destructive) {
+                if let target = pendingDeleteKey { delete(target) }
+                pendingDeleteKey = nil
+            }
+            Button("Hủy", role: .cancel) { pendingDeleteKey = nil }
+        } message: {
+            Text("Các công cụ đang sử dụng API key này sẽ ngừng hoạt động ngay lập tức.")
+        }
+        .alert(
+            "Thu hồi API key “\(pendingRevokeKey?.name ?? "")”?",
+            isPresented: Binding(
+                get: { pendingRevokeKey != nil },
+                set: { if !$0 { pendingRevokeKey = nil } }
+            )
+        ) {
+            Button("Thu hồi", role: .destructive) {
+                if let target = pendingRevokeKey { revoke(target) }
+                pendingRevokeKey = nil
+            }
+            Button("Hủy", role: .cancel) { pendingRevokeKey = nil }
+        } message: {
+            Text("Key bị thu hồi sẽ không thể xác thực được nữa.")
+        }
         .sheet(isPresented: $showCreateSheet) {
-            CreateApiKeyView(service: service) {
+            CreateApiKeyView(service: service, availableScopes: scopes) {
                 Task { await load() }
             }
         }
@@ -173,29 +205,43 @@ struct ApiKeysView: View {
 /// Sheet for creating a new API key. The plaintext `key` is shown exactly once after creation.
 struct CreateApiKeyView: View {
     let service: SettingsService
+    var availableScopes: [OfferedScope] = []
     var onFinished: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var name = ""
+    @State private var selectedScopes: Set<String> = []
     @State private var isCreating = false
     @State private var errorMessage: String?
     @State private var created: CreatedKey?
     @State private var didCopy = false
+
+    private var canSubmit: Bool {
+        let hasName = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let scopesValid = availableScopes.isEmpty || !selectedScopes.isEmpty
+        return !isCreating && hasName && scopesValid
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 if let created {
                     Section {
-                        Text("Chỉ hiển thị một lần — hãy sao chép ngay.")
+                        Text("Chỉ hiển thị một lần — hãy sao chép ngay. Bộ nhớ tạm sẽ tự xóa sau 60 giây.")
                             .font(.footnote)
                             .foregroundStyle(.orange)
                         Text(created.key)
                             .font(.system(.footnote, design: .monospaced))
                             .textSelection(.enabled)
                         Button {
-                            UIPasteboard.general.string = created.key
+                            UIPasteboard.general.setItems(
+                                [[UIPasteboard.typeAutomatic: created.key]],
+                                options: [
+                                    .localOnly: true,
+                                    .expirationDate: Date().addingTimeInterval(60),
+                                ]
+                            )
                             didCopy = true
                         } label: {
                             Label(didCopy ? "Đã sao chép" : "Sao chép",
@@ -215,6 +261,39 @@ struct CreateApiKeyView: View {
                     Section("Tên key") {
                         TextField("Ví dụ: MacBook cá nhân", text: $name)
                             .autocorrectionDisabled()
+                            .disabled(isCreating)
+                    }
+
+                    if !availableScopes.isEmpty {
+                        Section {
+                            ForEach(availableScopes) { scope in
+                                Toggle(isOn: Binding(
+                                    get: { selectedScopes.contains(scope.value) },
+                                    set: { isOn in
+                                        if isOn {
+                                            selectedScopes.insert(scope.value)
+                                        } else {
+                                            selectedScopes.remove(scope.value)
+                                        }
+                                    }
+                                )) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(scope.label).font(.subheadline)
+                                        Text(scope.endpoints)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .disabled(isCreating)
+                            }
+                        } header: {
+                            Text("Phạm vi truy cập")
+                        } footer: {
+                            if selectedScopes.isEmpty {
+                                Text("Chọn ít nhất một phạm vi truy cập.")
+                                    .foregroundStyle(.red)
+                            }
+                        }
                     }
 
                     if let errorMessage {
@@ -230,7 +309,7 @@ struct CreateApiKeyView: View {
                                 Text("Tạo key")
                             }
                         }
-                        .disabled(isCreating || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(!canSubmit)
                     }
                 }
             }
@@ -242,19 +321,29 @@ struct CreateApiKeyView: View {
                         if created != nil { onFinished() }
                         dismiss()
                     }
+                    .disabled(isCreating)
                 }
             }
-            .interactiveDismissDisabled(created != nil)
+            .interactiveDismissDisabled(isCreating || created != nil)
+            .onAppear {
+                if selectedScopes.isEmpty && !availableScopes.isEmpty {
+                    selectedScopes = Set(availableScopes.map(\.value))
+                }
+            }
         }
     }
 
     private func create() {
+        guard canSubmit else { return }
         isCreating = true
         errorMessage = nil
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scopesArg: [String]? = availableScopes.isEmpty
+            ? nil
+            : availableScopes.map(\.value).filter { selectedScopes.contains($0) }
         Task {
             do {
-                created = try await service.createKey(name: trimmed)
+                created = try await service.createKey(name: trimmed, scopes: scopesArg)
             } catch {
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
             }

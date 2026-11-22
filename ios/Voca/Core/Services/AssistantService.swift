@@ -33,7 +33,10 @@ struct AssistantService {
                 language: CardLanguage = .english) -> AsyncThrowingStream<String, Error> {
         if language == .chinese {
             return streamWithIndex(language: .chinese) { index in
-                [["role": "system", "content": ClientPrompts.chineseDrills(index: index, count: count, selectedWord: selectedWord)]]
+                [
+                    ["role": "system", "content": ClientPrompts.chineseDrills(index: index, count: count, selectedWord: selectedWord)],
+                    ["role": "user", "content": "Generate the requested NDJSON drills now."],
+                ]
             }
         }
         return api.streamContent(path: "/api/practice/drills",
@@ -46,7 +49,10 @@ struct AssistantService {
                  language: CardLanguage = .english) -> AsyncThrowingStream<String, Error> {
         if language == .chinese {
             return streamWithIndex(language: .chinese) { index in
-                [["role": "system", "content": ClientPrompts.chineseReading(index: index, format: format, selectedWord: selectedWord)]]
+                [
+                    ["role": "system", "content": ClientPrompts.chineseReading(index: index, format: format, selectedWord: selectedWord)],
+                    ["role": "user", "content": "Generate the requested reading JSON now."],
+                ]
             }
         }
         return api.streamContent(path: "/api/practice/reading",
@@ -57,7 +63,10 @@ struct AssistantService {
     func article(selectedWord: String? = nil, language: CardLanguage = .english) -> AsyncThrowingStream<String, Error> {
         if language == .chinese {
             return streamWithIndex(language: .chinese) { index in
-                [["role": "system", "content": ClientPrompts.chineseArticle(index: index, selectedWord: selectedWord)]]
+                [
+                    ["role": "system", "content": ClientPrompts.chineseArticle(index: index, selectedWord: selectedWord)],
+                    ["role": "user", "content": "Generate the requested article JSON now."],
+                ]
             }
         }
         return api.streamContent(path: "/api/practice/article",
@@ -68,7 +77,10 @@ struct AssistantService {
     func speaking(selectedWord: String? = nil, language: CardLanguage = .english) -> AsyncThrowingStream<String, Error> {
         if language == .chinese {
             return streamWithIndex(language: .chinese) { index in
-                [["role": "system", "content": ClientPrompts.chineseSpeaking(index: index, selectedWord: selectedWord)]]
+                [
+                    ["role": "system", "content": ClientPrompts.chineseSpeaking(index: index, selectedWord: selectedWord)],
+                    ["role": "user", "content": "Generate the requested speaking JSON now."],
+                ]
             }
         }
         return api.streamContent(path: "/api/practice/speaking",
@@ -90,7 +102,10 @@ struct AssistantService {
                 availableVoices: availableVoices,
                 autoSelectVoices: autoSelectVoices
             )
-            return [["role": "system", "content": prompt]]
+            return [
+                ["role": "system", "content": prompt],
+                ["role": "user", "content": "Generate the requested conversation JSON now."],
+            ]
         }
     }
 
@@ -128,6 +143,7 @@ struct AssistantService {
             let task = Task {
                 do {
                     let cards = (try? await CardsService().list()) ?? CardsService().cachedList()
+                    try Task.checkCancellation()
                     let index = Self.vocabularyIndex(from: cards, language: language)
                     let body = ChatCompletionsBody(messages: messagesBuilder(index))
                     for try await chunk in api.streamContent(path: "/api/chat/completions", body: body, rawChunks: true) {

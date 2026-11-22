@@ -10,12 +10,18 @@ struct RegisterView: View {
     @State private var confirm = ""
     @State private var errorMessage: String?
     @State private var isBusy = false
+    @FocusState private var focusedField: Field?
 
-    private var passwordsMatch: Bool { !password.isEmpty && password == confirm }
+    private enum Field { case email, displayName, password, confirm }
+
+    private var hasValidPassword: Bool {
+        password.count >= 6 && !password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private var passwordsMatch: Bool { hasValidPassword && password == confirm }
     private var canSubmit: Bool {
         !isBusy
-            && !email.trimmingCharacters(in: .whitespaces).isEmpty
-            && password.count >= 6
+            && !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && hasValidPassword
             && passwordsMatch
     }
 
@@ -43,29 +49,44 @@ struct RegisterView: View {
                                 .keyboardType(.emailAddress)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
+                                .submitLabel(.next)
+                                .focused($focusedField, equals: .email)
+                                .onSubmit { focusedField = .displayName }
                         }
 
                         fieldRow(icon: "person.fill") {
                             TextField("Tên hiển thị (tùy chọn)", text: $displayName)
+                                .textContentType(.name)
+                                .submitLabel(.next)
+                                .focused($focusedField, equals: .displayName)
+                                .onSubmit { focusedField = .password }
                         }
 
                         Divider().opacity(0.6)
 
                         fieldRow(icon: "lock.fill") {
                             SecureField("Mật khẩu (tối thiểu 6 ký tự)", text: $password)
+                                .textContentType(.newPassword)
+                                .submitLabel(.next)
+                                .focused($focusedField, equals: .password)
+                                .onSubmit { focusedField = .confirm }
                         }
 
                         fieldRow(icon: "lock.rotation") {
                             SecureField("Nhập lại mật khẩu", text: $confirm)
+                                .textContentType(.newPassword)
+                                .submitLabel(.go)
+                                .focused($focusedField, equals: .confirm)
+                                .onSubmit { if canSubmit { submit() } }
                         }
 
                         if !password.isEmpty {
                             HStack(spacing: 12) {
                                 Label(
                                     "Tối thiểu 6 ký tự",
-                                    systemImage: password.count >= 6 ? "checkmark.circle.fill" : "circle"
+                                    systemImage: hasValidPassword ? "checkmark.circle.fill" : "circle"
                                 )
-                                .foregroundStyle(password.count >= 6 ? Brand.semanticSuccess : .secondary)
+                                .foregroundStyle(hasValidPassword ? Brand.semanticSuccess : .secondary)
 
                                 if !confirm.isEmpty {
                                     Label(

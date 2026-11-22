@@ -6,33 +6,50 @@ import Observation
 final class ArticleViewModel {
     var language: CardLanguage = .english
     var article: ArticlePractice?
+    var selectedChoicesById: [UUID: String] = [:]
     var isGenerating = false
     var errorMessage: String?
 
     private let service = AssistantService()
+    @ObservationIgnored private var generateTask: Task<Void, Never>?
+    @ObservationIgnored private var requestGeneration = 0
 
     func setLanguage(_ newLanguage: CardLanguage) {
         guard language != newLanguage else { return }
+        cancelGeneration()
         language = newLanguage
-        if !isGenerating {
-            article = nil
-            errorMessage = nil
-        }
+        article = nil
+        selectedChoicesById = [:]
+        errorMessage = nil
+    }
+
+    func cancelGeneration() {
+        requestGeneration &+= 1
+        generateTask?.cancel()
+        generateTask = nil
+        isGenerating = false
     }
 
     func generate() {
         guard !isGenerating else { return }
+        requestGeneration &+= 1
+        let expectedGen = requestGeneration
         isGenerating = true
         errorMessage = nil
         article = nil
+        selectedChoicesById = [:]
         let lang = language
 
-        Task { @MainActor in
+        generateTask?.cancel()
+        generateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             var acc = ""
             do {
                 for try await chunk in service.article(language: lang) {
+                    if Task.isCancelled || self.requestGeneration != expectedGen { return }
                     acc += chunk
                 }
+                guard !Task.isCancelled, self.requestGeneration == expectedGen else { return }
                 if let parsed = PracticeParsing.article(from: acc) {
                     article = parsed
                     Haptics.notify(.success)
@@ -40,11 +57,17 @@ final class ArticleViewModel {
                     errorMessage = "Không tạo được nội dung, thử lại"
                     Haptics.notify(.error)
                 }
+            } catch is CancellationError {
+                return
             } catch {
+                guard self.requestGeneration == expectedGen else { return }
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
                 Haptics.notify(.error)
             }
-            isGenerating = false
+            if self.requestGeneration == expectedGen {
+                isGenerating = false
+                generateTask = nil
+            }
         }
     }
 }
@@ -67,9 +90,13 @@ struct ArticleView: View {
                 .disabled(vm.isGenerating)
 
                 if vm.isGenerating {
-                    ProgressView("Đang tạo…")
-                        .frame(maxWidth: .infinity)
-                        .padding()
+                    VStack(spacing: 10) {
+                        ProgressView("Đang tạo…")
+                        Button("Dừng", role: .destructive) { vm.cancelGeneration() }
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
                 }
 
                 if let error = vm.errorMessage {
@@ -79,7 +106,11 @@ struct ArticleView: View {
                 }
 
                 if let article = vm.article {
-                    ArticleContentView(article: article, language: vm.language)
+                    ArticleContentView(
+                        article: article,
+                        language: vm.language,
+                        selectedChoicesById: $vm.selectedChoicesById
+                    )
                 } else if !vm.isGenerating && vm.errorMessage == nil {
                     VStack(spacing: 12) {
                         VocaIconBadge(systemImage: "newspaper", size: 54, iconSize: 24)
@@ -105,6 +136,7 @@ private struct ArticleContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     let article: ArticlePractice
     let language: CardLanguage
+    @Binding var selectedChoicesById: [UUID: String]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -160,7 +192,15 @@ private struct ArticleContentView: View {
             if !article.questions.isEmpty {
                 Text("Câu hỏi").font(.headline)
                 ForEach(Array(article.questions.enumerated()), id: \.element.id) { index, question in
-                    ArticleQuestionCard(question: question, number: index + 1, language: language)
+                    ArticleQuestionCard(
+                        question: question,
+                        number: index + 1,
+                        language: language,
+                        selectedChoice: Binding(
+                            get: { selectedChoicesById[question.id] },
+                            set: { selectedChoicesById[question.id] = $0 }
+                        )
+                    )
                 }
             }
 
@@ -185,6 +225,7 @@ private struct ArticleQuestionCard: View {
     let question: ReadingQuestion
     let number: Int
     let language: CardLanguage
+    @Binding var selectedChoice: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -197,7 +238,8 @@ private struct ArticleQuestionCard: View {
                 answer: question.answer,
                 explanation: question.explanation,
                 speakChoices: question.choices.contains(where: \.hasChineseCharacters),
-                language: language)
+                language: language,
+                externalSelection: $selectedChoice)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .brandCard()

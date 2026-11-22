@@ -50,8 +50,8 @@ struct AssistantRootView: View {
             ZStack {
                 VocaThemeBackground()
 
-                Group {
-                    if horizontalSizeClass == .regular {
+                GeometryReader { geo in
+                    if horizontalSizeClass == .regular && geo.size.width >= 700 {
                         HStack(spacing: 0) {
                             modeSidebar
                             Divider()
@@ -74,6 +74,15 @@ struct AssistantRootView: View {
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { syncLanguage() }
             .onChange(of: languageRaw) { _, _ in syncLanguage() }
+            .onChange(of: mode) { oldMode, newMode in
+                guard oldMode != newMode else { return }
+                if oldMode == .conversation { conversationVM.stopPlayAll() }
+                if oldMode == .speaking { speakingVM.stopPlayback() }
+            }
+            .onDisappear {
+                conversationVM.stopPlayAll()
+                speakingVM.stopPlayback()
+            }
         }
     }
 
@@ -128,6 +137,7 @@ struct AssistantRootView: View {
                         }
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
             Spacer()
         }
@@ -180,5 +190,6 @@ struct AssistantRootView: View {
                 }
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

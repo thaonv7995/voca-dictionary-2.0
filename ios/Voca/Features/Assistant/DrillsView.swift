@@ -8,12 +8,15 @@ final class DrillsViewModel {
     var language: CardLanguage = .english
     var drills: [Drill] = []
     var resultsById: [UUID: Bool] = [:]
+    var selectedChoicesById: [UUID: String] = [:]
     var isGenerating = false
     var errorMessage: String?
     var hasGenerated = false
     var currentIndex = 0
 
     private let service = AssistantService()
+    @ObservationIgnored private var generateTask: Task<Void, Never>?
+    @ObservationIgnored private var requestGeneration = 0
 
     var correctCount: Int {
         resultsById.values.filter { $0 }.count
@@ -25,14 +28,21 @@ final class DrillsViewModel {
 
     func setLanguage(_ newLanguage: CardLanguage) {
         guard language != newLanguage else { return }
+        cancelGeneration()
         language = newLanguage
-        if !isGenerating {
-            drills = []
-            resultsById = [:]
-            errorMessage = nil
-            hasGenerated = false
-            currentIndex = 0
-        }
+        drills = []
+        resultsById = [:]
+        selectedChoicesById = [:]
+        errorMessage = nil
+        hasGenerated = false
+        currentIndex = 0
+    }
+
+    func cancelGeneration() {
+        requestGeneration &+= 1
+        generateTask?.cancel()
+        generateTask = nil
+        isGenerating = false
     }
 
     func recordAnswer(for drillId: UUID, isCorrect: Bool) {
@@ -43,19 +53,26 @@ final class DrillsViewModel {
 
     func generate(count: Int = 5) {
         guard !isGenerating else { return }
+        requestGeneration &+= 1
+        let expectedGen = requestGeneration
         isGenerating = true
         errorMessage = nil
         drills = []
         resultsById = [:]
+        selectedChoicesById = [:]
         currentIndex = 0
         let lang = language
 
-        Task { @MainActor in
+        generateTask?.cancel()
+        generateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             var acc = ""
             do {
                 for try await chunk in service.drills(count: count, language: lang) {
+                    if Task.isCancelled || self.requestGeneration != expectedGen { return }
                     acc += chunk
                 }
+                guard !Task.isCancelled, self.requestGeneration == expectedGen else { return }
                 drills = PracticeParsing.drills(from: acc)
                 if drills.isEmpty {
                     errorMessage = "Không tạo được nội dung, thử lại"
@@ -63,12 +80,19 @@ final class DrillsViewModel {
                 } else {
                     Haptics.notify(.success)
                 }
+                hasGenerated = true
+            } catch is CancellationError {
+                return
             } catch {
+                guard self.requestGeneration == expectedGen else { return }
                 errorMessage = (error as? ApiError)?.message ?? error.localizedDescription
                 Haptics.notify(.error)
+                hasGenerated = true
             }
-            hasGenerated = true
-            isGenerating = false
+            if self.requestGeneration == expectedGen {
+                isGenerating = false
+                generateTask = nil
+            }
         }
     }
 
@@ -108,9 +132,13 @@ struct DrillsView: View {
                 .disabled(vm.isGenerating)
 
                 if vm.isGenerating {
-                    ProgressView("Đang tạo…")
-                        .frame(maxWidth: .infinity)
-                        .padding()
+                    VStack(spacing: 10) {
+                        ProgressView("Đang tạo…")
+                        Button("Dừng", role: .destructive) { vm.cancelGeneration() }
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
                 }
 
                 if let error = vm.errorMessage {
@@ -127,6 +155,10 @@ struct DrillsView: View {
                         drill: drill,
                         number: index + 1,
                         language: vm.language,
+                        selectedChoice: Binding(
+                            get: { vm.selectedChoicesById[drill.id] },
+                            set: { vm.selectedChoicesById[drill.id] = $0 }
+                        ),
                         onAnswered: { isCorrect in
                             vm.recordAnswer(for: drill.id, isCorrect: isCorrect)
                         }
@@ -175,6 +207,8 @@ struct DrillsView: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Câu \(idx + 1)\(result == true ? ", đúng" : (result == false ? ", sai" : ", chưa làm"))")
+                .accessibilityAddTraits(isCurrent ? .isSelected : [])
             }
 
             Spacer()
@@ -243,6 +277,7 @@ private struct DrillCardView: View {
     let drill: Drill
     let number: Int
     let language: CardLanguage
+    @Binding var selectedChoice: String?
     let onAnswered: (Bool) -> Void
 
     private var questionText: String {
@@ -304,6 +339,7 @@ private struct DrillCardView: View {
                 whyWrong: drill.whyWrong,
                 speakChoices: true,
                 language: effectiveLanguage,
+                externalSelection: $selectedChoice,
                 onAnswered: onAnswered)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

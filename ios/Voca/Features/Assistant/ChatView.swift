@@ -21,13 +21,14 @@ final class ChatViewModel {
     var isStreaming = false
 
     private let service = AssistantService()
+    @ObservationIgnored private var streamTask: Task<Void, Never>?
+    @ObservationIgnored private var requestGeneration = 0
 
     func setLanguage(_ newLanguage: CardLanguage) {
         guard language != newLanguage else { return }
+        stopStreaming()
         language = newLanguage
-        if !isStreaming {
-            messages = []
-        }
+        messages = []
     }
 
     var canSend: Bool {
@@ -40,8 +41,15 @@ final class ChatViewModel {
     }
 
     func clear() {
-        guard !isStreaming else { return }
+        stopStreaming()
         messages = []
+    }
+
+    func stopStreaming() {
+        requestGeneration &+= 1
+        streamTask?.cancel()
+        streamTask = nil
+        isStreaming = false
     }
 
     func send() {
@@ -57,22 +65,44 @@ final class ChatViewModel {
             messages.append(assistant)
         }
         isStreaming = true
+        requestGeneration &+= 1
+        let expectedGen = requestGeneration
 
-        Task { @MainActor in
+        streamTask?.cancel()
+        streamTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             var acc = ""
+            var lastFlush = Date.distantPast
             do {
                 for try await chunk in service.chat(message: text, language: lang) {
+                    if Task.isCancelled || self.requestGeneration != expectedGen { break }
                     acc += chunk
-                    update(assistantId, text: acc)
+                    let now = Date()
+                    if now.timeIntervalSince(lastFlush) >= 0.06 {
+                        lastFlush = now
+                        self.update(assistantId, text: acc)
+                    }
                 }
-                if acc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    update(assistantId, text: "Không tạo được nội dung, thử lại", isError: true)
+                guard self.requestGeneration == expectedGen else { return }
+                if Task.isCancelled {
+                    if !acc.isEmpty { self.update(assistantId, text: acc) }
+                } else if acc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.update(assistantId, text: "Không tạo được nội dung, thử lại", isError: true)
+                } else {
+                    self.update(assistantId, text: acc)
                 }
+            } catch is CancellationError {
+                guard self.requestGeneration == expectedGen else { return }
+                if !acc.isEmpty { self.update(assistantId, text: acc) }
             } catch {
+                guard self.requestGeneration == expectedGen else { return }
                 let message = (error as? ApiError)?.message ?? error.localizedDescription
-                update(assistantId, text: message, isError: true)
+                self.update(assistantId, text: message, isError: true)
             }
-            isStreaming = false
+            if self.requestGeneration == expectedGen {
+                self.isStreaming = false
+                self.streamTask = nil
+            }
         }
     }
 
@@ -136,7 +166,6 @@ struct ChatView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: vm.messages.count) { scrollToBottom(proxy) }
-                .onChange(of: vm.messages.last?.text) { scrollToBottom(proxy) }
             }
             inputBar
         }
@@ -210,7 +239,7 @@ struct ChatView: View {
                         .padding(.vertical, 9)
                         .disabled(vm.isStreaming)
 
-                    ChatSendButton(isStreaming: vm.isStreaming, canSend: vm.canSend) {
+                    ChatSendButton(isStreaming: vm.isStreaming, canSend: vm.canSend, onStop: { vm.stopStreaming() }) {
                         vm.send()
                     }
                     .padding(4)
@@ -287,7 +316,7 @@ private struct ChatBubble: View {
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 Group {
-                    if isUser || message.isError {
+                    if isUser || message.isError || isStreaming {
                         Text(message.text)
                             .multilineTextAlignment(.leading)
                     } else {
@@ -302,17 +331,23 @@ private struct ChatBubble: View {
                     HStack(spacing: 12) {
                         Button(action: onCopy) {
                             Label(isCopied ? "Đã chép" : "Sao chép", systemImage: isCopied ? "checkmark" : "doc.on.doc")
-                                .font(.caption2.weight(.semibold))
+                                .font(.caption.weight(.semibold))
                                 .foregroundStyle(isCopied ? Brand.semanticSuccess : .secondary)
+                                .padding(.vertical, 6)
+                                .padding(.horizontal, 4)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
 
-                        PronounceButton(
-                            text: message.text,
-                            language: message.text.hasChineseCharacters ? .chinese : language,
-                            size: 24,
-                            font: .caption
-                        )
+                        let spoken = MarkdownText.plainTextForSpeech(from: message.text)
+                        if !spoken.isEmpty {
+                            PronounceButton(
+                                text: spoken,
+                                language: spoken.hasChineseCharacters ? .chinese : language,
+                                size: 34,
+                                font: .subheadline
+                            )
+                        }
                     }
                 }
             }
